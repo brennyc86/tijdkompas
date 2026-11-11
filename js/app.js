@@ -1,9 +1,10 @@
 // Tijdkompas — gebruikersinterface
 import { opslag, bewaar, KWADRANTEN, kwadrant, overzicht, project, taak, takenVan, projectVoortgang,
-         nieuweTaak, nieuwProject, werkBij, verwijder, koppel, rondAf, heropen, linkInfo, kalibratie, uid, locatie, effectieveLocatie } from "./data.js";
+         nieuweTaak, nieuwProject, werkBij, verwijder, koppel, rondAf, heropen, linkInfo, kalibratie, uid, locatie, effectieveLocatie, sessie } from "./data.js";
 import { planAutomatisch, doelDatum, harde, prioriteit, googleLink, outlookLink, maakIcs, leesIcs, dagStr, dagIndeling, eventSoort, SOORTEN } from "./plan.js";
-import { ids, zetIds, verbindingen, primair, isVerlopen, VerlopenFout, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, maakPrimair } from "./koppeling.js";
-import { verversAgendas, zetNaarAgendas, driveTrek, driveDuw, planDuw, driveStatus, wachtOpDrive } from "./sync.js";
+import { ids, verbindingen, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel } from "./koppeling.js";
+import { verversAgendas, zetNaarAgendas } from "./sync.js";
+import { cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd } from "./cloud.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -97,7 +98,8 @@ function itemRij(t, { toonProject = true, toonOv = true } = {}) {
       <div class="imeta">${qTag(t)}${toonProject && p ? `<span class="tag proj">◆ ${esc(p.titel)}</span>` : ""}${datumTags(t)}
       ${toonOv && actieveOverzichten().length > 1 && ov ? `<span>${ov.icoon} ${esc(ov.naam)}</span>` : ""}
       ${t.locatie && locatie(t.locatie) ? `<span title="Locatie">📍 ${esc(locatie(t.locatie).naam)}</span>` : ""}
-      ${(t.gedeeldMet || []).length ? `<span title="Gedeeld">👥 ${t.gedeeldMet.length}</span>` : ""}</div></div>
+      ${t.toegewezen && sessie.ik && t.toegewezen !== sessie.ik ? `<span title="Toegewezen">👤 ${esc(ov?.ledenInfo?.[t.toegewezen]?.naam || "iemand anders")}</span>` : ""}
+</div></div>
     ${linkjes(t)}${duurTekst(t)}</div>`;
 }
 
@@ -148,7 +150,8 @@ function render() {
   renderAccount();
 }
 window.addEventListener("hashchange", () => { render(); window.scrollTo(0, 0); });
-opslag.luister(({ stil } = {}) => { if (!stil) planDuw(); render(); });
+opslag.luister(({ stil } = {}) => { if (!stil) planSchrijven(); render(); });
+opCloud(() => render());
 
 function demoBanner() {
   return d().demo ? `<div class="banner">🧭 Je kijkt naar <b>voorbeelddata</b>. Speel ermee — en begin schoon zodra je zover bent.
@@ -300,7 +303,7 @@ function projecten() {
     const open = takenVan(p.id).filter(t => t.status !== "klaar").sort((a, b) => prioriteit(b) - prioriteit(a));
     const schat = p.schatting || v.schatTaken;
     return `<article class="pkaart" data-id="${p.id}" data-type="project" style="--ok:${ovKleur(p.overzicht)}">
-      <div class="imeta">${qTag(p)}${datumTags(p)}<span>${ov ? ov.icoon + " " + esc(ov.naam) : ""}</span>${(p.gedeeldMet || []).length ? `<span>👥 ${p.gedeeldMet.length}</span>` : ""}</div>
+      <div class="imeta">${qTag(p)}${datumTags(p)}<span>${ov ? ov.icoon + " " + esc(ov.naam) : ""}</span>${(ov?.leden || []).length > 1 ? `<span title="Gedeelde lijst">👥 ${ov.leden.length}</span>` : ""}</div>
       <h2>${esc(p.titel)}</h2>
       <div class="balk"><i style="width:${v.pct}%"></i></div>
       <div class="cijfers"><span>${v.klaar}/${v.totaal} taken klaar</span><span title="Bestede tijd / geschatte tijd">${fmtDuur(v.werkelijk) || "0"} / ${fmtDuur(schat) || "?"}</span></div>
@@ -497,6 +500,14 @@ function instellingen() {
   ${inhoud()}`;
 }
 
+function ledenBlok(o) {
+  const leden = Object.entries(o.ledenInfo || {}).filter(([u]) => (o.leden || []).includes(u));
+  return `<div class="leden">
+    ${leden.length > 1 || (o.uitgenodigd || []).length ? leden.map(([u, l]) => `<span class="lid" title="${esc(l.email)}">${l.foto ? `<img class="avatar" src="${esc(l.foto)}" alt="" referrerpolicy="no-referrer">` : `<span class="avatar">${esc((l.naam || "?")[0].toUpperCase())}</span>`}${esc(u === sessie.ik ? "jij" : l.naam)}${u === o.eigenaar ? " <small class='hint'>eigenaar</small>" : ""}${u !== sessie.ik && u !== o.eigenaar && o.eigenaar === sessie.ik ? ` <button type="button" class="x" data-actie="lidWeg" data-w="${esc(u)}" title="Uit lijst halen">✕</button>` : ""}</span>`).join("") : ""}
+    ${(o.uitgenodigd || []).map(m => `<span class="lid uitgenodigd" title="Uitgenodigd, nog niet geaccepteerd"><span class="avatar">✉</span>${esc(m)} <button type="button" class="x" data-actie="uitnodigingWeg" data-w="${esc(m)}" title="Uitnodiging intrekken">✕</button></span>`).join("")}
+    <button type="button" class="knop klein" data-actie="ovDelen">👥 Delen…</button></div>`;
+}
+
 function instLijsten() {
   return `<p class="hint">Elke lijst heeft een eigen naam, kleur en standaardlocatie. Kies per lijst of hij <b>vaste tijden</b> heeft (zoals werk of een clubavond)
     of in je <b>vrije tijd</b> wordt ingepland. Bovenin de app kies je welke lijsten je ziet: één, een combinatie, of alles.</p>
@@ -506,7 +517,7 @@ function instLijsten() {
     <input type="text" value="${esc(o.icoon)}" data-veld="icoon" aria-label="Icoon" style="text-align:center;padding:6px">
     <input type="color" value="${esc(o.kleur)}" data-veld="kleur" aria-label="Kleur">
     <input type="text" value="${esc(o.naam)}" data-veld="naam" aria-label="Naam" style="font-weight:600">
-    <button class="knop klein gevaar" data-actie="ovWeg">Verwijderen</button>
+    <button class="knop klein gevaar" data-actie="ovWeg">${o.eigenaar && sessie.ik && o.eigenaar !== sessie.ik ? "Verlaten" : "Verwijderen"}</button>
     <div class="lijstopties">
       <div class="segment" role="group" aria-label="Soort lijst">
         <button type="button" data-actie="modus" data-w="vast" aria-pressed="${o.modus === "vast"}">🕘 Vaste tijden</button>
@@ -521,8 +532,7 @@ function instLijsten() {
         <span class="hint">Bijv. ma/di/do op kantoor, wo/vr thuis. Reistijd naar de locatie gaat automatisch af van je vrije tijd.</span></div>`
       : `<div class="hint">Wordt ingepland in je vrije tijd (zie <a href="#" data-actie="instTab" data-w="locaties">beschikbaarheid</a>), na aftrek van vaste tijden, reistijd en afspraken.
          ${l?.reistijd ? `Elke sessie op ${esc(l.naam)} krijgt ${l.reistijd} min reistijd heen en terug; taken op dezelfde plek worden achter elkaar gezet.` : ""}</div>`}
-      <div>${(o.gedeeldMet || []).length ? `<span class="hint">👥 gedeeld met ${o.gedeeldMet.map(esc).join(", ")}</span> ` : ""}
-      <button type="button" class="knop klein" data-actie="ovDelen">Delen…</button></div>
+      ${ledenBlok(o)}
     </div>
   </div>`; }).join("")}
   <button class="knop" data-actie="ovBij">＋ Lijst toevoegen</button>`;
@@ -562,7 +572,6 @@ function instLocaties() {
 
 function instKoppelingen() {
   const id = ids(), lijst = verbindingen();
-  const setup = !id.google || !id.microsoft;
   const agendasVan = (prefix) => Object.entries(d().agendas).filter(([k]) => k.startsWith(prefix));
   const vasteLijsten = d().overzichten.filter(o => o.modus === "vast");
   const agendaRij = ([k, a]) => `<div class="agendarij" data-agenda="${esc(k)}">
@@ -576,50 +585,32 @@ function instKoppelingen() {
   </div>`;
   const icsBronnen = [...new Set(d().bezet.filter(e => !verbindingVanBron(e.bron)).map(e => e.bron))];
   icsBronnen.forEach(b => { d().agendas[b] ||= { naam: b, kleur: "#8a978e", soort: "bezet", lijst: "", ics: true }; });
+  const kanAgenda = id.google || id.microsoft;
 
-  return `${setup ? `<div class="paneel setup">
-    <b>Eenmalig instellen</b> — Google en Microsoft willen weten welke app er inlogt. Daarvoor is per dienst een (openbaar) client-ID nodig.
-    ${!id.google ? `<details><summary>Google-client-ID aanmaken (± 10 min)</summary><ol>
-      <li>Ga naar <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">console.cloud.google.com</a> en maak een project „Tijdkompas”.</li>
-      <li>Zet bij <i>API's en services → Bibliotheek</i> de <b>Google Calendar API</b> en <b>Google Drive API</b> aan.</li>
-      <li><i>OAuth-toestemmingsscherm</i>: type <b>Extern</b>, app-naam Tijdkompas, je e-mail; voeg bij <i>Testgebruikers</i> je eigen Google-accounts toe (en die van anderen die mogen testen).</li>
-      <li><i>Inloggegevens → Gegevens maken → OAuth-client-ID</i>: type <b>Webapplicatie</b>, bij <i>Geautoriseerde JavaScript-oorsprongen</i>: <code>${esc(location.origin)}</code></li>
-      <li>Kopieer het client-ID (eindigt op <code>.apps.googleusercontent.com</code>) hieronder.</li></ol></details>` : ""}
-    ${!id.microsoft ? `<details><summary>Microsoft-client-ID aanmaken (Outlook, ± 5 min)</summary><ol>
-      <li>Ga naar <a href="https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener">Microsoft Entra → App-registraties</a> → <b>Nieuwe registratie</b>.</li>
-      <li>Naam Tijdkompas; accounttypen: <b>Accounts in elke organisatiemap en persoonlijke Microsoft-accounts</b>.</li>
-      <li>Omleidings-URI: platform <b>Single-page application (SPA)</b>, adres <code>${esc(new URL("auth.html", location.href).href)}</code></li>
-      <li>Kopieer de <b>Toepassings-id (client-id)</b> hieronder. (API-machtigingen <i>Calendars.ReadWrite</i> en <i>User.Read</i> worden bij het inloggen gevraagd.)</li></ol></details>` : ""}
-    <div class="rij" style="margin-top:10px">
-      <label class="veld">Google-client-ID<input type="text" id="idGoogle" value="${esc(id.google)}" placeholder="…apps.googleusercontent.com"></label>
-      <label class="veld">Microsoft-client-ID<input type="text" id="idMs" value="${esc(id.microsoft)}" placeholder="00000000-0000-…"></label>
-    </div>
-    <div style="margin-top:8px"><button class="knop prim klein" data-actie="idsOpslaan">Opslaan</button>
-    <span class="hint">Stuur ze ook naar Brendan/de beheerder, dan komen ze vast in de app en hoeft niemand dit te doen.</span></div>
-  </div>` : ""}
+  return `<h3 style="margin-top:0">Je account</h3>
+  ${accountBlok()}
 
-  <h3>Accounts</h3>
-  <div class="lijst">${lijst.map(v => `<div class="accrij" data-verb="${esc(v.id)}">
+  <h3>Agenda's koppelen</h3>
+  <p class="hint">Koppel je Google- en/of Outlook-agenda's: Tijdkompas plant om je afspraken heen en kan ingeplande blokken er direct in zetten. Je kunt meerdere accounts koppelen (bijv. zakelijk Outlook én privé Google).</p>
+  ${kanAgenda ? `<div class="lijst">${lijst.map(v => `<div class="accrij" data-verb="${esc(v.id)}">
     ${v.foto ? `<img class="avatar" src="${esc(v.foto)}" alt="" referrerpolicy="no-referrer">` : `<span class="avatar">${esc((v.naam || v.email)[0].toUpperCase())}</span>`}
-    <div class="ibody"><div class="ititel">${esc(v.naam)} <span class="tag">${v.soort === "ms" ? "Microsoft / Outlook" : "Google"}</span>${v.primair ? ` <span class="tag" title="Je planning wordt in de Google Drive van dit account bewaard">☁️ opslag</span>` : ""}</div>
+    <div class="ibody"><div class="ititel">${esc(v.naam)} <span class="tag">${v.soort === "ms" ? "Outlook" : "Google Agenda"}</span></div>
       <div class="imeta">${esc(v.email)}${isVerlopen(v) ? ` · <span style="color:var(--oranje)">sessie verlopen</span>` : ""}</div></div>
     ${isVerlopen(v) ? `<button class="knop klein" data-actie="vernieuw">Opnieuw verbinden</button>` : ""}
-    ${v.soort === "google" && !v.primair ? `<button class="knop klein" data-actie="maakPrimair" title="Planning opslaan in de Drive van dit account">Gebruik voor opslag</button>` : ""}
     <button class="knop klein gevaar" data-actie="ontkoppel">Ontkoppelen</button>
-  </div>`).join("") || `<div class="leeg">Nog geen accounts gekoppeld.</div>`}</div>
+  </div>`).join("")}</div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-    <button class="knop" data-actie="koppelGoogle" ${id.google ? "" : "disabled"}>${googleLogo} Google-account koppelen</button>
-    <button class="knop" data-actie="koppelMs" ${id.microsoft ? "" : "disabled"}>${msLogo} Outlook / Microsoft 365 koppelen</button>
-  </div>
-  <p class="hint">Je kunt meerdere accounts tegelijk koppelen (bijv. zakelijk Outlook én privé Google). Alles komt samen in dezelfde lijsten.</p>
+    ${id.google ? `<button class="knop" data-actie="koppelGoogle">${googleLogo} Google Agenda koppelen</button>` : ""}
+    ${id.microsoft ? `<button class="knop" data-actie="koppelMs">${msLogo} Outlook-agenda koppelen</button>` : ""}
+  </div>` : `<div class="leeg">Rechtstreeks koppelen met Google Agenda en Outlook komt eraan. Tot die tijd: importeer je agenda als .ics-bestand via Agenda → ⋯.</div>`}
 
   ${Object.keys(d().agendas).length ? `<h3>Agenda's — wat staat erin?</h3>
   <p class="hint"><b>Bezet</b>: Tijdkompas plant eromheen (kies optioneel bij welke lijst ze horen, voor de kleur). <b>Rooster van lijst</b>: de afspraken zíjn de vaste tijden van die lijst (handig bij wisselende diensten). <b>Niet meetellen</b>: alleen ter info.
   Afspraken met een plaats die overeenkomt met een van je locaties krijgen automatisch reistijd.</p>
   ${lijst.map(v => { const r = agendasVan(v.id + "|"); return r.length ? `<div class="paneel agendagroep"><div class="hint" style="margin-bottom:6px">${v.soort === "ms" ? "Outlook" : "Google"} · ${esc(v.email)}</div>${r.map(agendaRij).join("")}</div>` : ""; }).join("")}
   ${icsBronnen.length ? `<div class="paneel agendagroep"><div class="hint" style="margin-bottom:6px">Geïmporteerde .ics-bestanden</div>${icsBronnen.map(b => agendaRij([b, d().agendas[b]])).join("")}</div>` : ""}
-  <div style="margin-top:8px"><button class="knop" data-actie="ophalen">🔄 Agenda's ophalen</button>
-    <span class="hint">${d().agendaSync ? "Laatst: " + new Date(d().agendaSync).toLocaleString("nl-NL", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}</span></div>` : ""}`;
+  ${lijst.length ? `<div style="margin-top:8px"><button class="knop" data-actie="ophalen">🔄 Agenda's ophalen</button>
+    <span class="hint">${d().agendaSync ? "Laatst: " + new Date(d().agendaSync).toLocaleString("nl-NL", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}</span></div>` : ""}` : ""}`;
 }
 
 function instOverig() {
@@ -637,85 +628,104 @@ function instOverig() {
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     <button class="knop" data-actie="exportJson">⬇ Back-up downloaden</button>
     <button class="knop" data-actie="importJson">⬆ Back-up terugzetten</button>
-    <button class="knop" data-actie="demo">Voorbeelddata laden</button>
+    ${ingelogd() ? "" : `<button class="knop" data-actie="demo">Voorbeelddata laden</button>`}
     <button class="knop gevaar" data-actie="leeg">Alles wissen</button>
   </div>
-  <p class="hint">${primair() ? `Je planning staat in deze browser én in de Google Drive van ${esc(primair().email)} (verborgen app-map), zodat je op elk apparaat verder kunt.` : "Je planning staat alleen in deze browser. Log in met Google om hem op al je apparaten te hebben."}</p>`;
+  <p class="hint">${ingelogd() ? `Je planning staat online in je account (${esc(cloud.gebruiker.email)}) en is op elk apparaat hetzelfde, ook offline bruikbaar.` : "Je planning staat nu alleen in deze browser. Log in om hem op al je apparaten te hebben en lijsten te delen."}</p>`;
 }
 
 const googleLogo = `<svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>`;
 const msLogo = `<svg width="16" height="16" viewBox="0 0 23 23" aria-hidden="true"><path fill="#f35325" d="M1 1h10v10H1z"/><path fill="#81bc06" d="M12 1h10v10H12z"/><path fill="#05a6f0" d="M1 12h10v10H1z"/><path fill="#ffba08" d="M12 12h10v10H12z"/></svg>`;
 
 // ---------- account ----------
+function accountBlok() {
+  const g = cloud.gebruiker;
+  if (!g) return `<div class="inlogknoppen">
+      <button type="button" class="knop inlog" data-actie="login" data-w="google" ${cloudIngesteld() ? "" : "disabled"}>${googleLogo} Inloggen met Google</button>
+      <button type="button" class="knop inlog" data-actie="login" data-w="microsoft" ${cloudIngesteld() ? "" : "disabled"}>${msLogo} Inloggen met Microsoft</button>
+    </div>
+    ${cloudIngesteld() ? "" : `<p class="hint">Inloggen wordt binnenkort geactiveerd. Tot die tijd werkt alles gewoon in deze browser.</p>`}`;
+  const heeft = (s) => g.aanbieders.some(a => a.soort === s);
+  return `<div class="accrij">${g.foto ? `<img class="avatar" src="${esc(g.foto)}" alt="" referrerpolicy="no-referrer">` : `<span class="avatar">${esc(g.naam[0].toUpperCase())}</span>`}
+      <div class="ibody"><div class="ititel">${esc(g.naam)}</div><div class="imeta">${esc(g.email)} · ${cloud.fout ? `<span style="color:var(--rood)">${esc(cloud.fout)}</span>` : cloud.bezig ? "opslaan…" : "☁️ alles opgeslagen"}</div></div>
+      <button type="button" class="knop klein" data-actie="uitloggen">Uitloggen</button></div>
+    <div class="hint" style="margin:8px 0 4px">Inloggen kan met: ${g.aanbieders.map(a => `${a.soort === "google" ? googleLogo + " Google" : msLogo + " Microsoft"}${a.email ? " (" + esc(a.email) + ")" : ""}`).join(" · ")}</div>
+    ${!heeft("microsoft") ? `<button type="button" class="knop klein" data-actie="koppelAccount" data-w="microsoft">${msLogo} Ook met Microsoft-account kunnen inloggen</button>` : ""}
+    ${!heeft("google") ? `<button type="button" class="knop klein" data-actie="koppelAccount" data-w="google">${googleLogo} Ook met Google-account kunnen inloggen</button>` : ""}`;
+}
 function renderAccount() {
-  const k = $("#accountKnop"), p = primair();
-  const status = driveStatus.bezig ? "⟳" : driveStatus.fout ? "!" : "";
-  k.querySelector(".accountTekst").textContent = p ? (p.naam || p.email).split(" ")[0] + (status ? " " + status : "") : "Inloggen";
-  k.querySelector(".avatar").innerHTML = p?.foto ? `<img src="${esc(p.foto)}" alt="" referrerpolicy="no-referrer">` : p ? esc(p.naam[0]) : "⌂";
-  k.title = p ? `${p.email}${driveStatus.tekst ? " · " + driveStatus.tekst : ""}${driveStatus.fout && driveStatus.fout !== "wacht" ? " · fout: " + driveStatus.fout : ""}` : "Inloggen met Google";
+  const k = $("#accountKnop"), g = cloud.gebruiker;
+  k.querySelector(".accountTekst").textContent = g ? g.naam.split(" ")[0] + (cloud.fout ? " !" : cloud.bezig ? " ⟳" : "") : "Inloggen";
+  k.querySelector(".avatar").innerHTML = g?.foto ? `<img src="${esc(g.foto)}" alt="" referrerpolicy="no-referrer">` : g ? esc(g.naam[0].toUpperCase()) : "⌂";
+  k.title = g ? `${g.email}${cloud.fout ? " · " + cloud.fout : ""}` : "Inloggen";
 }
 $("#accountKnop").addEventListener("click", () => {
-  const p = primair(), id = ids();
-  dlg.innerHTML = `<form method="dialog"><div class="dkop"><h2>${p ? "Account" : "Inloggen"}</h2><button type="button" class="sluit" data-sluit aria-label="Sluiten">×</button></div>
+  const g = cloud.gebruiker;
+  dlg.innerHTML = `<form method="dialog"><div class="dkop"><h2>${g ? "Je account" : "Inloggen bij Tijdkompas"}</h2><button type="button" class="sluit" data-sluit aria-label="Sluiten">×</button></div>
   <div class="dlijf">
-    ${p ? `<div class="accrij">${p.foto ? `<img class="avatar" src="${esc(p.foto)}" alt="" referrerpolicy="no-referrer">` : `<span class="avatar">${esc(p.naam[0])}</span>`}
-        <div class="ibody"><div class="ititel">${esc(p.naam)}</div><div class="imeta">${esc(p.email)}</div></div></div>
-      <div class="hint">☁️ ${driveStatus.fout === "wacht" || isVerlopen(p) ? "Sessie verlopen — wijzigingen staan klaar om op te slaan." : driveStatus.fout ? "Opslaan mislukt: " + esc(driveStatus.fout) : driveStatus.tekst || "Gekoppeld aan je Google Drive."}</div>
-      ${isVerlopen(p) ? `<button type="button" class="knop prim" data-dactie="vernieuwPrimair">Opnieuw verbinden</button>` : ""}`
-    : `<button type="button" class="knop prim" data-dactie="login" style="justify-content:center;padding:10px" ${id.google ? "" : "disabled"}>${googleLogo} Inloggen met Google</button>
-      ${id.google ? "" : `<div class="hint">De Google-koppeling moet eenmalig worden ingesteld (client-ID). <a href="#instellingen" data-dactie="naarKoppelingen">Hoe?</a></div>`}`}
-    <div class="paneel" style="font-size:14px;line-height:1.55">
-      <b>Wat inloggen doet</b>
+    ${accountBlok()}
+    ${g ? "" : `<div class="paneel" style="font-size:14px;line-height:1.55">
+      <b>Waarom inloggen?</b>
       <ul style="margin:6px 0 0;padding-left:18px">
-        <li>Je planning wordt bewaard in je eigen Google Drive (verborgen app-map) — op elk apparaat dezelfde.</li>
-        <li>Je Google-agenda's worden gelezen; ingeplande blokken kun je er met één klik in zetten.</li>
-        <li>Koppel er daarna gerust meer accounts bij: zakelijk Outlook, een tweede Google-account…</li>
+        <li>Je planning staat veilig online en is op al je apparaten hetzelfde.</li>
+        <li>Lijsten delen met anderen en er samen aan werken.</li>
+        <li>Zakelijk én privé: log in met Google of Microsoft, en koppel het andere account er later bij.</li>
       </ul>
-      <p class="hint" style="margin-bottom:0">Samen aan dezelfde lijst werken met anderen vraagt een gedeelde server — dat is de volgende stap.</p>
-    </div>
+      ${d().taken.length && !d().demo ? `<p class="hint" style="margin-bottom:0">Wat je nu op dit apparaat hebt, kun je bij de eerste keer inloggen meenemen.</p>` : ""}
+    </div>`}
     <a class="knop" href="#instellingen" data-dactie="naarKoppelingen" style="justify-content:center">🔗 Agenda's &amp; accounts</a>
-    ${p ? `<button type="button" class="knop gevaar" data-dactie="uitloggen">Uitloggen op dit apparaat</button>` : ""}
   </div></form>`;
   dlg.onclick = (e) => {
-    const a = e.target.closest("[data-dactie]")?.dataset.dactie;
-    if (a === "login") { dlg.close(); doeKoppelGoogle(); }
-    else if (a === "vernieuwPrimair") { dlg.close(); doeVernieuw(primair()); }
-    else if (a === "naarKoppelingen") { voorkeur.zet("instTab", "koppelingen"); dlg.close(); if (location.hash === "#instellingen") render(); }
-    else if (a === "uitloggen") { if (confirm("Uitloggen op dit apparaat? Je planning blijft in je Google Drive staan.")) { ontkoppel(primair()).then(() => { dlg.close(); render(); toast("Uitgelogd"); }); } }
+    const b = e.target.closest("[data-actie],[data-dactie]"); if (!b) return;
+    if (b.dataset.dactie === "naarKoppelingen") { voorkeur.zet("instTab", "koppelingen"); dlg.close(); if (location.hash === "#instellingen") render(); return; }
+    accountActie(b.dataset.actie, b.dataset.w, () => dlg.close());
   };
   dlg.onclose = () => { dlg.onclick = null; dlg.onclose = null; };
   dlg.showModal();
 });
 
-// ---------- koppel-acties ----------
+// Inlog-acties (zowel vanuit de dialoog als vanuit Instellingen). De popup opent direct binnen de klik.
+function accountActie(a, w, klaar) {
+  if (a === "login") {
+    login(w).then(() => { klaar?.(); toast("Ingelogd"); }).catch(e => toast(foutTekst(e)));
+  } else if (a === "koppelAccount") {
+    koppelAccount(w).then(() => { toast("Gekoppeld — je kunt nu met beide accounts inloggen"); location.reload(); }).catch(e => toast(foutTekst(e)));
+  } else if (a === "uitloggen") {
+    if (confirm("Uitloggen? Je planning blijft veilig in je account staan.")) uitloggen().then(() => { klaar?.(); toast("Uitgelogd"); render(); });
+  } else return false;
+  return true;
+}
+
+// ---------- uitnodigingen ----------
+function uitnodigingBanner() {
+  return cloud.uitnodigingen.map(u => `<div class="banner">👥 <span><b>${esc(u.van)}</b> nodigt je uit voor de lijst <b>${esc(u.icoon || "")} ${esc(u.naam)}</b>.</span>
+    <button class="knop klein prim" data-actie="accepteer" data-w="${esc(u.id)}">Doe mee</button><button class="knop klein" data-actie="weiger" data-w="${esc(u.id)}" style="margin-left:0">Nee, dank je</button></div>`).join("");
+}
+
+// ---------- agenda-koppel-acties ----------
 const verlopenSessies = new Map();
 function sessieBanner() {
   const lijst = [...verlopenSessies.values()].filter(v => verbindingen().some(x => x.id === v.id));
-  return lijst.map(v => `<div class="banner">🔑 De sessie van <b>${esc(v.email)}</b> is verlopen.<button class="knop klein" data-actie="vernieuw" data-verbid="${esc(v.id)}">Opnieuw verbinden</button></div>`).join("");
+  return uitnodigingBanner() + lijst.map(v => `<div class="banner">🔑 De agenda-koppeling met <b>${esc(v.email)}</b> is verlopen.<button class="knop klein" data-actie="vernieuw" data-verbid="${esc(v.id)}">Opnieuw verbinden</button></div>`).join("");
 }
 async function doeKoppelGoogle() {
   try {
     const v = await koppelGoogle();
-    toast(`Verbonden met ${v.email}`);
+    toast(`Agenda van ${v.email} gekoppeld`);
     if (!v.rechten?.agenda) toast("Let op: je hebt geen toegang tot je agenda gegeven");
-    if (v.primair) await startDrive();
     await doeOphalen(true);
   } catch (e) { toast(e.message); }
   render();
 }
 async function doeKoppelMs() {
-  try { const v = await koppelMs(); toast(`Verbonden met ${v.email}`); await doeOphalen(true); }
+  try { const v = await koppelMs(); toast(`Agenda van ${v.email} gekoppeld`); await doeOphalen(true); }
   catch (e) { toast(e.message || String(e)); }
   render();
 }
 async function doeVernieuw(v) {
   if (!v) return;
-  try {
-    await vernieuw(v); verlopenSessies.delete(v.id);
-    toast("Opnieuw verbonden");
-    if (v.primair) { await startDrive(); if (wachtOpDrive()) await driveDuw(); }
-    await doeOphalen(true);
-  } catch (e) { toast(e.message); }
+  try { await vernieuw(v); verlopenSessies.delete(v.id); toast("Opnieuw verbonden"); await doeOphalen(true); }
+  catch (e) { toast(e.message); }
   render();
 }
 async function doeOphalen(stil = false) {
@@ -731,14 +741,6 @@ async function doeNaarAgenda() {
   if (r.fouten.length) toast(r.fouten[0]);
   else toast(`Agenda bijgewerkt: ${r.nieuw} nieuw, ${r.bij} gewijzigd, ${r.weg} verwijderd${r.verlopen.length ? " — log opnieuw in voor de rest" : ""}`);
   render();
-}
-async function startDrive() {
-  try {
-    const r = await driveTrek((online, lokaal) => Promise.resolve(confirm(
-      `Er staat al een planning in je Google Drive (gewijzigd ${new Date(online).toLocaleString("nl-NL")}), en op dit apparaat is ook iets veranderd (${new Date(lokaal).toLocaleString("nl-NL")}).\n\nOK = de versie uit Google Drive gebruiken\nAnnuleren = de versie van dit apparaat bewaren (overschrijft Drive)`)));
-    if (r === "opgehaald") toast("Planning opgehaald uit Google Drive");
-  } catch (e) { if (e instanceof VerlopenFout) verlopenSessies.set(e.verbinding.id, e.verbinding); else toast("Drive: " + e.message); }
-  renderAccount();
 }
 
 // ---------- editor ----------
@@ -765,6 +767,8 @@ function openEditor(item, standaard = {}) {
       <div class="rij">
         <label class="veld">Overzicht<select name="overzicht">${d().overzichten.map(o => `<option value="${o.id}" ${o.id === c.overzicht ? "selected" : ""}>${o.icoon} ${esc(o.naam)}</option>`).join("")}</select></label>
         ${isProj ? "" : `<label class="veld">Project<select name="project"><option value="">— losse taak —</option>${d().projecten.filter(p => p.status !== "klaar" || p.id === c.project).map(p => `<option value="${p.id}" ${p.id === c.project ? "selected" : ""}>◆ ${esc(p.titel)}</option>`).join("")}</select></label>`}
+        ${!isProj && (overzicht(c.overzicht)?.leden || []).length > 1 ? `<label class="veld">👤 Wie doet het?<select name="toegewezen">${overzicht(c.overzicht).leden.map(u =>
+          `<option value="${esc(u)}" ${u === (c.toegewezen || sessie.ik) ? "selected" : ""}>${u === sessie.ik ? "Ik" : esc(overzicht(c.overzicht).ledenInfo?.[u]?.naam || u)}</option>`).join("")}</select></label>` : ""}
         <label class="veld">📍 Locatie<select name="locatie">${(() => { const volg = locatie(effectieveLocatie({ ...c, locatie: "" }));
           return `<option value="">${volg ? "Zoals " + (c.project && !isProj ? "project/" : "") + "lijst: " + esc(volg.naam) : "Geen vaste plek"}</option>` +
             d().locaties.map(l => `<option value="${l.id}" ${l.id === c.locatie ? "selected" : ""}>${l.icoon} ${esc(l.naam)}${l.reistijd ? ` (${l.reistijd} min)` : ""}</option>`).join(""); })()}</select></label>
@@ -793,9 +797,8 @@ function openEditor(item, standaard = {}) {
           ${losse.length ? `<div class="linkrij"><span>⤵</span><select id="subKoppel"><option value="">Bestaande losse taak toevoegen…</option>${losse.map(t => `<option value="${t.id}">${esc(t.titel)}</option>`).join("")}</select><button type="button" class="knop klein" data-actie="subKoppel">Koppel</button></div>` : ""}
           </div></div>`) : ""}
 
-      <div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">Delen met</div>
-        <div class="lijst">${(c.gedeeldMet || []).map((m, i) => `<div class="deelrij"><span class="avatar">${esc(m[0].toUpperCase())}</span>${esc(m)}<span class="hint">uitnodiging volgt</span><button type="button" class="x" data-deelweg="${i}">✕</button></div>`).join("")}
-        <div class="linkrij"><span>👥</span><input type="email" id="deelMail" placeholder="e-mailadres"><button type="button" class="knop klein" data-actie="deelBij">Toevoegen</button></div></div></div>
+      ${(() => { const o = overzicht(c.overzicht), n = (o?.leden || []).length;
+        return `<div class="hint">👥 ${n > 1 ? `Gedeeld via de lijst „${esc(o.naam)}” met ${n - 1} ${n === 2 ? "ander" : "anderen"}.` : `Samenwerken? Deel de lijst „${esc(o?.naam || "")}” via Instellingen → Lijsten, of zet dit in een gedeelde lijst.`}</div>`; })()}
     </div>
     <div class="dvoet">
       ${nieuw ? "" : `<button type="button" class="knop gevaar" data-actie="weg">Verwijderen</button>`}
@@ -811,6 +814,7 @@ function openEditor(item, standaard = {}) {
     const f = $("#editForm"); if (!f) return;
     c.titel = f.titel.value.trim(); c.overzicht = f.overzicht.value; c.notitie = f.notitie.value;
     c.deadline = f.deadline.value; c.streef = f.streef.value; c.locatie = f.locatie.value;
+    if (f.toegewezen) c.toegewezen = f.toegewezen.value;
     c.schatting = leesDuur(f.schatting.value); c.werkelijk = leesDuur(f.werkelijk.value);
     if (f.project) c.project = f.project.value || null;
   };
@@ -820,6 +824,7 @@ function openEditor(item, standaard = {}) {
     const opdeling = $("#editForm").opdeling?.value || "";
     const velden = { titel: c.titel, overzicht: c.overzicht, notitie: c.notitie, deadline: c.deadline, streef: c.streef, schatting: c.schatting,
                      werkelijk: c.werkelijk, urgent: c.urgent, belangrijk: c.belangrijk, links: c.links, gedeeldMet: c.gedeeldMet, locatie: c.locatie || "" };
+    if (!isProj && (c.toegewezen || sessie.ik)) velden.toegewezen = c.toegewezen || sessie.ik;
     if (nieuw) {
       if (isProj) {
         const p = nieuwProject(velden);
@@ -1014,7 +1019,7 @@ main.addEventListener("click", async (e) => {
       try { const x = JSON.parse(b.tekst); if (!Array.isArray(x.taken)) throw 0; if (confirm("Huidige gegevens vervangen door deze back-up?")) { opslag.vervang(x); toast("Back-up teruggezet"); } }
       catch { toast("Dit is geen geldige Tijdkompas-back-up"); }
     }
-    else if (a === "ovBij") { d().overzichten.push({ id: uid(), naam: "Nieuwe lijst", kleur: "#c48ed8", icoon: "📁", modus: "vrij", locatie: "", doelAgenda: null, tijden: [] }); bewaar(); }
+    else if (a === "ovBij") { d().overzichten.push({ id: uid() + (sessie.ik ? uid() : ""), naam: "Nieuwe lijst", kleur: "#c48ed8", icoon: "📁", modus: "vrij", locatie: "", doelAgenda: null, tijden: [] }); bewaar(); }
     else if (a === "instTab" && w) { e.preventDefault(); voorkeur.zet("instTab", w); render(); window.scrollTo(0, 0); }
     else if (a === "modus" && w) {
       const o = overzicht(el.closest("[data-ov]").dataset.ov); o.modus = w;
@@ -1032,11 +1037,14 @@ main.addEventListener("click", async (e) => {
       }
     }
     else if (a === "beschBij") { d().beschikbaar.push({ dagen: [6, 0], van: "09:00", tot: "22:00" }); bewaar(); }
-    else if (a === "idsOpslaan") { zetIds({ google: $("#idGoogle").value.trim(), microsoft: $("#idMs").value.trim() }); voorbereiden(); toast("Opgeslagen"); render(); }
+    else if (["login", "koppelAccount", "uitloggen"].includes(a)) accountActie(a, w);
+    else if (a === "accepteer") { accepteer(w).then(() => toast("Je doet nu mee met deze lijst")).catch(e => toast(e.message)); }
+    else if (a === "weiger") { weiger(w).catch(e => toast(e.message)); }
+    else if (a === "lidWeg") { const o = overzicht(el.closest("[data-ov]").dataset.ov); if (confirm(`${o.ledenInfo?.[w]?.naam || "Dit lid"} uit „${o.naam}” halen?`)) { o.leden = o.leden.filter(x => x !== w); delete o.ledenInfo[w]; bewaar(); } }
+    else if (a === "uitnodigingWeg") { const o = overzicht(el.closest("[data-ov]").dataset.ov); o.uitgenodigd = (o.uitgenodigd || []).filter(x => x !== w); bewaar(); }
     else if (a === "koppelGoogle") doeKoppelGoogle();
     else if (a === "koppelMs") doeKoppelMs();
     else if (a === "vernieuw") { const id = el.dataset.verbid || el.closest("[data-verb]")?.dataset.verb; doeVernieuw(verbindingen().find(v => v.id === id)); }
-    else if (a === "maakPrimair") { const v = verbindingen().find(x => x.id === el.closest("[data-verb]").dataset.verb); maakPrimair(v); toast("Planning wordt nu in de Drive van " + v.email + " bewaard"); startDrive().then(render); }
     else if (a === "ontkoppel") {
       const v = verbindingen().find(x => x.id === el.closest("[data-verb]").dataset.verb);
       if (confirm(`${v.email} ontkoppelen? Afspraken uit dit account worden niet meer meegenomen.`)) {
@@ -1047,6 +1055,14 @@ main.addEventListener("click", async (e) => {
     else if (a === "naarAgenda") { el.disabled = true; await doeNaarAgenda(); }
     else if (a === "ovWeg") {
       const o = overzicht(el.closest("[data-ov]").dataset.ov);
+      if (o.eigenaar && sessie.ik && o.eigenaar !== sessie.ik) {      // andermans lijst: verlaten (taken blijven voor de anderen)
+        if (confirm(`De gedeelde lijst „${o.naam}” verlaten? De taken blijven bestaan voor de andere leden.`)) {
+          d().overzichten = d().overzichten.filter(x => x !== o);
+          d().taken = d().taken.filter(t => t.overzicht !== o.id); d().projecten = d().projecten.filter(p => p.overzicht !== o.id);
+          d().planning = d().planning.filter(b => b.overzicht !== o.id); bewaar(); toast("Lijst verlaten");
+        }
+        return;
+      }
       const n = d().taken.filter(t => t.overzicht === o.id).length + d().projecten.filter(p => p.overzicht === o.id).length;
       if (d().overzichten.length === 1) { toast("Er moet minstens één overzicht blijven"); return; }
       if (n) { toast(`Verplaats eerst de ${n} taken/projecten in „${o.naam}”`); return; }
@@ -1061,8 +1077,12 @@ main.addEventListener("click", async (e) => {
     }
     else if (a === "ovDelen") {
       const o = overzicht(el.closest("[data-ov]").dataset.ov);
-      const m = prompt(`Lijst „${o.naam}” delen met (e-mailadres):`, "");
-      if (m && /^\S+@\S+\.\S+$/.test(m.trim())) { o.gedeeldMet = [...new Set([...(o.gedeeldMet || []), m.trim().toLowerCase()])]; bewaar(); toast("Toegevoegd — samenwerken met anderen volgt in de volgende stap"); }
+      if (!ingelogd()) { toast("Log eerst in om lijsten te delen"); $("#accountKnop").click(); return; }
+      const m = prompt(`Lijst „${o.naam}” delen met (e-mailadres van hun Google- of Microsoft-account):`, "");
+      if (m && /^\S+@\S+\.\S+$/.test(m.trim())) {
+        o.uitgenodigd = [...new Set([...(o.uitgenodigd || []), m.trim().toLowerCase()])]; bewaar();
+        toast(`Uitgenodigd — ${m.trim()} ziet de uitnodiging zodra die inlogt op ${location.host + location.pathname}`);
+      } else if (m) toast("Dat lijkt geen e-mailadres");
     }
     return;
   }
@@ -1133,18 +1153,8 @@ function zetThema() { document.documentElement.dataset.theme = voorkeur.lees("th
 zetThema();
 render();
 voorbereiden();
-if (primair()) {
-  if (isVerlopen(primair())) verlopenSessies.set(primair().id, primair());
-  else startDrive().then(() => { if (Date.now() - new Date(d().agendaSync || 0) > 15 * 60e3) doeOphalen(true).then(render); });
-}
-// Terug naar het tabblad: kijk of een ander apparaat iets heeft veranderd
-let laatsteFocus = Date.now();
-window.addEventListener("focus", () => {
-  if (Date.now() - laatsteFocus < 120e3) return;
-  laatsteFocus = Date.now();
-  const p = primair(); if (p && !isVerlopen(p)) startDrive();
-});
-setInterval(renderAccount, 5000);
+cloudStart();
+verbindingen().filter(isVerlopen).forEach(v => verlopenSessies.set(v.id, v));
 
 // Gedeelde link / bookmarklet / Android-delen: ?nieuw=1&titel=…&url=…&tekst=…
 (() => {

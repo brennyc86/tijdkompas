@@ -290,3 +290,13 @@ details.meer .menu{position:absolute;right:0;top:calc(100% + 6px);z-index:15;dis
   .agendarij select{grid-column:2}
   .agendarij > .hint{display:none}
 }
+
+/* ---------- v3: inloggen & delen ---------- */
+.inlogknoppen{display:flex;flex-direction:column;gap:10px}
+.knop.inlog{justify-content:center;padding:11px 16px;font-weight:600;background:var(--kaart);font-size:15px}
+.knop.inlog svg{width:20px;height:20px}
+.leden{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.lid{display:inline-flex;align-items:center;gap:6px;padding:3px 10px 3px 3px;border:1px solid var(--rand);border-radius:999px;font-size:13px;background:var(--bg2)}
+.lid .avatar{width:22px;height:22px;font-size:11px}
+.lid.uitgenodigd{border-style:dashed;color:var(--meta)}
+.banner .knop+.knop{margin-left:0}

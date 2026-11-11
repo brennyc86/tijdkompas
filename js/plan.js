@@ -6,7 +6,7 @@
 //  • "vrij"  — alles wat overblijft binnen je beschikbaarheid, na aftrek van vaste tijden, reistijd en afspraken.
 //              Staat de lijst (of taak) op een locatie met reistijd, dan krijgt elke sessie reis heen + terug;
 //              taken op dezelfde locatie worden achter elkaar gezet zodat je maar één keer reist.
-import { opslag, kwadrant, kalibratie, project, overzicht, locatie, effectieveLocatie, uid, linkInfo } from "./data.js";
+import { opslag, kwadrant, kalibratie, project, overzicht, locatie, effectieveLocatie, uid, linkInfo, sessie } from "./data.js";
 
 const MIN = 60000;
 const rondOp = (d, stap = 15) => new Date(Math.ceil(d.getTime() / (stap * MIN)) * stap * MIN);
@@ -154,6 +154,7 @@ export function planAutomatisch(actieveOverzichten) {
     ...d.taken.filter(t => t.status !== "klaar"),
     ...d.projecten.filter(p => p.status !== "klaar" && p.schatting > 0 && !d.taken.some(t => t.project === p.id && t.status !== "klaar")),
   ].filter(i => actieveOverzichten.includes(i.overzicht))
+   .filter(i => !sessie.ik || !i.toegewezen || i.toegewezen === sessie.ik)     // gedeelde lijst: alleen wat aan jou is toegewezen
    .filter(i => inst.schrappenInplannen || kwadrant(i) !== "schrappen");
   items.sort((a, b) => prioriteit(b, nu) - prioriteit(a, nu));
 

@@ -1,6 +1,6 @@
-// Tijdkompas — afstemming met externe agenda's en Google Drive
+// Tijdkompas — afstemming met externe agenda's (ophalen + ingeplande blokken wegschrijven)
 import { opslag, bewaar, overzicht, locatie } from "./data.js";
-import { verbindingen, primair, isVerlopen, VerlopenFout, agendaLijst, haalAfspraken, zetAfspraak, verwijderAfspraak, driveLees, driveSchrijf } from "./koppeling.js";
+import { verbindingen, VerlopenFout, agendaLijst, haalAfspraken, zetAfspraak, verwijderAfspraak } from "./koppeling.js";
 import { omschrijving } from "./plan.js";
 
 const d = () => opslag.d;
@@ -86,50 +86,3 @@ export async function zetNaarAgendas() {
   bewaar();
   return { nieuw, bij, weg, verlopen: [...verlopen.values()], fouten: [...new Set(fouten)] };
 }
-
-// ================= Google Drive =================
-// Eén JSON in de verborgen app-map van het hoofdaccount. "Laatst gewijzigd" bepaalt wie wint;
-// zijn beide kanten sinds de vorige keer veranderd, dan beslist de gebruiker.
-const SYNC = "tk_drive";
-const leesMeta = () => { try { return JSON.parse(localStorage.getItem(SYNC) || "{}"); } catch { return {}; } };
-const zetMeta = (m) => { try { localStorage.setItem(SYNC, JSON.stringify(m)); } catch {} };
-export const driveStatus = { tekst: "", bezig: false, fout: "" };
-
-export async function driveTrek(kies) {
-  const v = primair(); if (!v || isVerlopen(v)) return "geen";
-  driveStatus.bezig = true;
-  try {
-    const meta = leesMeta(), r = await driveLees(v);
-    if (!r) { await driveDuw(); return "geupload"; }
-    meta.id = r.id; zetMeta(meta);
-    const rg = r.data.gewijzigd || "", lg = d().gewijzigd || "", ls = meta.gewijzigd || "";
-    if (rg === lg) { zetMeta({ ...meta, gewijzigd: rg }); return "gelijk"; }
-    const lokaalNieuw = !d().demo && lg > ls, onlineNieuw = rg > ls;
-    let neemOnline;
-    if (!lokaalNieuw) neemOnline = true;
-    else if (!onlineNieuw) neemOnline = false;
-    else neemOnline = await kies(rg, lg);
-    if (neemOnline) { opslag.vervang(r.data, { stil: true }); zetMeta({ id: r.id, gewijzigd: rg }); return "opgehaald"; }
-    await driveDuw(); return "geupload";
-  } finally { driveStatus.bezig = false; }
-}
-
-let duwTimer = null;
-export function planDuw() {
-  if (!primair()) return;
-  clearTimeout(duwTimer);
-  duwTimer = setTimeout(() => driveDuw().catch(() => {}), 2500);
-}
-export async function driveDuw() {
-  const v = primair(); if (!v) return;
-  if (isVerlopen(v)) { driveStatus.fout = "wacht"; return; }
-  driveStatus.bezig = true;
-  try {
-    const meta = leesMeta();
-    const id = await driveSchrijf(v, d(), meta.id);
-    zetMeta({ id, gewijzigd: d().gewijzigd });
-    driveStatus.fout = ""; driveStatus.tekst = "Opgeslagen in Google Drive " + new Date().toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" });
-  } catch (e) { driveStatus.fout = e instanceof VerlopenFout ? "wacht" : e.message; }
-  finally { driveStatus.bezig = false; }
-}
-export const wachtOpDrive = () => { const m = leesMeta(); return primair() && (d().gewijzigd || "") > (m.gewijzigd || ""); };

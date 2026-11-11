@@ -4,6 +4,9 @@
 
 const SLEUTEL = "tijdkompas_v1";
 
+// Wie is er ingelogd (Firebase-uid), of null in lokale modus
+export const sessie = { ik: null };
+
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
 export const KWADRANTEN = {
@@ -93,7 +96,13 @@ export const opslag = {
   get d() { return data; },
   luister(f) { luisteraars.add(f); },
   vervang(nieuw, opties) { data = normaliseer(nieuw); bewaar(opties); },
-  wis() { data = leeg(); data.overzichten = basisOverzichten(); bewaar(); },
+  wis() { const ik = sessie.ik; const oud = data; data = leeg(); data.overzichten = basisOverzichten().map(o => ik ? { ...o, id: uid() + uid() } : o);
+          if (ik) { // gedeelde lijsten van anderen blijven gewoon staan
+            const anders = oud.overzichten.filter(o => o.eigenaar && o.eigenaar !== ik), ids = new Set(anders.map(o => o.id));
+            data.overzichten.push(...anders);
+            data.taken = oud.taken.filter(t => ids.has(t.overzicht)); data.projecten = oud.projecten.filter(p => ids.has(p.overzicht));
+          }
+          bewaar(); },
   demo() { data = demoData(); bewaar(); },
 };
 
@@ -123,8 +132,10 @@ export function projectVoortgang(p) {
 function basis() { return { id: uid(), titel: "", notitie: "", urgent: false, belangrijk: true, deadline: "", streef: "",
                        schatting: 0, werkelijk: 0, status: "open", links: [], gedeeldMet: [], gemaakt: new Date().toISOString() }; }
 
+export function startData() { const d = leeg(); d.overzichten = basisOverzichten(); return d; }
+
 export function nieuweTaak(v = {}) {
-  const t = { ...basis(), project: null, overzicht: data.overzichten[0]?.id, ...v, type: "taak" };
+  const t = { ...basis(), project: null, overzicht: data.overzichten[0]?.id, toegewezen: sessie.ik || undefined, ...v, type: "taak" };
   if (t.project && !v.overzicht) t.overzicht = project(t.project)?.overzicht || t.overzicht;
   data.taken.push(t); bewaar(); return t;
 }

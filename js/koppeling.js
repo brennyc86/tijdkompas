@@ -1,4 +1,5 @@
-// Tijdkompas — koppelingen met Google (inloggen, Agenda, Drive) en Microsoft (Outlook-agenda)
+// Tijdkompas — agenda-koppelingen: Google Agenda (Google Identity Services) en Outlook (MSAL / Microsoft Graph).
+// Inloggen op Tijdkompas zelf loopt via Firebase (cloud.js); dit is alleen voor het lezen/schrijven van agenda's.
 // Alles draait in de browser: Google Identity Services (token-client) en MSAL.js (Microsoft).
 // Er is geen eigen server; tokens blijven op dit apparaat.
 import { CONFIG } from "./config.js";
@@ -7,7 +8,6 @@ const GOOGLE_SCOPES = [
   "openid", "email", "profile",
   "https://www.googleapis.com/auth/calendar.readonly",   // agenda's + afspraken lezen
   "https://www.googleapis.com/auth/calendar.events",     // ingeplande blokken wegschrijven
-  "https://www.googleapis.com/auth/drive.appdata",       // eigen planning in verborgen app-map van je Drive
 ].join(" ");
 const MS_SCOPES = ["User.Read", "Calendars.ReadWrite"];
 const MSAL_URL = "https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.28.1/lib/msal-browser.min.js";
@@ -73,9 +73,8 @@ export async function koppelGoogle() {
   const r = await vraagGoogleToken({ prompt: "select_account" });
   const info = await (await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: "Bearer " + r.access_token } })).json();
   const agenda = google.accounts.oauth2.hasGrantedAllScopes(r, "https://www.googleapis.com/auth/calendar.events");
-  const drive = google.accounts.oauth2.hasGrantedAllScopes(r, "https://www.googleapis.com/auth/drive.appdata");
   const v = { id: "google:" + info.email, soort: "google", email: info.email, naam: info.name || info.email, foto: info.picture || "",
-              primair: !primair() || primair()?.email === info.email, rechten: { agenda, drive } };
+              primair: !primair() || primair()?.email === info.email, rechten: { agenda } };
   bewaarToken(v, r);
   return werkV(v);
 }
@@ -213,27 +212,4 @@ export async function zetAfspraak(v, agendaId, ev, bestaandId) {
 export async function verwijderAfspraak(v, agendaId, id) {
   if (v.soort === "google") await api(v, `${G}/calendars/${enc(agendaId)}/events/${enc(id)}`, { method: "DELETE", weg: true });
   else await api(v, `${M}/me/events/${enc(id)}`, { method: "DELETE", weg: true });
-}
-
-// ================= Google Drive (verborgen app-map) =================
-const DRIVE = "https://www.googleapis.com/drive/v3", UPLOAD = "https://www.googleapis.com/upload/drive/v3";
-export async function driveLees(v) {
-  const r = await api(v, `${DRIVE}/files?spaces=appDataFolder&q=${enc("name='tijdkompas.json'")}&fields=files(id,modifiedTime)`);
-  const f = (r.files || [])[0];
-  if (!f) return null;
-  const tekst = await api(v, `${DRIVE}/files/${f.id}?alt=media`, { tekst: true });
-  return { id: f.id, data: JSON.parse(tekst) };
-}
-export async function driveSchrijf(v, data, id) {
-  const json = JSON.stringify(data);
-  if (id) {
-    const r = await api(v, `${UPLOAD}/files/${id}?uploadType=media`, { method: "PATCH", body: json, weg: true });
-    if (r) return r.id || id;
-  }
-  const grens = "tk" + Math.random().toString(36).slice(2);
-  const body = `--${grens}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
-    JSON.stringify({ name: "tijdkompas.json", parents: ["appDataFolder"], mimeType: "application/json" }) +
-    `\r\n--${grens}\r\nContent-Type: application/json\r\n\r\n${json}\r\n--${grens}--`;
-  const r = await api(v, `${UPLOAD}/files?uploadType=multipart&fields=id`, { method: "POST", body, headers: { "Content-Type": "multipart/related; boundary=" + grens } });
-  return r.id;
 }

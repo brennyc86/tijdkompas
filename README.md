@@ -29,22 +29,21 @@ Planner voor werk, privé en hobby's: projecten en taken, de Eisenhower-matrix (
 - **Locaties** met reistijd (enkele reis vanaf huis) en optioneel adres; afspraken met een herkenbare plaats krijgen automatisch reistijd.
 - Een taak of project kan een eigen locatie hebben (bijv. „printen op kantoor” → alleen op kantoordagen).
 
-## Google en Outlook
+## Inloggen en delen
 
-- **Inloggen met Google**: je planning wordt ook bewaard in je eigen Google Drive (verborgen app-map), dus op elk apparaat dezelfde.
-- **Meerdere accounts tegelijk**: Google (privé, tweede account) en Microsoft/Outlook (zakelijk, Office 365, outlook.com).
-- **Agenda's classificeren**: per agenda kies je *Bezet* (er wordt omheen gepland, optioneel gekoppeld aan een lijst), *Rooster van lijst* (de afspraken zíjn de vaste tijden van bijv. werk — voor wisselende diensten) of *Niet meetellen* (verjaardagen, feestdagen).
-- **Blokken terugzetten**: per lijst kies je een doelagenda; „In mijn agenda zetten” maakt, verschuift en verwijdert de blokken daar.
+- **Inloggen met Google of Microsoft** (Firebase Authentication). Je planning staat online (Firestore) en is op elk apparaat hetzelfde, ook offline bruikbaar.
+- **Zakelijk + privé**: log in met het ene account en koppel het andere erbij; daarna kom je met beide in hetzelfde Tijdkompas.
+- **Lijsten delen**: nodig iemand uit op e-mailadres; die ziet de uitnodiging zodra hij inlogt. Alle leden zien en bewerken de taken en projecten van die lijst live.
+- In een gedeelde lijst kies je per taak **wie het doet**; de planner plant alleen jouw eigen taken in. Je werktijden en locaties blijven persoonlijk.
+- Zonder inloggen werkt alles ook, dan alleen in deze browser.
 
-### Eenmalige setup
-Beide diensten vragen een (openbaar) client-ID — de stappen staan in de app bij *Instellingen → Agenda's & accounts*. Vul ze in `js/config.js` in, dan hoeft niemand anders dit te doen.
-- Google Cloud: project, Calendar API + Drive API aan, OAuth-toestemmingsscherm (Extern, testgebruikers), OAuth-client *Webapplicatie* met oorsprong `https://brennyc86.github.io`.
-- Microsoft Entra: app-registratie voor *elke organisatie + persoonlijke accounts*, platform SPA, redirect `https://brennyc86.github.io/tijdkompas/auth.html`.
+Eenmalige setup door de eigenaar: zie [SETUP.md](SETUP.md).
 
-Zolang de Google-app in *testmodus* staat, kunnen alleen toegevoegde testgebruikers (max. 100) inloggen; voor iedereen is Google-verificatie nodig (agenda-rechten zijn „gevoelig”).
+## Agenda's
 
-## Volgende stap
-Samen met anderen aan dezelfde lijst werken (delen) vraagt een gedeelde server (bijv. Firebase of een Cloudflare Worker); de „Delen…”-velden slaan wie erbij hoort al op.
+- Bestaande afspraken komen uit Google/Outlook (rechtstreeks, zodra ingesteld) of uit een .ics-bestand.
+- Per agenda: *Bezet* (er wordt omheen gepland), *Rooster van lijst* (de afspraken zijn de vaste tijden van bijv. werk) of *Niet meetellen*.
+- Per lijst een doelagenda; „In mijn agenda zetten” maakt, verschuift en verwijdert de blokken daar.
 
 ## Snelinvoer
 
@@ -56,4 +55,4 @@ Samen met anderen aan dezelfde lijst werken (delen) vraagt een gedeelde server (
 
 ## Techniek
 
-Statische site zonder build-stap: `js/data.js` (model + opslag), `js/plan.js` (dagindeling, inroosteren, .ics), `js/koppeling.js` (Google Identity Services, MSAL, Calendar/Graph/Drive-API), `js/sync.js` (agenda's ophalen/wegschrijven, Drive-sync), `js/app.js` (UI). Geen eigen server: tokens blijven in de browser.
+Statische site zonder build-stap: `js/data.js` (model + opslag), `js/plan.js` (dagindeling, inroosteren, .ics), `js/cloud.js` (Firebase: inloggen, Firestore-opslag als verschil-synchronisatie, delen), `js/koppeling.js` + `js/sync.js` (Google Agenda / Outlook), `js/app.js` (UI). Beveiligingsregels: `firestore.rules`.

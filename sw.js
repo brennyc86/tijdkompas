@@ -1,6 +1,6 @@
 // Tijdkompas service worker: netwerk eerst, cache als terugval (offline bruikbaar)
-const CACHE = "tijdkompas-v2";
-const SCHIL = ["./", "index.html", "style.css", "js/app.js", "js/data.js", "js/plan.js", "js/koppeling.js", "js/sync.js", "js/config.js", "auth.html", "icon.svg", "manifest.webmanifest"];
+const CACHE = "tijdkompas-v3";
+const SCHIL = ["./", "index.html", "style.css", "js/app.js", "js/data.js", "js/plan.js", "js/koppeling.js", "js/sync.js", "js/cloud.js", "js/config.js", "auth.html", "icon.svg", "manifest.webmanifest"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SCHIL))); self.skipWaiting(); });
 self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(k => Promise.all(k.filter(x => x !== CACHE).map(x => caches.delete(x))))); self.clients.claim(); });
 self.addEventListener("fetch", e => {
