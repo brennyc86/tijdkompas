@@ -1,6 +1,6 @@
 // Tijdkompas — datamodel en opslag
-// Lokale modus: alles in localStorage. De opslaglaag is zo opgezet dat er later
-// een cloud-adapter (Firebase / Cloudflare) onder kan zonder de UI te wijzigen.
+// Altijd lokaal in localStorage; met een Google-login wordt dezelfde blob ook in je eigen
+// Google Drive (verborgen app-map) bewaard, zodat al je apparaten dezelfde planning zien.
 
 const SLEUTEL = "tijdkompas_v1";
 
@@ -31,8 +31,41 @@ const STANDAARD_INST = {
 };
 
 function leeg() {
-  return { versie: 1, overzichten: [], projecten: [], taken: [], bezet: [], planning: [],
-           accounts: [], instellingen: { ...STANDAARD_INST }, demo: false };
+  return { versie: 2, overzichten: [], projecten: [], taken: [], bezet: [], planning: [],
+           locaties: basisLocaties(), beschikbaar: basisBeschikbaar(), agendas: {}, extern: {},
+           instellingen: { ...STANDAARD_INST }, demo: false, gewijzigd: new Date().toISOString() };
+}
+
+// Locaties: reistijd = enkele reis vanaf huis, in minuten
+function basisLocaties() {
+  return [
+    { id: "thuis",   naam: "Thuis",   icoon: "🏠", reistijd: 0 },
+    { id: "kantoor", naam: "Kantoor", icoon: "🏢", reistijd: 30 },
+  ];
+}
+// Wanneer ben je überhaupt beschikbaar (wakker, niet slapen/eten)? Vrije-tijd-lijsten plannen hierbinnen.
+function basisBeschikbaar() {
+  return [{ dagen: [1, 2, 3, 4, 5], van: "07:00", tot: "22:30" }, { dagen: [6, 0], van: "08:30", tot: "22:30" }];
+}
+
+// Oudere opslag bijwerken naar het huidige model
+function normaliseer(d) {
+  const n = { ...leeg(), ...d };
+  n.instellingen = { ...STANDAARD_INST, ...(d.instellingen || {}) };
+  for (const k of ["overzichten", "projecten", "taken", "bezet", "planning"]) n[k] ||= [];
+  if (!Array.isArray(d.locaties) || !d.locaties.length) n.locaties = basisLocaties();
+  if (!n.locaties.some(l => l.id === "thuis")) n.locaties.unshift({ id: "thuis", naam: "Thuis", icoon: "🏠", reistijd: 0 });
+  if (!Array.isArray(d.beschikbaar) || !d.beschikbaar.length) n.beschikbaar = basisBeschikbaar();
+  n.agendas ||= {}; n.extern ||= {};
+  for (const o of n.overzichten) {
+    o.modus ||= (o.id === "werk" || /werk|kantoor|baan/i.test(o.naam)) ? "vast" : "vrij";
+    o.locatie ??= "";
+    o.tijden ||= [];
+    o.doelAgenda ??= null;
+  }
+  delete n.accounts;
+  n.versie = 2;
+  return n;
 }
 
 let data = laad();
@@ -43,29 +76,37 @@ function laad() {
     const ruw = localStorage.getItem(SLEUTEL);
     if (ruw) {
       const d = JSON.parse(ruw);
-      d.instellingen = { ...STANDAARD_INST, ...(d.instellingen || {}) };
-      for (const k of ["overzichten", "projecten", "taken", "bezet", "planning", "accounts"]) d[k] ||= [];
-      return d;
+      if (d.demo && (d.versie || 1) < 2) return demoData();   // oude voorbeelddata: vervangen door nieuwe
+      return normaliseer(d);
     }
   } catch (e) { /* privévenster of beschadigd: begin met demo */ }
   return demoData();
 }
 
-export function bewaar() {
+export function bewaar({ stil = false } = {}) {
+  if (!stil) data.gewijzigd = new Date().toISOString();
   try { localStorage.setItem(SLEUTEL, JSON.stringify(data)); } catch (e) {}
-  luisteraars.forEach(f => f());
+  luisteraars.forEach(f => f({ stil }));
 }
 
 export const opslag = {
   get d() { return data; },
   luister(f) { luisteraars.add(f); },
-  vervang(nieuw) { data = { ...leeg(), ...nieuw }; data.instellingen = { ...STANDAARD_INST, ...(nieuw.instellingen || {}) }; bewaar(); },
+  vervang(nieuw, opties) { data = normaliseer(nieuw); bewaar(opties); },
   wis() { data = leeg(); data.overzichten = basisOverzichten(); bewaar(); },
   demo() { data = demoData(); bewaar(); },
 };
 
 // ---------- opvragen ----------
 export const overzicht = id => data.overzichten.find(o => o.id === id);
+export const locatie = id => data.locaties.find(l => l.id === id);
+// Waar vindt dit plaats? taak → project → lijst ("" = geen vaste plek)
+export function effectieveLocatie(item) {
+  if (item.locatie) return item.locatie;
+  const p = item.project ? data.projecten.find(x => x.id === item.project) : null;
+  if (p?.locatie) return p.locatie;
+  return overzicht(item.overzicht)?.locatie || "";
+}
 export const project = id => data.projecten.find(p => p.id === id);
 export const taak = id => data.taken.find(t => t.id === id);
 export const takenVan = pid => data.taken.filter(t => t.project === pid);
@@ -141,11 +182,11 @@ export function kalibratie(overzichtId) {
 
 // ---------- demo ----------
 function basisOverzichten() {
-  const werkdag = { dagen: [1, 2, 3, 4, 5], van: "09:00", tot: "17:00" };
   return [
-    { id: "werk",  naam: "Werk",   kleur: "#d8a24e", icoon: "💼", tijden: [werkdag] },
-    { id: "prive", naam: "Privé",  kleur: "#6fb38a", icoon: "🏠", tijden: [{ dagen: [1, 2, 3, 4, 5], van: "19:30", tot: "21:30" }, { dagen: [6, 0], van: "10:00", tot: "16:00" }] },
-    { id: "hobby", naam: "Hobby",  kleur: "#6f9fd8", icoon: "⛵", tijden: [{ dagen: [3], van: "19:30", tot: "22:00" }, { dagen: [6], van: "13:00", tot: "18:00" }] },
+    { id: "werk", naam: "Werk", kleur: "#d8a24e", icoon: "💼", modus: "vast", locatie: "kantoor", doelAgenda: null, tijden: [
+        { dagen: [1, 2, 4], van: "09:00", tot: "17:00", locatie: "kantoor" },
+        { dagen: [3, 5], van: "08:30", tot: "16:30", locatie: "thuis" } ] },
+    { id: "prive", naam: "Privé", kleur: "#6fb38a", icoon: "🏠", modus: "vrij", locatie: "thuis", doelAgenda: null, tijden: [] },
   ];
 }
 
@@ -153,13 +194,18 @@ function dagPlus(n) { const d = new Date(); d.setDate(d.getDate() + n); return d
 
 function demoData() {
   const d = leeg(); d.demo = true; d.overzichten = basisOverzichten();
-  const P = (v) => { const p = { ...basis(), type: "project", ...v }; d.projecten.push(p); return p; };
-  const T = (v) => { const t = { ...basis(), type: "taak", project: null, ...v }; d.taken.push(t); return t; };
+  d.locaties.push({ id: "haven", naam: "Jachthaven", icoon: "⚓", reistijd: 25 }, { id: "club", naam: "Clubhuis", icoon: "🏛️", reistijd: 15 });
+  d.overzichten.push(
+    { id: "boot", naam: "Boot", kleur: "#6f9fd8", icoon: "⛵", modus: "vrij", locatie: "haven", doelAgenda: null, tijden: [] },
+    { id: "club", naam: "Zeilvereniging", kleur: "#c48ed8", icoon: "🏛️", modus: "vast", locatie: "club", doelAgenda: null,
+      tijden: [{ dagen: [3], van: "19:30", tot: "22:00", locatie: "club" }] });
+  const P = (v) => { const p = { ...basis(), type: "project", locatie: "", ...v }; d.projecten.push(p); return p; };
+  const T = (v) => { const t = { ...basis(), type: "taak", project: null, locatie: "", ...v }; d.taken.push(t); return t; };
 
   const pres = P({ overzicht: "werk", titel: "Presentatie boordcomputer", urgent: true, belangrijk: true, deadline: dagPlus(6), streef: dagPlus(4), schatting: 480,
                    notitie: "Demo voor klant, inclusief testopstelling.", links: [{ url: "https://mail.google.com/mail/u/0/#inbox", label: "Uitnodiging klant" }] });
   T({ overzicht: "werk", project: pres.id, titel: "Slides opzetten", urgent: true, belangrijk: true, schatting: 120, deadline: dagPlus(4) });
-  T({ overzicht: "werk", project: pres.id, titel: "Testopstelling controleren", urgent: true, belangrijk: true, schatting: 90, deadline: dagPlus(5) });
+  T({ overzicht: "werk", project: pres.id, titel: "Testopstelling controleren", urgent: true, belangrijk: true, schatting: 90, deadline: dagPlus(5), locatie: "kantoor" });
   T({ overzicht: "werk", project: pres.id, titel: "Generale repetitie", urgent: false, belangrijk: true, schatting: 60, streef: dagPlus(5) });
   T({ overzicht: "werk", project: pres.id, titel: "Offerte-concept", urgent: false, belangrijk: true, schatting: 45, werkelijk: 70, status: "klaar", klaarOp: new Date().toISOString() });
 
@@ -172,10 +218,12 @@ function demoData() {
   T({ overzicht: "werk", titel: "Reiskosten declareren", urgent: true, belangrijk: false, schatting: 20, deadline: dagPlus(2) });
   T({ overzicht: "werk", titel: "Tijdschrijven bijwerken", schatting: 15, werkelijk: 25, status: "klaar", urgent: true, belangrijk: false });
 
-  const boot = P({ overzicht: "hobby", titel: "Boot winterklaar", urgent: false, belangrijk: true, deadline: dagPlus(20), schatting: 600 });
-  T({ overzicht: "hobby", project: boot.id, titel: "Motor conserveren", schatting: 180, belangrijk: true });
-  T({ overzicht: "hobby", project: boot.id, titel: "Zeilen naar zeilmaker", schatting: 90, belangrijk: true, urgent: true, deadline: dagPlus(8) });
-  T({ overzicht: "hobby", project: boot.id, titel: "Winterzeil bestellen", schatting: 30, werkelijk: 30, status: "klaar", belangrijk: true });
+  const boot = P({ overzicht: "boot", titel: "Boot winterklaar", urgent: false, belangrijk: true, deadline: dagPlus(20), schatting: 600 });
+  T({ overzicht: "boot", project: boot.id, titel: "Motor conserveren", schatting: 180, belangrijk: true });
+  T({ overzicht: "boot", project: boot.id, titel: "Zeilen naar zeilmaker", schatting: 90, belangrijk: true, urgent: true, deadline: dagPlus(8) });
+  T({ overzicht: "boot", project: boot.id, titel: "Winterzeil bestellen", schatting: 30, werkelijk: 30, status: "klaar", belangrijk: true, locatie: "thuis" });
+
+  T({ overzicht: "club", titel: "Wedstrijdkalender bespreken", schatting: 60, belangrijk: true, deadline: dagPlus(9) });
 
   T({ overzicht: "prive", titel: "Verzekering vergelijken", schatting: 60, belangrijk: true, streef: dagPlus(10) });
   T({ overzicht: "prive", titel: "Verjaardagscadeau regelen", schatting: 30, urgent: true, belangrijk: true, deadline: dagPlus(3) });

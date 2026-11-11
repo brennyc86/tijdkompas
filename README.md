@@ -4,7 +4,7 @@ Planner voor werk, privé en hobby's: projecten en taken, de Eisenhower-matrix (
 
 **Live:** https://brennyc86.github.io/tijdkompas/
 
-## Wat er nu al werkt (fase 1: lokaal, in de browser)
+## Wat er werkt
 
 | Wens | Status |
 |---|---|
@@ -16,19 +16,35 @@ Planner voor werk, privé en hobby's: projecten en taken, de Eisenhower-matrix (
 | Mails/links koppelen (Gmail, Outlook, Drive, SharePoint…) | ✅ plakken, bladwijzer-knop, „Delen” op Android |
 | Meerdere overzichten (werk/privé/hobby), los of gecombineerd tonen | ✅ |
 | Automatisch inroosteren in vrije tijd, per overzicht eigen werktijden | ✅ |
-| Bestaande afspraken ontwijken | ✅ via .ics-import (Google/Outlook-export) |
-| Planning naar Google Agenda / Outlook | ✅ .ics-export of per blok één klik |
+| Bestaande afspraken ontwijken | ✅ rechtstreeks uit Google/Outlook, of via .ics |
+| Planning naar Google Agenda / Outlook | ✅ automatisch per lijst, of .ics / per blok |
 | Inzicht: schatfactor, tijd per kwadrant | ✅ |
 | Back-up downloaden/terugzetten | ✅ |
 
-## Fase 2: inloggen, meerdere accounts, delen (volgt)
+## Lijsten, locaties en reistijd
 
-- Inloggen met Google (en Microsoft voor zakelijk Outlook).
-- Overzichten zijn gedeelde ruimtes met leden: je koppelt je zakelijke én privé-account aan hetzelfde overzicht; delen met anderen werkt op dezelfde manier. De „Delen…”-velden slaan dit nu al op.
-- Live synchronisatie tussen apparaten en mensen.
-- Agenda rechtstreeks via Google Calendar API / Microsoft Graph (vrije tijd lezen en blokken wegschrijven), zonder .ics.
+- **Lijsten** (werk, privé, boot, vereniging…) hebben een naam, kleur, standaardlocatie en een soort:
+  - **Vaste tijden** — eigen tijdvakken per dag, elk met een locatie (bijv. ma/di/do kantoor, wo/vr thuis). Taken alleen binnen die tijden; reistijd ervoor en erna gaat af van je vrije tijd.
+  - **Vrije tijd** — wordt gevuld met wat overblijft binnen je *beschikbaarheid*, na aftrek van vaste tijden, reistijd en afspraken. Op een locatie met reistijd krijgt elke sessie reis heen en terug, en taken op dezelfde plek worden achter elkaar gezet.
+- **Locaties** met reistijd (enkele reis vanaf huis) en optioneel adres; afspraken met een herkenbare plaats krijgen automatisch reistijd.
+- Een taak of project kan een eigen locatie hebben (bijv. „printen op kantoor” → alleen op kantoordagen).
 
-Eenmalige setup daarvoor: een Firebase-project (Auth + Firestore) of een Cloudflare Worker + D1, plus een OAuth-client in Google Cloud en een app-registratie in Azure voor Outlook.
+## Google en Outlook
+
+- **Inloggen met Google**: je planning wordt ook bewaard in je eigen Google Drive (verborgen app-map), dus op elk apparaat dezelfde.
+- **Meerdere accounts tegelijk**: Google (privé, tweede account) en Microsoft/Outlook (zakelijk, Office 365, outlook.com).
+- **Agenda's classificeren**: per agenda kies je *Bezet* (er wordt omheen gepland, optioneel gekoppeld aan een lijst), *Rooster van lijst* (de afspraken zíjn de vaste tijden van bijv. werk — voor wisselende diensten) of *Niet meetellen* (verjaardagen, feestdagen).
+- **Blokken terugzetten**: per lijst kies je een doelagenda; „In mijn agenda zetten” maakt, verschuift en verwijdert de blokken daar.
+
+### Eenmalige setup
+Beide diensten vragen een (openbaar) client-ID — de stappen staan in de app bij *Instellingen → Agenda's & accounts*. Vul ze in `js/config.js` in, dan hoeft niemand anders dit te doen.
+- Google Cloud: project, Calendar API + Drive API aan, OAuth-toestemmingsscherm (Extern, testgebruikers), OAuth-client *Webapplicatie* met oorsprong `https://brennyc86.github.io`.
+- Microsoft Entra: app-registratie voor *elke organisatie + persoonlijke accounts*, platform SPA, redirect `https://brennyc86.github.io/tijdkompas/auth.html`.
+
+Zolang de Google-app in *testmodus* staat, kunnen alleen toegevoegde testgebruikers (max. 100) inloggen; voor iedereen is Google-verificatie nodig (agenda-rechten zijn „gevoelig”).
+
+## Volgende stap
+Samen met anderen aan dezelfde lijst werken (delen) vraagt een gedeelde server (bijv. Firebase of een Cloudflare Worker); de „Delen…”-velden slaan wie erbij hoort al op.
 
 ## Snelinvoer
 
@@ -40,4 +56,4 @@ Eenmalige setup daarvoor: een Firebase-project (Auth + Firestore) of een Cloudfl
 
 ## Techniek
 
-Statische site zonder build-stap: `index.html`, `style.css`, `js/data.js` (model + opslag), `js/plan.js` (inroosteren, .ics, agenda-links), `js/app.js` (UI). Data staat in `localStorage`. De opslaglaag in `data.js` is de plek waar de cloud-adapter straks onder komt.
+Statische site zonder build-stap: `js/data.js` (model + opslag), `js/plan.js` (dagindeling, inroosteren, .ics), `js/koppeling.js` (Google Identity Services, MSAL, Calendar/Graph/Drive-API), `js/sync.js` (agenda's ophalen/wegschrijven, Drive-sync), `js/app.js` (UI). Geen eigen server: tokens blijven in de browser.

@@ -1,7 +1,9 @@
 // Tijdkompas — gebruikersinterface
 import { opslag, bewaar, KWADRANTEN, kwadrant, overzicht, project, taak, takenVan, projectVoortgang,
-         nieuweTaak, nieuwProject, werkBij, verwijder, koppel, rondAf, heropen, linkInfo, kalibratie, uid } from "./data.js";
-import { planAutomatisch, doelDatum, harde, prioriteit, googleLink, outlookLink, maakIcs, leesIcs, dagStr } from "./plan.js";
+         nieuweTaak, nieuwProject, werkBij, verwijder, koppel, rondAf, heropen, linkInfo, kalibratie, uid, locatie, effectieveLocatie } from "./data.js";
+import { planAutomatisch, doelDatum, harde, prioriteit, googleLink, outlookLink, maakIcs, leesIcs, dagStr, dagIndeling, eventSoort, SOORTEN } from "./plan.js";
+import { ids, zetIds, verbindingen, primair, isVerlopen, VerlopenFout, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, maakPrimair } from "./koppeling.js";
+import { verversAgendas, zetNaarAgendas, driveTrek, driveDuw, planDuw, driveStatus, wachtOpDrive } from "./sync.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -94,6 +96,7 @@ function itemRij(t, { toonProject = true, toonOv = true } = {}) {
     <div class="ibody"><div class="ititel">${esc(t.titel)}</div>
       <div class="imeta">${qTag(t)}${toonProject && p ? `<span class="tag proj">◆ ${esc(p.titel)}</span>` : ""}${datumTags(t)}
       ${toonOv && actieveOverzichten().length > 1 && ov ? `<span>${ov.icoon} ${esc(ov.naam)}</span>` : ""}
+      ${t.locatie && locatie(t.locatie) ? `<span title="Locatie">📍 ${esc(locatie(t.locatie).naam)}</span>` : ""}
       ${(t.gedeeldMet || []).length ? `<span title="Gedeeld">👥 ${t.gedeeldMet.length}</span>` : ""}</div></div>
     ${linkjes(t)}${duurTekst(t)}</div>`;
 }
@@ -136,13 +139,16 @@ function render() {
   const v = huidige();
   $$("#nav a").forEach(a => a.classList.toggle("actief", a.dataset.v === v));
   const scroll = window.scrollY;
-  main.innerHTML = weergaves[v]();
+  main.innerHTML = sessieBanner() + weergaves[v]();
   if (v === "matrix") activeerSlepen();
+  if (v === "agenda" && verbindingen().length && !doeOphalen.bezig && Date.now() - new Date(d().agendaSync || 0) > 15 * 60e3) {
+    doeOphalen.bezig = true; doeOphalen(true).finally(() => { doeOphalen.bezig = false; });
+  }
   window.scrollTo(0, scroll);
   renderAccount();
 }
 window.addEventListener("hashchange", () => { render(); window.scrollTo(0, 0); });
-opslag.luister(() => render());
+opslag.luister(({ stil } = {}) => { if (!stil) planDuw(); render(); });
 
 function demoBanner() {
   return d().demo ? `<div class="banner">🧭 Je kijkt naar <b>voorbeelddata</b>. Speel ermee — en begin schoon zodra je zover bent.
@@ -337,7 +343,7 @@ function taken() {
 }
 
 // ===== Agenda =====
-const UUR_VAN = 7, UUR_TOT = 23, UUR_H = 46;
+const UUR_VAN = 6, UUR_TOT = 24, UUR_H = 44;
 function agenda() {
   const mobiel = matchMedia("(max-width:860px)").matches;
   const nu = new Date();
@@ -347,51 +353,78 @@ function agenda() {
   const n = mobiel ? 3 : 7;
   const dagen = Array.from({ length: n }, (_, i) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + i));
   const act = actieveOverzichten();
-  const px = (iso, dag) => { const x = new Date(iso); return ((x - dag) / 36e5 - UUR_VAN) * UUR_H; };
+  const hoogte = (UUR_TOT - UUR_VAN) * UUR_H;
 
   const kolommen = dagen.map(dag => {
     const ds = dagStr(dag), eindDag = new Date(dag.getTime() + 864e5);
-    const vensters = d().overzichten.filter(o => act.includes(o.id)).flatMap(o => (o.tijden || []).filter(t => t.dagen.includes(dag.getDay()))
-      .map(t => { const [vh, vm] = t.van.split(":").map(Number), [th, tm] = t.tot.split(":").map(Number);
-        return `<div class="venster" style="--vk:${o.kleur};top:${(vh + vm / 60 - UUR_VAN) * UUR_H}px;height:${(th + tm / 60 - vh - vm / 60) * UUR_H}px" title="${esc(o.naam)}-tijd"></div>`; })).join("");
-    const inDag = (b) => new Date(b.start) < eindDag && new Date(b.eind) > dag;
-    const blok = (b, bezet) => {
-      const top = Math.max(0, px(b.start, dag)), h = Math.max(16, px(b.eind, dag) - top);
-      return `<div class="wblok ${bezet ? "bezet" : ""} ${b.vast ? "vast" : ""}" ${bezet ? "" : `data-blok="${b.id}"`} style="--ok:${ovKleur(b.overzicht)};top:${top}px;height:${h - 2}px" title="${esc(b.titel)} ${fmtTijd(b.start)}–${fmtTijd(b.eind)}">
-        <b>${esc(b.titel)}</b>${h > 30 ? `${fmtTijd(b.start)}–${fmtTijd(b.eind)}` : ""}</div>`;
+    const I = dagIndeling(dag);
+    const y = (t) => ((new Date(t) - dag) / 36e5 - UUR_VAN) * UUR_H;
+    const band = (a, b, cls, stijl, titel, inhoud = "", extra = "") => {
+      const t = Math.max(0, y(a)), h = Math.min(hoogte, y(b)) - t;
+      return h > 0 ? `<div class="${cls}" style="top:${t}px;height:${h}px;${stijl}" title="${esc(titel)}" ${extra}>${inhoud}</div>` : "";
     };
-    const nulijn = ds === dagStr(nu) && nu.getHours() >= UUR_VAN && nu.getHours() < UUR_TOT ? `<div class="nulijn" style="top:${px(nu.toISOString(), dag)}px"></div>` : "";
-    return `<div class="wdag ${ds === dagStr(nu) ? "vandaag" : ""}" style="height:${(UUR_TOT - UUR_VAN) * UUR_H}px;--uurH:${UUR_H}px">${vensters}
-      ${d().bezet.filter(inDag).map(b => blok(b, true)).join("")}
-      ${d().planning.filter(b => act.includes(b.overzicht)).filter(inDag).map(b => blok(b, false)).join("")}${nulijn}</div>`;
+    const inDag = (b) => new Date(b.start) < eindDag && new Date(b.eind) > dag;
+    const beschikb = I.beschikbaar.map(([a, b]) => band(a, b, "beschikb", "", "Beschikbaar")).join("");
+    const vast = I.vast.filter(v => act.includes(v.lijst)).map(v => {
+      const o = overzicht(v.lijst), l = locatie(v.locatie);
+      return band(v.a, v.b, "venster", `--vk:${o.kleur}`, `${o.naam}${l ? " · " + l.naam : ""}${v.bron === "rooster" ? " (rooster uit agenda)" : ""}`,
+        `<span class="vlabel">${o.icoon}${l ? " " + l.icoon : ""}</span>`);
+    }).join("");
+    const reis = [...I.reis, ...I.terPlekke.map(x => ({ ...x, terPlekke: true }))].filter(r => !r.lijst || act.includes(r.lijst)).map(r =>
+      band(r.a, r.b, r.terPlekke ? "reisband terplekke" : "reisband", "", r.terPlekke ? `Pauze ter plekke (${locatie(r.locatie)?.naam})` : `Reistijd ${r.richting} ${locatie(r.locatie)?.naam || ""}${r.afspraak ? " — " + r.afspraak : ""}`,
+        r.terPlekke ? "" : `<span>🚗</span>`)).join("");
+    const afspraken = d().bezet.filter(inDag).filter(ev => !ev.eigen && eventSoort(ev) === "bezet").map(ev => {
+      const k = d().agendas[ev.bron], kleur = k?.lijst ? ovKleur(k.lijst) : (k?.kleur || "var(--zacht)");
+      const t = Math.max(0, y(ev.start)), h = Math.max(16, Math.min(hoogte, y(ev.eind)) - t);
+      return `<div class="wblok bezet" style="--ak:${kleur};top:${t}px;height:${h - 2}px" title="${esc(ev.titel)} ${fmtTijd(ev.start)}–${fmtTijd(ev.eind)}${k ? " · " + esc(k.naam) : ""}${ev.plaats ? " · " + esc(ev.plaats) : ""}">
+        <b>${esc(ev.titel)}</b>${h > 30 ? `${fmtTijd(ev.start)}–${fmtTijd(ev.eind)}` : ""}</div>`;
+    }).join("");
+    const blokken = d().planning.filter(b => act.includes(b.overzicht)).filter(inDag).map(b => {
+      const t = Math.max(0, y(b.start)), h = Math.max(14, Math.min(hoogte, y(b.eind)) - t);
+      const inAgenda = d().extern?.[b.id];
+      return `<div class="wblok ${b.soort === "reis" ? "reis" : ""} ${b.vast ? "vast" : ""}" data-blok="${b.id}" style="--ok:${ovKleur(b.overzicht)};top:${t}px;height:${h - 2}px" title="${esc(b.titel)} ${fmtTijd(b.start)}–${fmtTijd(b.eind)}${inAgenda ? " · staat in je agenda" : ""}">
+        <b>${b.soort === "reis" ? "🚗 " : ""}${esc(b.titel)}</b>${h > 30 ? `${fmtTijd(b.start)}–${fmtTijd(b.eind)}${inAgenda ? " ✓" : ""}` : ""}</div>`;
+    }).join("");
+    const nulijn = ds === dagStr(nu) && nu.getHours() >= UUR_VAN && nu.getHours() < UUR_TOT ? `<div class="nulijn" style="top:${y(nu)}px"></div>` : "";
+    return `<div class="wdag ${ds === dagStr(nu) ? "vandaag" : ""}" style="height:${hoogte}px;--uurH:${UUR_H}px">${beschikb}${vast}${reis}${afspraken}${blokken}${nulijn}</div>`;
   }).join("");
 
   const toekomst = d().planning.filter(b => new Date(b.eind) > nu && act.includes(b.overzicht));
+  const metDoel = d().overzichten.some(o => o.doelAgenda);
   const titel = `${dagen[0].getDate()} ${MAAND[dagen[0].getMonth()]} – ${dagen[n - 1].getDate()} ${MAAND[dagen[n - 1].getMonth()]}`;
+  const gekoppeld = verbindingen().length > 0;
   return `<div class="titelbalk"><h1>Agenda</h1>
     <span class="chips"><button type="button" data-actie="week" data-w="-1">◀</button><button type="button" data-actie="week" data-w="0">Nu</button><button type="button" data-actie="week" data-w="1">▶</button></span>
     <span class="sub">${titel}</span>
     <div class="rechts">
       <button class="knop prim" data-actie="plan">⚡ Automatisch inplannen</button>
-      <button class="knop" data-actie="importIcs">📥 Agenda importeren</button>
-      <button class="knop" data-actie="exportIcs" ${toekomst.length ? "" : "disabled"}>📤 Naar agenda (.ics)</button>
-      <button class="knop klein gevaar" data-actie="wisPlanning" ${toekomst.length ? "" : "disabled"}>Wis planning</button>
+      ${gekoppeld ? `<button class="knop" data-actie="ophalen" title="${d().agendaSync ? "Laatst opgehaald " + new Date(d().agendaSync).toLocaleString("nl-NL", { weekday: "short", hour: "2-digit", minute: "2-digit" }) : ""}">🔄 Agenda's ophalen</button>` : ""}
+      ${gekoppeld && metDoel ? `<button class="knop" data-actie="naarAgenda" ${toekomst.length || Object.keys(d().extern || {}).length ? "" : "disabled"}>📤 In mijn agenda zetten</button>` : ""}
+      ${gekoppeld ? "" : `<a class="knop" href="#instellingen" data-tab="koppelingen">🔗 Google/Outlook koppelen</a>`}
+      <details class="meer"><summary class="knop">⋯</summary><div class="menu">
+        <button class="knop" data-actie="importIcs">📥 .ics importeren</button>
+        <button class="knop" data-actie="exportIcs" ${toekomst.length ? "" : "disabled"}>📤 .ics downloaden</button>
+        <button class="knop gevaar" data-actie="wisPlanning" ${toekomst.length ? "" : "disabled"}>Planning wissen</button>
+      </div></details>
     </div></div>
   ${laatsteWaarschuwingen.length ? `<div class="waarsch"><b>Let op:</b><ul>${laatsteWaarschuwingen.map(w => `<li>${esc(w)}</li>`).join("")}</ul></div>` : ""}
   <div class="week" style="--dagen:${n}" id="weekRaster">
     <div class="wkop"></div>${dagen.map(dag => `<div class="wkop ${dagStr(dag) === dagStr(nu) ? "vandaag" : ""}">${DAG[dag.getDay()]}<b>${dag.getDate()}</b></div>`).join("")}
-    <div class="uren" style="height:${(UUR_TOT - UUR_VAN) * UUR_H}px">${Array.from({ length: UUR_TOT - UUR_VAN }, (_, i) => i ? `<div style="top:${i * UUR_H}px">${UUR_VAN + i}:00</div>` : "").join("")}</div>
+    <div class="uren" style="height:${hoogte}px">${Array.from({ length: UUR_TOT - UUR_VAN }, (_, i) => i ? `<div style="top:${i * UUR_H}px">${UUR_VAN + i}:00</div>` : "").join("")}</div>
     ${kolommen}
   </div>
-  <div class="legenda"><span>▮ gekleurde band = werktijden per overzicht (instelbaar)</span><span>▨ = bezet uit geïmporteerde agenda</span><span>📌 = vastgezet blok (blijft staan bij herplannen)</span>
-    ${d().bezet.length ? `<span>${d().bezet.length} afspraken geïmporteerd · <a href="#" data-actie="wisBezet">wissen</a></span>` : ""}</div>
+  <div class="legenda"><span><i class="lg venster"></i> vaste tijden van een lijst</span><span><i class="lg reisband"></i> reistijd</span><span><i class="lg beschikb"></i> beschikbaar (vrije tijd)</span>
+    <span><i class="lg bezet"></i> afspraak uit je agenda</span><span>📌 vastgezet · ✓ staat in je agenda</span>
+    ${d().bezet.some(b => !verbindingVanBron(b.bron)) ? `<span>${d().bezet.filter(b => !verbindingVanBron(b.bron)).length} afspraken uit .ics · <a href="#" data-actie="wisBezet">wissen</a></span>` : ""}</div>
   <div class="paneel" style="margin-top:16px;font-size:13px;color:var(--meta)">
-    <b style="color:var(--tekst)">Zo werkt inplannen</b> — Tijdkompas zet open taken op volgorde van kwadrant en deadline/streefdatum en vult de vrije tijd binnen de werktijden van het bijbehorende overzicht (werk-taken in werktijd, privé-taken ’s avonds/weekend).
-    Lange taken worden in blokken van max ${d().instellingen.blokMax} min gehakt, met ${d().instellingen.buffer} min pauze ertussen, en een dag wordt voor hooguit ${d().instellingen.vulgraad}% gevuld zodat er ruimte blijft voor het onverwachte.
-    ${d().instellingen.kalibratie ? `Schattingen worden gecorrigeerd met je eigen schatfactor${kalibratie().n >= 3 ? ` (×${kalibratie().factor.toFixed(2)})` : ""}.` : ""}
-    Importeer eerst je Google- of Outlook-agenda (.ics) zodat bestaande afspraken worden ontweken; zet daarna de planning terug met „Naar agenda” of per blok.
+    <b style="color:var(--tekst)">Zo werkt inplannen</b> — Taken gaan op volgorde van kwadrant en deadline/streefdatum.
+    Lijsten met <b>vaste tijden</b> (zoals werk) krijgen alleen hun eigen tijdvakken; de reistijd naar die locatie gaat af van je vrije tijd.
+    Lijsten in de <b>vrije tijd</b> vullen wat er overblijft binnen je beschikbaarheid. Staat zo'n lijst of taak op een locatie met reistijd, dan plant Tijdkompas reis heen en terug en zet taken op dezelfde plek achter elkaar.
+    Blokken zijn hooguit ${d().instellingen.blokMax} min met ${d().instellingen.buffer} min pauze, en een dag wordt voor maximaal ${d().instellingen.vulgraad}% gevuld.
+    ${d().instellingen.kalibratie && kalibratie().n >= 3 ? `Schattingen worden gecorrigeerd met je schatfactor (×${kalibratie().factor.toFixed(2)}).` : ""}
   </div>`;
 }
+const verbindingVanBron = (bron) => verbindingen().some(v => String(bron).startsWith(v.id + "|"));
 
 // ===== Inzicht =====
 function inzicht() {
@@ -439,27 +472,79 @@ function inzicht() {
 
 // ===== Instellingen =====
 const DAGVOLGORDE = [1, 2, 3, 4, 5, 6, 0];
+const locOpties = (gekozen, leegTekst) => `<option value="">${esc(leegTekst)}</option>` +
+  d().locaties.map(l => `<option value="${l.id}" ${l.id === gekozen ? "selected" : ""}>${l.icoon} ${esc(l.naam)}${l.reistijd ? ` (${l.reistijd} min reizen)` : ""}</option>`).join("");
+function tijdrij(t, attr, metLocatie) {
+  return `<div class="tijdrij" ${attr}>
+    ${DAGVOLGORDE.map(dg => `<button type="button" class="dagknop" data-dag="${dg}" aria-pressed="${t.dagen.includes(dg)}">${DAG[dg]}</button>`).join("")}
+    <input type="time" value="${t.van}" data-veld="van" aria-label="Van"> tot <input type="time" value="${t.tot}" data-veld="tot" aria-label="Tot">
+    ${metLocatie ? `<select data-veld="locatie" aria-label="Locatie" style="width:auto">${locOpties(t.locatie || "", "geen vaste plek")}</select>` : ""}
+    <button type="button" class="x" data-actie="tijdWeg" title="Tijdvak verwijderen">✕</button></div>`;
+}
+function doelAgendaOpties(gekozen) {
+  const schrijfbaar = Object.entries(d().agendas).filter(([k, a]) => a.schrijf && verbindingVanBron(k));
+  return `<option value="">Niet in een agenda zetten</option>` + schrijfbaar.map(([k, a]) =>
+    `<option value="${esc(k)}" ${k === gekozen ? "selected" : ""}>${a.accountSoort === "ms" ? "Outlook" : "Google"} · ${esc(a.account)} · ${esc(a.naam)}</option>`).join("") +
+    (gekozen && !schrijfbaar.some(([k]) => k === gekozen) ? `<option value="${esc(gekozen)}" selected>(account niet gekoppeld op dit apparaat)</option>` : "");
+}
+
 function instellingen() {
-  const inst = d().instellingen;
-  const thema = voorkeur.lees("thema", "donker");
-  const bm = `javascript:(()=>{let t=document.title.replace(/ - [^-]*(Gmail|Outlook)[^-]*$/,'').replace(/^(Mail|E-mail) - /,'');window.open('${location.origin + location.pathname}?nieuw=1&titel='+encodeURIComponent(t)+'&url='+encodeURIComponent(location.href),'tijdkompas','width=720,height=820')})()`;
+  const tab = voorkeur.lees("instTab", "lijsten");
+  const tabs = [["lijsten", "📋 Lijsten"], ["locaties", "📍 Locaties & tijden"], ["koppelingen", "🔗 Agenda's & accounts"], ["overig", "⚙️ Overig"]];
+  const inhoud = { lijsten: instLijsten, locaties: instLocaties, koppelingen: instKoppelingen, overig: instOverig }[tab] || instLijsten;
   return `<div class="titelbalk"><h1>Instellingen</h1></div>
-  <h3>Overzichten</h3>
-  <p class="hint">Elk overzicht (werk, privé, hobby…) heeft eigen tijden waarin Tijdkompas mag inplannen. Bovenin kies je welke je toont: één, een combinatie, of alles.</p>
-  ${d().overzichten.map(o => `<div class="ovrij" data-ov="${o.id}">
+  <div class="tabs" data-actie="instTab">${tabs.map(([k, n]) => `<button type="button" data-w="${k}" aria-pressed="${k === tab}">${n}</button>`).join("")}</div>
+  ${inhoud()}`;
+}
+
+function instLijsten() {
+  return `<p class="hint">Elke lijst heeft een eigen naam, kleur en standaardlocatie. Kies per lijst of hij <b>vaste tijden</b> heeft (zoals werk of een clubavond)
+    of in je <b>vrije tijd</b> wordt ingepland. Bovenin de app kies je welke lijsten je ziet: één, een combinatie, of alles.</p>
+  ${d().overzichten.map(o => {
+    const l = locatie(o.locatie);
+    return `<div class="ovrij" data-ov="${o.id}">
     <input type="text" value="${esc(o.icoon)}" data-veld="icoon" aria-label="Icoon" style="text-align:center;padding:6px">
     <input type="color" value="${esc(o.kleur)}" data-veld="kleur" aria-label="Kleur">
-    <input type="text" value="${esc(o.naam)}" data-veld="naam" aria-label="Naam">
+    <input type="text" value="${esc(o.naam)}" data-veld="naam" aria-label="Naam" style="font-weight:600">
     <button class="knop klein gevaar" data-actie="ovWeg">Verwijderen</button>
-    <div class="tijden">${(o.tijden || []).map((t, i) => `<div class="tijdrij" data-i="${i}">
-      ${DAGVOLGORDE.map(dg => `<button type="button" class="dagknop" data-dag="${dg}" aria-pressed="${t.dagen.includes(dg)}">${DAG[dg]}</button>`).join("")}
-      <input type="time" value="${t.van}" data-veld="van"> tot <input type="time" value="${t.tot}" data-veld="tot">
-      <button type="button" class="x" data-actie="tijdWeg" title="Tijdvak verwijderen">✕</button></div>`).join("")}
-      <div><button type="button" class="knop klein" data-actie="tijdBij">＋ tijdvak</button>
-      ${(o.gedeeldMet || []).length ? `<span class="hint">👥 gedeeld met ${o.gedeeldMet.map(esc).join(", ")}</span>` : ""}
-      <button type="button" class="knop klein" data-actie="ovDelen">Delen…</button></div></div>
-  </div>`).join("")}
-  <button class="knop" data-actie="ovBij">＋ Overzicht toevoegen</button>
+    <div class="lijstopties">
+      <div class="segment" role="group" aria-label="Soort lijst">
+        <button type="button" data-actie="modus" data-w="vast" aria-pressed="${o.modus === "vast"}">🕘 Vaste tijden</button>
+        <button type="button" data-actie="modus" data-w="vrij" aria-pressed="${o.modus === "vrij"}">🌿 Vrije tijd</button>
+      </div>
+      <label class="veld">Standaardlocatie<select data-veld="locatie">${locOpties(o.locatie, "Geen vaste plek")}</select></label>
+      <label class="veld">Ingeplande blokken naar agenda<select data-veld="doelAgenda">${doelAgendaOpties(o.doelAgenda)}</select></label>
+    </div>
+    <div class="tijden">
+      ${o.modus === "vast" ? `${(o.tijden || []).map((t, i) => tijdrij(t, `data-i="${i}"`, true)).join("")}
+        <div><button type="button" class="knop klein" data-actie="tijdBij">＋ tijdvak</button>
+        <span class="hint">Bijv. ma/di/do op kantoor, wo/vr thuis. Reistijd naar de locatie gaat automatisch af van je vrije tijd.</span></div>`
+      : `<div class="hint">Wordt ingepland in je vrije tijd (zie <a href="#" data-actie="instTab" data-w="locaties">beschikbaarheid</a>), na aftrek van vaste tijden, reistijd en afspraken.
+         ${l?.reistijd ? `Elke sessie op ${esc(l.naam)} krijgt ${l.reistijd} min reistijd heen en terug; taken op dezelfde plek worden achter elkaar gezet.` : ""}</div>`}
+      <div>${(o.gedeeldMet || []).length ? `<span class="hint">👥 gedeeld met ${o.gedeeldMet.map(esc).join(", ")}</span> ` : ""}
+      <button type="button" class="knop klein" data-actie="ovDelen">Delen…</button></div>
+    </div>
+  </div>`; }).join("")}
+  <button class="knop" data-actie="ovBij">＋ Lijst toevoegen</button>`;
+}
+
+function instLocaties() {
+  const inst = d().instellingen;
+  return `<h3 style="margin-top:0">Locaties</h3>
+  <p class="hint">Reistijd = enkele reis vanaf huis, in minuten. Het adres (optioneel) gebruikt Tijdkompas om afspraken met die plaats te herkennen en er reistijd omheen te plannen.</p>
+  <div class="lijst">${d().locaties.map(l => `<div class="locrij" data-loc="${l.id}">
+    <input type="text" value="${esc(l.icoon)}" data-locveld="icoon" aria-label="Icoon" style="text-align:center;padding:6px">
+    <input type="text" value="${esc(l.naam)}" data-locveld="naam" aria-label="Naam">
+    <label class="veld klein">${l.id === "thuis" ? "Startpunt" : "Reistijd (min)"}${l.id === "thuis" ? `<input type="text" value="—" disabled>` : `<input type="number" min="0" step="5" value="${l.reistijd || 0}" data-locveld="reistijd">`}</label>
+    <input type="text" value="${esc(l.adres || "")}" data-locveld="adres" placeholder="adres of plaatsnaam (optioneel)" aria-label="Adres">
+    ${l.id === "thuis" ? "<span></span>" : `<button type="button" class="x" data-actie="locWeg" title="Verwijderen">✕</button>`}
+  </div>`).join("")}</div>
+  <button class="knop" data-actie="locBij" style="margin-top:8px">＋ Locatie</button>
+
+  <h3>Beschikbaarheid</h3>
+  <p class="hint">Wanneer ben je op z'n vroegst en laatst beschikbaar? Lijsten in de vrije tijd worden alleen hierbinnen ingepland — na aftrek van werk, reistijd en afspraken.</p>
+  <div class="paneel"><div class="tijden">${d().beschikbaar.map((t, i) => tijdrij(t, `data-besch="${i}"`, false)).join("")}
+    <div><button type="button" class="knop klein" data-actie="beschBij">＋ tijdvak</button></div></div></div>
 
   <h3>Inplannen</h3>
   <div class="paneel"><div class="rij" data-actie="inst">
@@ -472,18 +557,82 @@ function instellingen() {
   <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px" data-actie="inst">
     <label class="schakel"><input type="checkbox" name="kalibratie" ${inst.kalibratie ? "checked" : ""}> Schattingen corrigeren met mijn schatfactor</label>
     <label class="schakel"><input type="checkbox" name="schrappenInplannen" ${inst.schrappenInplannen ? "checked" : ""}> Ook kwadrant „Schrappen” inplannen</label>
-  </div></div>
+  </div></div>`;
+}
 
-  <h3>Mails koppelen</h3>
+function instKoppelingen() {
+  const id = ids(), lijst = verbindingen();
+  const setup = !id.google || !id.microsoft;
+  const agendasVan = (prefix) => Object.entries(d().agendas).filter(([k]) => k.startsWith(prefix));
+  const vasteLijsten = d().overzichten.filter(o => o.modus === "vast");
+  const agendaRij = ([k, a]) => `<div class="agendarij" data-agenda="${esc(k)}">
+    <span class="stip" style="background:${esc(a.kleur || "#888")}"></span>
+    <span class="anaam">${esc(a.naam)}${a.primair ? ` <small class="hint">hoofdagenda</small>` : ""}</span>
+    <select data-aveld="soort" aria-label="Wat staat erin">${Object.entries(SOORTEN).map(([s, x]) => `<option value="${s}" ${a.soort === s ? "selected" : ""} title="${esc(x.uitleg)}">${x.naam}</option>`).join("")}</select>
+    ${a.soort === "negeer" ? "<span></span>" : `<select data-aveld="lijst" aria-label="Lijst">${a.soort === "rooster"
+      ? `<option value="">— kies lijst —</option>` + vasteLijsten.map(o => `<option value="${o.id}" ${a.lijst === o.id ? "selected" : ""}>${o.icoon} ${esc(o.naam)}</option>`).join("")
+      : `<option value="">hoort bij: —</option>` + d().overzichten.map(o => `<option value="${o.id}" ${a.lijst === o.id ? "selected" : ""}>hoort bij: ${o.icoon} ${esc(o.naam)}</option>`).join("")}</select>`}
+    <span class="hint">${d().bezet.filter(e => e.bron === k).length || ""}</span>
+  </div>`;
+  const icsBronnen = [...new Set(d().bezet.filter(e => !verbindingVanBron(e.bron)).map(e => e.bron))];
+  icsBronnen.forEach(b => { d().agendas[b] ||= { naam: b, kleur: "#8a978e", soort: "bezet", lijst: "", ics: true }; });
+
+  return `${setup ? `<div class="paneel setup">
+    <b>Eenmalig instellen</b> — Google en Microsoft willen weten welke app er inlogt. Daarvoor is per dienst een (openbaar) client-ID nodig.
+    ${!id.google ? `<details><summary>Google-client-ID aanmaken (± 10 min)</summary><ol>
+      <li>Ga naar <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">console.cloud.google.com</a> en maak een project „Tijdkompas”.</li>
+      <li>Zet bij <i>API's en services → Bibliotheek</i> de <b>Google Calendar API</b> en <b>Google Drive API</b> aan.</li>
+      <li><i>OAuth-toestemmingsscherm</i>: type <b>Extern</b>, app-naam Tijdkompas, je e-mail; voeg bij <i>Testgebruikers</i> je eigen Google-accounts toe (en die van anderen die mogen testen).</li>
+      <li><i>Inloggegevens → Gegevens maken → OAuth-client-ID</i>: type <b>Webapplicatie</b>, bij <i>Geautoriseerde JavaScript-oorsprongen</i>: <code>${esc(location.origin)}</code></li>
+      <li>Kopieer het client-ID (eindigt op <code>.apps.googleusercontent.com</code>) hieronder.</li></ol></details>` : ""}
+    ${!id.microsoft ? `<details><summary>Microsoft-client-ID aanmaken (Outlook, ± 5 min)</summary><ol>
+      <li>Ga naar <a href="https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener">Microsoft Entra → App-registraties</a> → <b>Nieuwe registratie</b>.</li>
+      <li>Naam Tijdkompas; accounttypen: <b>Accounts in elke organisatiemap en persoonlijke Microsoft-accounts</b>.</li>
+      <li>Omleidings-URI: platform <b>Single-page application (SPA)</b>, adres <code>${esc(new URL("auth.html", location.href).href)}</code></li>
+      <li>Kopieer de <b>Toepassings-id (client-id)</b> hieronder. (API-machtigingen <i>Calendars.ReadWrite</i> en <i>User.Read</i> worden bij het inloggen gevraagd.)</li></ol></details>` : ""}
+    <div class="rij" style="margin-top:10px">
+      <label class="veld">Google-client-ID<input type="text" id="idGoogle" value="${esc(id.google)}" placeholder="…apps.googleusercontent.com"></label>
+      <label class="veld">Microsoft-client-ID<input type="text" id="idMs" value="${esc(id.microsoft)}" placeholder="00000000-0000-…"></label>
+    </div>
+    <div style="margin-top:8px"><button class="knop prim klein" data-actie="idsOpslaan">Opslaan</button>
+    <span class="hint">Stuur ze ook naar Brendan/de beheerder, dan komen ze vast in de app en hoeft niemand dit te doen.</span></div>
+  </div>` : ""}
+
+  <h3>Accounts</h3>
+  <div class="lijst">${lijst.map(v => `<div class="accrij" data-verb="${esc(v.id)}">
+    ${v.foto ? `<img class="avatar" src="${esc(v.foto)}" alt="" referrerpolicy="no-referrer">` : `<span class="avatar">${esc((v.naam || v.email)[0].toUpperCase())}</span>`}
+    <div class="ibody"><div class="ititel">${esc(v.naam)} <span class="tag">${v.soort === "ms" ? "Microsoft / Outlook" : "Google"}</span>${v.primair ? ` <span class="tag" title="Je planning wordt in de Google Drive van dit account bewaard">☁️ opslag</span>` : ""}</div>
+      <div class="imeta">${esc(v.email)}${isVerlopen(v) ? ` · <span style="color:var(--oranje)">sessie verlopen</span>` : ""}</div></div>
+    ${isVerlopen(v) ? `<button class="knop klein" data-actie="vernieuw">Opnieuw verbinden</button>` : ""}
+    ${v.soort === "google" && !v.primair ? `<button class="knop klein" data-actie="maakPrimair" title="Planning opslaan in de Drive van dit account">Gebruik voor opslag</button>` : ""}
+    <button class="knop klein gevaar" data-actie="ontkoppel">Ontkoppelen</button>
+  </div>`).join("") || `<div class="leeg">Nog geen accounts gekoppeld.</div>`}</div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+    <button class="knop" data-actie="koppelGoogle" ${id.google ? "" : "disabled"}>${googleLogo} Google-account koppelen</button>
+    <button class="knop" data-actie="koppelMs" ${id.microsoft ? "" : "disabled"}>${msLogo} Outlook / Microsoft 365 koppelen</button>
+  </div>
+  <p class="hint">Je kunt meerdere accounts tegelijk koppelen (bijv. zakelijk Outlook én privé Google). Alles komt samen in dezelfde lijsten.</p>
+
+  ${Object.keys(d().agendas).length ? `<h3>Agenda's — wat staat erin?</h3>
+  <p class="hint"><b>Bezet</b>: Tijdkompas plant eromheen (kies optioneel bij welke lijst ze horen, voor de kleur). <b>Rooster van lijst</b>: de afspraken zíjn de vaste tijden van die lijst (handig bij wisselende diensten). <b>Niet meetellen</b>: alleen ter info.
+  Afspraken met een plaats die overeenkomt met een van je locaties krijgen automatisch reistijd.</p>
+  ${lijst.map(v => { const r = agendasVan(v.id + "|"); return r.length ? `<div class="paneel agendagroep"><div class="hint" style="margin-bottom:6px">${v.soort === "ms" ? "Outlook" : "Google"} · ${esc(v.email)}</div>${r.map(agendaRij).join("")}</div>` : ""; }).join("")}
+  ${icsBronnen.length ? `<div class="paneel agendagroep"><div class="hint" style="margin-bottom:6px">Geïmporteerde .ics-bestanden</div>${icsBronnen.map(b => agendaRij([b, d().agendas[b]])).join("")}</div>` : ""}
+  <div style="margin-top:8px"><button class="knop" data-actie="ophalen">🔄 Agenda's ophalen</button>
+    <span class="hint">${d().agendaSync ? "Laatst: " + new Date(d().agendaSync).toLocaleString("nl-NL", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}</span></div>` : ""}`;
+}
+
+function instOverig() {
+  const thema = voorkeur.lees("thema", "donker");
+  const bm = `javascript:(()=>{let t=document.title.replace(/ - [^-]*(Gmail|Outlook)[^-]*$/,'').replace(/^(Mail|E-mail) - /,'');window.open('${location.origin + location.pathname}?nieuw=1&titel='+encodeURIComponent(t)+'&url='+encodeURIComponent(location.href),'tijdkompas','width=720,height=820')})()`;
+  return `<h3 style="margin-top:0">Mails koppelen</h3>
   <div class="paneel" style="display:flex;flex-direction:column;gap:10px;font-size:14px">
     <div>Sleep deze knop naar je bladwijzerbalk. Open een mail in Gmail of Outlook (web) en klik erop: er opent een nieuwe taak met de mail als link.</div>
     <div><a class="bookmarklet" href="${esc(bm)}" onclick="event.preventDefault();alert('Sleep deze knop naar je bladwijzerbalk.')">＋ Tijdkompas</a></div>
     <div class="hint">Op je telefoon: installeer Tijdkompas (menu → „Toevoegen aan startscherm”) en gebruik <b>Delen</b> vanuit je mail-app. Of plak gewoon de link van een mail in een taak.</div>
   </div>
-
   <h3>Weergave</h3>
   <div class="chips" data-actie="thema">${[["donker", "🌙 Donker"], ["licht", "☀️ Licht"]].map(([v, n]) => `<button type="button" data-w="${v}" style="${thema === v ? "border-color:var(--accent);color:var(--accent)" : ""}">${n}</button>`).join("")}</div>
-
   <h3>Gegevens</h3>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     <button class="knop" data-actie="exportJson">⬇ Back-up downloaden</button>
@@ -491,36 +640,106 @@ function instellingen() {
     <button class="knop" data-actie="demo">Voorbeelddata laden</button>
     <button class="knop gevaar" data-actie="leeg">Alles wissen</button>
   </div>
-  <p class="hint">Op dit moment staat alles alleen in deze browser. Zie „Account” rechtsboven voor inloggen en samenwerken.</p>`;
+  <p class="hint">${primair() ? `Je planning staat in deze browser én in de Google Drive van ${esc(primair().email)} (verborgen app-map), zodat je op elk apparaat verder kunt.` : "Je planning staat alleen in deze browser. Log in met Google om hem op al je apparaten te hebben."}</p>`;
 }
+
+const googleLogo = `<svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>`;
+const msLogo = `<svg width="16" height="16" viewBox="0 0 23 23" aria-hidden="true"><path fill="#f35325" d="M1 1h10v10H1z"/><path fill="#81bc06" d="M12 1h10v10H12z"/><path fill="#05a6f0" d="M1 12h10v10H1z"/><path fill="#ffba08" d="M12 12h10v10H12z"/></svg>`;
 
 // ---------- account ----------
 function renderAccount() {
-  const k = $("#accountKnop");
-  k.querySelector(".accountTekst").textContent = "Lokaal";
-  k.querySelector(".avatar").textContent = "⌂";
+  const k = $("#accountKnop"), p = primair();
+  const status = driveStatus.bezig ? "⟳" : driveStatus.fout ? "!" : "";
+  k.querySelector(".accountTekst").textContent = p ? (p.naam || p.email).split(" ")[0] + (status ? " " + status : "") : "Inloggen";
+  k.querySelector(".avatar").innerHTML = p?.foto ? `<img src="${esc(p.foto)}" alt="" referrerpolicy="no-referrer">` : p ? esc(p.naam[0]) : "⌂";
+  k.title = p ? `${p.email}${driveStatus.tekst ? " · " + driveStatus.tekst : ""}${driveStatus.fout && driveStatus.fout !== "wacht" ? " · fout: " + driveStatus.fout : ""}` : "Inloggen met Google";
 }
 $("#accountKnop").addEventListener("click", () => {
-  dlg.innerHTML = `<form method="dialog"><div class="dkop"><h2>Account &amp; samenwerken</h2><button type="button" class="sluit" data-sluit aria-label="Sluiten">×</button></div>
+  const p = primair(), id = ids();
+  dlg.innerHTML = `<form method="dialog"><div class="dkop"><h2>${p ? "Account" : "Inloggen"}</h2><button type="button" class="sluit" data-sluit aria-label="Sluiten">×</button></div>
   <div class="dlijf">
-    <div class="banner" style="margin:0">⌂ <span><b>Lokale modus</b> — je planning staat nu alleen in deze browser.</span></div>
-    <button class="knop" type="button" disabled style="justify-content:center;padding:10px">
-      <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
-      Inloggen met Google <small>(volgt)</small></button>
+    ${p ? `<div class="accrij">${p.foto ? `<img class="avatar" src="${esc(p.foto)}" alt="" referrerpolicy="no-referrer">` : `<span class="avatar">${esc(p.naam[0])}</span>`}
+        <div class="ibody"><div class="ititel">${esc(p.naam)}</div><div class="imeta">${esc(p.email)}</div></div></div>
+      <div class="hint">☁️ ${driveStatus.fout === "wacht" || isVerlopen(p) ? "Sessie verlopen — wijzigingen staan klaar om op te slaan." : driveStatus.fout ? "Opslaan mislukt: " + esc(driveStatus.fout) : driveStatus.tekst || "Gekoppeld aan je Google Drive."}</div>
+      ${isVerlopen(p) ? `<button type="button" class="knop prim" data-dactie="vernieuwPrimair">Opnieuw verbinden</button>` : ""}`
+    : `<button type="button" class="knop prim" data-dactie="login" style="justify-content:center;padding:10px" ${id.google ? "" : "disabled"}>${googleLogo} Inloggen met Google</button>
+      ${id.google ? "" : `<div class="hint">De Google-koppeling moet eenmalig worden ingesteld (client-ID). <a href="#instellingen" data-dactie="naarKoppelingen">Hoe?</a></div>`}`}
     <div class="paneel" style="font-size:14px;line-height:1.55">
-      <b>Wat er met inloggen bij komt</b>
+      <b>Wat inloggen doet</b>
       <ul style="margin:6px 0 0;padding-left:18px">
-        <li>Inloggen met Google of Microsoft; anderen kunnen ook een eigen planner maken.</li>
-        <li><b>Meerdere accounts, één planner</b>: je zakelijke en privé-account koppel je aan dezelfde overzichten.</li>
-        <li><b>Delen</b>: een overzicht, project of losse taak delen met anderen en er samen aan werken (live bijgewerkt).</li>
-        <li><b>Agenda direct</b>: vrije tijd lezen uit Google Agenda / Outlook en blokken er rechtstreeks in zetten — geen .ics meer nodig.</li>
+        <li>Je planning wordt bewaard in je eigen Google Drive (verborgen app-map) — op elk apparaat dezelfde.</li>
+        <li>Je Google-agenda's worden gelezen; ingeplande blokken kun je er met één klik in zetten.</li>
+        <li>Koppel er daarna gerust meer accounts bij: zakelijk Outlook, een tweede Google-account…</li>
       </ul>
-      <p class="hint" style="margin-bottom:0">De „Delen…”-knoppen werken al: wie je toevoegt, wordt uitgenodigd zodra inloggen actief is.</p>
+      <p class="hint" style="margin-bottom:0">Samen aan dezelfde lijst werken met anderen vraagt een gedeelde server — dat is de volgende stap.</p>
     </div>
-    <a class="knop" href="#instellingen" style="justify-content:center">⚙️ Instellingen</a>
+    <a class="knop" href="#instellingen" data-dactie="naarKoppelingen" style="justify-content:center">🔗 Agenda's &amp; accounts</a>
+    ${p ? `<button type="button" class="knop gevaar" data-dactie="uitloggen">Uitloggen op dit apparaat</button>` : ""}
   </div></form>`;
+  dlg.onclick = (e) => {
+    const a = e.target.closest("[data-dactie]")?.dataset.dactie;
+    if (a === "login") { dlg.close(); doeKoppelGoogle(); }
+    else if (a === "vernieuwPrimair") { dlg.close(); doeVernieuw(primair()); }
+    else if (a === "naarKoppelingen") { voorkeur.zet("instTab", "koppelingen"); dlg.close(); if (location.hash === "#instellingen") render(); }
+    else if (a === "uitloggen") { if (confirm("Uitloggen op dit apparaat? Je planning blijft in je Google Drive staan.")) { ontkoppel(primair()).then(() => { dlg.close(); render(); toast("Uitgelogd"); }); } }
+  };
+  dlg.onclose = () => { dlg.onclick = null; dlg.onclose = null; };
   dlg.showModal();
 });
+
+// ---------- koppel-acties ----------
+const verlopenSessies = new Map();
+function sessieBanner() {
+  const lijst = [...verlopenSessies.values()].filter(v => verbindingen().some(x => x.id === v.id));
+  return lijst.map(v => `<div class="banner">🔑 De sessie van <b>${esc(v.email)}</b> is verlopen.<button class="knop klein" data-actie="vernieuw" data-verbid="${esc(v.id)}">Opnieuw verbinden</button></div>`).join("");
+}
+async function doeKoppelGoogle() {
+  try {
+    const v = await koppelGoogle();
+    toast(`Verbonden met ${v.email}`);
+    if (!v.rechten?.agenda) toast("Let op: je hebt geen toegang tot je agenda gegeven");
+    if (v.primair) await startDrive();
+    await doeOphalen(true);
+  } catch (e) { toast(e.message); }
+  render();
+}
+async function doeKoppelMs() {
+  try { const v = await koppelMs(); toast(`Verbonden met ${v.email}`); await doeOphalen(true); }
+  catch (e) { toast(e.message || String(e)); }
+  render();
+}
+async function doeVernieuw(v) {
+  if (!v) return;
+  try {
+    await vernieuw(v); verlopenSessies.delete(v.id);
+    toast("Opnieuw verbonden");
+    if (v.primair) { await startDrive(); if (wachtOpDrive()) await driveDuw(); }
+    await doeOphalen(true);
+  } catch (e) { toast(e.message); }
+  render();
+}
+async function doeOphalen(stil = false) {
+  if (!verbindingen().length) return;
+  const r = await verversAgendas();
+  r.verlopen.forEach(v => verlopenSessies.set(v.id, v));
+  if (r.fouten.length) toast(r.fouten[0]);
+  else if (!stil) toast(`Agenda's opgehaald (${d().bezet.filter(b => verbindingVanBron(b.bron)).length} afspraken)`);
+}
+async function doeNaarAgenda() {
+  const r = await zetNaarAgendas();
+  r.verlopen.forEach(v => verlopenSessies.set(v.id, v));
+  if (r.fouten.length) toast(r.fouten[0]);
+  else toast(`Agenda bijgewerkt: ${r.nieuw} nieuw, ${r.bij} gewijzigd, ${r.weg} verwijderd${r.verlopen.length ? " — log opnieuw in voor de rest" : ""}`);
+  render();
+}
+async function startDrive() {
+  try {
+    const r = await driveTrek((online, lokaal) => Promise.resolve(confirm(
+      `Er staat al een planning in je Google Drive (gewijzigd ${new Date(online).toLocaleString("nl-NL")}), en op dit apparaat is ook iets veranderd (${new Date(lokaal).toLocaleString("nl-NL")}).\n\nOK = de versie uit Google Drive gebruiken\nAnnuleren = de versie van dit apparaat bewaren (overschrijft Drive)`)));
+    if (r === "opgehaald") toast("Planning opgehaald uit Google Drive");
+  } catch (e) { if (e instanceof VerlopenFout) verlopenSessies.set(e.verbinding.id, e.verbinding); else toast("Drive: " + e.message); }
+  renderAccount();
+}
 
 // ---------- editor ----------
 function openEditor(item, standaard = {}) {
@@ -546,6 +765,9 @@ function openEditor(item, standaard = {}) {
       <div class="rij">
         <label class="veld">Overzicht<select name="overzicht">${d().overzichten.map(o => `<option value="${o.id}" ${o.id === c.overzicht ? "selected" : ""}>${o.icoon} ${esc(o.naam)}</option>`).join("")}</select></label>
         ${isProj ? "" : `<label class="veld">Project<select name="project"><option value="">— losse taak —</option>${d().projecten.filter(p => p.status !== "klaar" || p.id === c.project).map(p => `<option value="${p.id}" ${p.id === c.project ? "selected" : ""}>◆ ${esc(p.titel)}</option>`).join("")}</select></label>`}
+        <label class="veld">📍 Locatie<select name="locatie">${(() => { const volg = locatie(effectieveLocatie({ ...c, locatie: "" }));
+          return `<option value="">${volg ? "Zoals " + (c.project && !isProj ? "project/" : "") + "lijst: " + esc(volg.naam) : "Geen vaste plek"}</option>` +
+            d().locaties.map(l => `<option value="${l.id}" ${l.id === c.locatie ? "selected" : ""}>${l.icoon} ${esc(l.naam)}${l.reistijd ? ` (${l.reistijd} min)` : ""}</option>`).join(""); })()}</select></label>
       </div>
       <div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">Urgent / belangrijk</div>
         <div class="minimatrix">${["doen", "plannen", "delegeren", "schrappen"].map(k => `<button type="button" data-q="${k}" style="--qk:${qKleur(k)}" aria-pressed="${k === q}"><b style="color:${qKleur(k)}">${KWADRANTEN[k].naam}</b><small>${KWADRANTEN[k].sub}</small></button>`).join("")}</div></div>
@@ -588,7 +810,7 @@ function openEditor(item, standaard = {}) {
   const lees = () => {
     const f = $("#editForm"); if (!f) return;
     c.titel = f.titel.value.trim(); c.overzicht = f.overzicht.value; c.notitie = f.notitie.value;
-    c.deadline = f.deadline.value; c.streef = f.streef.value;
+    c.deadline = f.deadline.value; c.streef = f.streef.value; c.locatie = f.locatie.value;
     c.schatting = leesDuur(f.schatting.value); c.werkelijk = leesDuur(f.werkelijk.value);
     if (f.project) c.project = f.project.value || null;
   };
@@ -597,7 +819,7 @@ function openEditor(item, standaard = {}) {
     if (!c.titel) { $("#editForm").titel.focus(); return false; }
     const opdeling = $("#editForm").opdeling?.value || "";
     const velden = { titel: c.titel, overzicht: c.overzicht, notitie: c.notitie, deadline: c.deadline, streef: c.streef, schatting: c.schatting,
-                     werkelijk: c.werkelijk, urgent: c.urgent, belangrijk: c.belangrijk, links: c.links, gedeeldMet: c.gedeeldMet };
+                     werkelijk: c.werkelijk, urgent: c.urgent, belangrijk: c.belangrijk, links: c.links, gedeeldMet: c.gedeeldMet, locatie: c.locatie || "" };
     if (nieuw) {
       if (isProj) {
         const p = nieuwProject(velden);
@@ -685,7 +907,9 @@ function openBlok(id) {
   const it = b.type === "project" ? project(b.item) : taak(b.item);
   dlg2.innerHTML = `<form method="dialog"><div class="dkop"><span class="soort" style="color:${ovKleur(b.overzicht)}">Ingepland blok</span><button type="button" class="sluit" data-sluit aria-label="Sluiten">×</button></div>
     <div class="dlijf"><h2>${esc(b.titel)}</h2>
-      <div class="hint">${DAG[new Date(b.start).getDay()]} ${new Date(b.start).getDate()} ${MAAND[new Date(b.start).getMonth()]} · ${fmtTijd(b.start)}–${fmtTijd(b.eind)}</div>
+      <div class="hint">${DAG[new Date(b.start).getDay()]} ${new Date(b.start).getDate()} ${MAAND[new Date(b.start).getMonth()]} · ${fmtTijd(b.start)}–${fmtTijd(b.eind)}${b.locatie && locatie(b.locatie) ? " · 📍 " + esc(locatie(b.locatie).naam) : ""}</div>
+      ${d().extern?.[b.id] ? `<div class="hint">✓ Staat in je agenda (${esc(d().agendas[d().extern[b.id].bron]?.naam || "")})</div>`
+        : overzicht(b.overzicht)?.doelAgenda ? `<div class="hint">Komt in je agenda bij „📤 In mijn agenda zetten”.</div>` : ""}
       <div class="chips"><a class="knop" target="_blank" rel="noopener" href="${esc(googleLink(b))}">＋ Google Agenda</a>
         <a class="knop" target="_blank" rel="noopener" href="${esc(outlookLink(b, true))}">＋ Outlook (werk/school)</a>
         <a class="knop" target="_blank" rel="noopener" href="${esc(outlookLink(b, false))}">＋ Outlook.com</a></div>
@@ -746,6 +970,8 @@ function kiesBestand(accept) {
 // ---------- event-delegatie in hoofdvenster ----------
 main.addEventListener("click", async (e) => {
   if (e.target.closest("a[href^='http']")) return;
+  const tabLink = e.target.closest("[data-tab]");
+  if (tabLink) { voorkeur.zet("instTab", tabLink.dataset.tab); }
   const vink = e.target.closest(".vink");
   const el = e.target.closest("[data-actie]");
   if (vink) {
@@ -781,14 +1007,44 @@ main.addEventListener("click", async (e) => {
       }
       bewaar(); toast(`${n} afspraken geïmporteerd${herh ? ` (${herh} herhalende: alleen eerste keer)` : ""}`);
     }
-    else if (a === "wisBezet") { e.preventDefault(); d().bezet = []; bewaar(); }
+    else if (a === "wisBezet") { e.preventDefault(); d().bezet = d().bezet.filter(b => verbindingVanBron(b.bron)); bewaar(); }
     else if (a === "exportJson") download(`tijdkompas-backup-${vandaagStr()}.json`, JSON.stringify(d(), null, 1), "application/json");
     else if (a === "importJson") {
       const [b] = await kiesBestand(".json,application/json"); if (!b) return;
       try { const x = JSON.parse(b.tekst); if (!Array.isArray(x.taken)) throw 0; if (confirm("Huidige gegevens vervangen door deze back-up?")) { opslag.vervang(x); toast("Back-up teruggezet"); } }
       catch { toast("Dit is geen geldige Tijdkompas-back-up"); }
     }
-    else if (a === "ovBij") { d().overzichten.push({ id: uid(), naam: "Nieuw overzicht", kleur: "#c48ed8", icoon: "📁", tijden: [{ dagen: [6], van: "10:00", tot: "12:00" }] }); bewaar(); }
+    else if (a === "ovBij") { d().overzichten.push({ id: uid(), naam: "Nieuwe lijst", kleur: "#c48ed8", icoon: "📁", modus: "vrij", locatie: "", doelAgenda: null, tijden: [] }); bewaar(); }
+    else if (a === "instTab" && w) { e.preventDefault(); voorkeur.zet("instTab", w); render(); window.scrollTo(0, 0); }
+    else if (a === "modus" && w) {
+      const o = overzicht(el.closest("[data-ov]").dataset.ov); o.modus = w;
+      if (w === "vast" && !o.tijden?.length) o.tijden = [{ dagen: [1, 2, 3, 4, 5], van: "09:00", tot: "17:00", locatie: o.locatie || "" }];
+      bewaar();
+    }
+    else if (a === "locBij") { d().locaties.push({ id: uid(), naam: "Nieuwe locatie", icoon: "📍", reistijd: 15, adres: "" }); bewaar(); }
+    else if (a === "locWeg") {
+      const id = el.closest("[data-loc]").dataset.loc, l = locatie(id);
+      const n = [...d().taken, ...d().projecten, ...d().overzichten].filter(x => x.locatie === id).length + d().overzichten.reduce((s, o) => s + (o.tijden || []).filter(t => t.locatie === id).length, 0);
+      if (confirm(`Locatie „${l.naam}” verwijderen?${n ? `\nDie wordt nog ${n}× gebruikt; daar wordt het „geen vaste plek”.` : ""}`)) {
+        [...d().taken, ...d().projecten, ...d().overzichten].forEach(x => { if (x.locatie === id) x.locatie = ""; });
+        d().overzichten.forEach(o => (o.tijden || []).forEach(t => { if (t.locatie === id) t.locatie = ""; }));
+        d().locaties = d().locaties.filter(x => x !== l); bewaar();
+      }
+    }
+    else if (a === "beschBij") { d().beschikbaar.push({ dagen: [6, 0], van: "09:00", tot: "22:00" }); bewaar(); }
+    else if (a === "idsOpslaan") { zetIds({ google: $("#idGoogle").value.trim(), microsoft: $("#idMs").value.trim() }); voorbereiden(); toast("Opgeslagen"); render(); }
+    else if (a === "koppelGoogle") doeKoppelGoogle();
+    else if (a === "koppelMs") doeKoppelMs();
+    else if (a === "vernieuw") { const id = el.dataset.verbid || el.closest("[data-verb]")?.dataset.verb; doeVernieuw(verbindingen().find(v => v.id === id)); }
+    else if (a === "maakPrimair") { const v = verbindingen().find(x => x.id === el.closest("[data-verb]").dataset.verb); maakPrimair(v); toast("Planning wordt nu in de Drive van " + v.email + " bewaard"); startDrive().then(render); }
+    else if (a === "ontkoppel") {
+      const v = verbindingen().find(x => x.id === el.closest("[data-verb]").dataset.verb);
+      if (confirm(`${v.email} ontkoppelen? Afspraken uit dit account worden niet meer meegenomen.`)) {
+        await ontkoppel(v); d().bezet = d().bezet.filter(b => !String(b.bron).startsWith(v.id + "|")); bewaar(); toast("Ontkoppeld");
+      }
+    }
+    else if (a === "ophalen") { el.disabled = true; await doeOphalen(); render(); }
+    else if (a === "naarAgenda") { el.disabled = true; await doeNaarAgenda(); }
     else if (a === "ovWeg") {
       const o = overzicht(el.closest("[data-ov]").dataset.ov);
       const n = d().taken.filter(t => t.overzicht === o.id).length + d().projecten.filter(p => p.overzicht === o.id).length;
@@ -796,18 +1052,24 @@ main.addEventListener("click", async (e) => {
       if (n) { toast(`Verplaats eerst de ${n} taken/projecten in „${o.naam}”`); return; }
       if (confirm(`Overzicht „${o.naam}” verwijderen?`)) { d().overzichten = d().overzichten.filter(x => x !== o); bewaar(); }
     }
-    else if (a === "tijdBij") { const o = overzicht(el.closest("[data-ov]").dataset.ov); o.tijden.push({ dagen: [1, 2, 3, 4, 5], van: "09:00", tot: "12:00" }); bewaar(); }
-    else if (a === "tijdWeg") { const o = overzicht(el.closest("[data-ov]").dataset.ov); o.tijden.splice(+el.closest("[data-i]").dataset.i, 1); bewaar(); }
+    else if (a === "tijdBij") { const o = overzicht(el.closest("[data-ov]").dataset.ov); o.tijden.push({ dagen: [1, 2, 3, 4, 5], van: "09:00", tot: "17:00", locatie: o.locatie || "" }); bewaar(); }
+    else if (a === "tijdWeg") {
+      const b = el.closest("[data-besch]");
+      if (b) { if (d().beschikbaar.length > 1) d().beschikbaar.splice(+b.dataset.besch, 1); else toast("Er moet minstens één tijdvak blijven"); }
+      else overzicht(el.closest("[data-ov]").dataset.ov).tijden.splice(+el.closest("[data-i]").dataset.i, 1);
+      bewaar();
+    }
     else if (a === "ovDelen") {
       const o = overzicht(el.closest("[data-ov]").dataset.ov);
-      const m = prompt(`Overzicht „${o.naam}” delen met (e-mailadres, of je eigen tweede account):`, "");
-      if (m && /^\S+@\S+\.\S+$/.test(m.trim())) { o.gedeeldMet = [...new Set([...(o.gedeeldMet || []), m.trim().toLowerCase()])]; bewaar(); toast("Toegevoegd — uitnodiging volgt zodra inloggen actief is"); }
+      const m = prompt(`Lijst „${o.naam}” delen met (e-mailadres):`, "");
+      if (m && /^\S+@\S+\.\S+$/.test(m.trim())) { o.gedeeldMet = [...new Set([...(o.gedeeldMet || []), m.trim().toLowerCase()])]; bewaar(); toast("Toegevoegd — samenwerken met anderen volgt in de volgende stap"); }
     }
     return;
   }
   const dag = e.target.closest(".dagknop");
   if (dag) {
-    const o = overzicht(dag.closest("[data-ov]").dataset.ov), t = o.tijden[+dag.closest("[data-i]").dataset.i], x = +dag.dataset.dag;
+    const b = dag.closest("[data-besch]");
+    const t = b ? d().beschikbaar[+b.dataset.besch] : overzicht(dag.closest("[data-ov]").dataset.ov).tijden[+dag.closest("[data-i]").dataset.i], x = +dag.dataset.dag;
     t.dagen = t.dagen.includes(x) ? t.dagen.filter(y => y !== x) : [...t.dagen, x]; bewaar(); return;
   }
   const blok = e.target.closest("[data-blok]");
@@ -822,18 +1084,32 @@ main.addEventListener("submit", (e) => {
   if (t) { toast(`„${t.titel}” toegevoegd${t.project ? " aan " + project(t.project).titel : ""}`); setTimeout(() => $(".snel input")?.focus(), 0); }
 });
 main.addEventListener("change", (e) => {
+  const bes = e.target.closest("[data-besch]"), loc = e.target.closest("[data-loc]"), ag = e.target.closest("[data-agenda]");
+  if (bes && e.target.dataset.veld) { d().beschikbaar[+bes.dataset.besch][e.target.dataset.veld] = e.target.value; bewaar(); return; }
+  if (loc && e.target.dataset.locveld) {
+    const l = locatie(loc.dataset.loc), k = e.target.dataset.locveld;
+    l[k] = k === "reistijd" ? Math.max(0, +e.target.value || 0) : e.target.value; bewaar(); return;
+  }
+  if (ag && e.target.dataset.aveld) {
+    const a = d().agendas[ag.dataset.agenda]; a[e.target.dataset.aveld] = e.target.value;
+    if (e.target.dataset.aveld === "soort") a.lijst = "";
+    bewaar();
+    if (e.target.dataset.aveld === "soort" && verbindingVanBron(ag.dataset.agenda)) doeOphalen(true).then(render);
+    return;
+  }
+  const ov0 = e.target.closest("[data-ov]");
+  if (ov0 && e.target.dataset.veld) {
+    const o = overzicht(ov0.dataset.ov), veld = e.target.dataset.veld, rij = e.target.closest("[data-i]");
+    const waarde = veld === "doelAgenda" ? (e.target.value || null) : e.target.value;
+    if (rij) o.tijden[+rij.dataset.i][veld] = waarde; else o[veld] = waarde;
+    bewaar(); return;
+  }
   const g = e.target.closest("[data-actie]"); if (!g) return;
   if (g.dataset.actie === "takenFilter" && e.target.name !== "zoek") {
     const f = voorkeur.lees("takenFilter", { status: "open", groep: "project", zoek: "" }); f[e.target.name] = e.target.value; voorkeur.zet("takenFilter", f); render();
   } else if (g.dataset.actie === "inst") {
     d().instellingen[e.target.name] = e.target.type === "checkbox" ? e.target.checked : Math.max(0, +e.target.value || 0); bewaar();
   } else if (g.dataset.actie === "toonKlaarProj") { voorkeur.zet("toonKlaarProj", e.target.checked); render(); }
-  const ov = e.target.closest("[data-ov]");
-  if (ov && e.target.dataset.veld) {
-    const o = overzicht(ov.dataset.ov), veld = e.target.dataset.veld, rij = e.target.closest("[data-i]");
-    if (rij) o.tijden[+rij.dataset.i][veld] = e.target.value; else o[veld] = e.target.value;
-    bewaar();
-  }
 });
 main.addEventListener("input", (e) => {
   if (e.target.name === "zoek") {
@@ -856,6 +1132,19 @@ function zetThema() { document.documentElement.dataset.theme = voorkeur.lees("th
 // ---------- start ----------
 zetThema();
 render();
+voorbereiden();
+if (primair()) {
+  if (isVerlopen(primair())) verlopenSessies.set(primair().id, primair());
+  else startDrive().then(() => { if (Date.now() - new Date(d().agendaSync || 0) > 15 * 60e3) doeOphalen(true).then(render); });
+}
+// Terug naar het tabblad: kijk of een ander apparaat iets heeft veranderd
+let laatsteFocus = Date.now();
+window.addEventListener("focus", () => {
+  if (Date.now() - laatsteFocus < 120e3) return;
+  laatsteFocus = Date.now();
+  const p = primair(); if (p && !isVerlopen(p)) startDrive();
+});
+setInterval(renderAccount, 5000);
 
 // Gedeelde link / bookmarklet / Android-delen: ?nieuw=1&titel=…&url=…&tekst=…
 (() => {
