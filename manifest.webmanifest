@@ -1,0 +1,17 @@
+{
+  "name": "Tijdkompas",
+  "short_name": "Tijdkompas",
+  "description": "Planner voor werk, privé en hobby met Eisenhower-matrix en automatisch inroosteren.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0f2419",
+  "theme_color": "#0f2419",
+  "lang": "nl",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }],
+  "share_target": {
+    "action": "./",
+    "method": "GET",
+    "params": { "title": "titel", "text": "tekst", "url": "url" }
+  }
+}

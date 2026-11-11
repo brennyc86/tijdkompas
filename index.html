@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Tijdkompas</title>
+<meta name="description" content="Planner voor werk, privé en hobby: projecten, taken, Eisenhower-matrix en automatisch inroosteren in je agenda.">
+<meta name="theme-color" content="#0f2419">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="kop">
+  <a class="merk" href="#vandaag" title="Tijdkompas">
+    <span class="kompas" aria-hidden="true"></span>
+    <span class="merknaam">Tijdkompas</span>
+  </a>
+  <div id="ovChips" class="ovchips" aria-label="Overzichten tonen"></div>
+  <button id="accountKnop" class="account" type="button" title="Account">
+    <span class="avatar">?</span><span class="accountTekst">Lokaal</span>
+  </button>
+</header>
+
+<nav class="nav" id="nav">
+  <a href="#vandaag" data-v="vandaag"><span>☀️</span>Vandaag</a>
+  <a href="#matrix" data-v="matrix"><span>▦</span>Matrix</a>
+  <a href="#projecten" data-v="projecten"><span>◆</span>Projecten</a>
+  <a href="#taken" data-v="taken"><span>✓</span>Taken</a>
+  <a href="#agenda" data-v="agenda"><span>🗓️</span>Agenda</a>
+  <a href="#inzicht" data-v="inzicht"><span>📈</span>Inzicht</a>
+  <a href="#instellingen" data-v="instellingen" class="navInst"><span>⚙️</span>Instellingen</a>
+</nav>
+
+<main id="main"></main>
+
+<button id="nieuwKnop" class="fab" type="button" aria-label="Nieuwe taak">＋</button>
+
+<dialog id="dlg"></dialog>
+<dialog id="dlg2"></dialog>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
