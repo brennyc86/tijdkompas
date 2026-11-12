@@ -4,7 +4,7 @@ Dit doet alleen de eigenaar van de site, één keer. Gebruikers merken er niets 
 
 ## A. Firebase (inloggen met Google + online opslag + delen) — ± 10 minuten
 
-1. Ga naar https://console.firebase.google.com → **Project toevoegen** → naam `tijdkompas` → Google Analytics mag uit → **Project maken**.
+1. Ga naar https://console.firebase.google.com → **Project toevoegen** → naam `brennyc86-apps` (algemene naam: dezelfde inlog kan straks voor al je sites op brennyc86.github.io gebruikt worden; de projectnaam is later niet te wijzigen en staat in het Google-inlogvenster) → Google Analytics mag uit → **Project maken**.
 2. Links **Build → Authentication** → **Aan de slag** → tab **Sign-in method** → **Google** → **Inschakelen**, kies je e-mail als ondersteuningsadres → **Opslaan**.
 3. Zelfde pagina, tab **Instellingen** → **Geautoriseerde domeinen** → **Domein toevoegen** → `brennyc86.github.io`.
 4. Links **Build → Firestore Database** → **Database maken** → locatie `europe-west4 (Netherlands)` → **productiemodus** → **Maken**.
