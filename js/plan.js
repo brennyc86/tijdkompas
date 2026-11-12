@@ -83,7 +83,7 @@ export function dagIndeling(dag) {
   const vast = [];
   for (const o of d.overzichten.filter(o => o.modus === "vast")) {
     const rooster = d.bezet.filter(ev => eventSoort(ev) === "rooster" && eventLijst(ev) === o.id && opDezeDag(ev));
-    if (rooster.length) rooster.forEach(ev => vast.push({ lijst: o.id, a: new Date(ev.start), b: new Date(ev.eind), locatie: herkenLocatie(ev.plaats) || o.locatie || "", bron: "rooster" }));
+    if (rooster.length) rooster.forEach(ev => vast.push({ lijst: o.id, a: new Date(ev.start), b: new Date(ev.eind), locatie: (ev.loc ?? herkenLocatie(ev.plaats)) || o.locatie || "", bron: "rooster" }));
     else (o.tijden || []).filter(t => t.dagen.includes(dag.getDay()))
       .forEach(t => vast.push({ lijst: o.id, a: opDag(dag, t.van), b: opDag(dag, t.tot), locatie: t.locatie ?? o.locatie ?? "", bron: "lijst" }));
   }
@@ -100,7 +100,7 @@ export function dagIndeling(dag) {
   });
   // Afspraken (soort bezet) op een bekende locatie met reistijd: reis eromheen
   for (const ev of d.bezet.filter(ev => eventSoort(ev) === "bezet" && !ev.eigen && opDezeDag(ev))) {
-    const loc = herkenLocatie(ev.plaats), r = reisVan(loc);
+    const loc = ev.loc ?? herkenLocatie(ev.plaats), r = reisVan(loc);
     if (!r) continue;
     if (vast.some(v => v.locatie === loc && v.a <= new Date(ev.start) && v.b >= new Date(ev.eind))) continue; // al ter plekke
     reis.push({ a: new Date(new Date(ev.start) - r * MIN), b: new Date(ev.start), locatie: loc, richting: "heen", afspraak: ev.titel });

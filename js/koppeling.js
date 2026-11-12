@@ -1,15 +1,22 @@
-// Tijdkompas — agenda-koppelingen: Google Agenda (Google Identity Services) en Outlook (MSAL / Microsoft Graph).
-// Inloggen op Tijdkompas zelf loopt via Firebase (cloud.js); dit is alleen voor het lezen/schrijven van agenda's.
+// Tijdkompas — koppelingen met Google (Google Identity Services) en Microsoft (MSAL / Microsoft Graph).
+// Inloggen op Tijdkompas zelf loopt via Firebase (cloud.js). Een koppeling geeft toegang voor één of meer doelen:
+//   "agenda"  agenda's lezen en ingeplande blokken wegschrijven
+//   "schijf"  een eigen, verborgen map in Google Drive / OneDrive om lijsten in op te slaan (schijf.js)
 // Alles draait in de browser: Google Identity Services (token-client) en MSAL.js (Microsoft).
 // Er is geen eigen server; tokens blijven op dit apparaat.
 import { CONFIG } from "./config.js";
 
-const GOOGLE_SCOPES = [
-  "openid", "email", "profile",
-  "https://www.googleapis.com/auth/calendar.readonly",   // agenda's + afspraken lezen
-  "https://www.googleapis.com/auth/calendar.events",     // ingeplande blokken wegschrijven
-].join(" ");
-const MS_SCOPES = ["User.Read", "Calendars.ReadWrite"];
+const G_SCOPES = {
+  basis: ["openid", "email", "profile"],
+  agenda: ["https://www.googleapis.com/auth/calendar.readonly",    // agenda's + afspraken lezen
+           "https://www.googleapis.com/auth/calendar.events"],     // ingeplande blokken wegschrijven
+  schijf: ["https://www.googleapis.com/auth/drive.appdata"],       // alleen de eigen verborgen app-map, niet je andere bestanden
+};
+const M_SCOPES = { basis: ["User.Read"], agenda: ["Calendars.ReadWrite"], schijf: ["Files.ReadWrite.AppFolder"] };
+const scopesVoor = (tabel, doelen) => [...new Set([...tabel.basis, ...doelen.flatMap(d => tabel[d] || [])])];
+/** Waarvoor is deze koppeling? Oudere koppelingen waren alleen voor de agenda. */
+export const doelenVan = (v) => v.doelen || ["agenda"];
+export const heeft = (v, doel) => doelenVan(v).includes(doel);
 const MSAL_URL = "https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.28.1/lib/msal-browser.min.js";
 
 export class VerlopenFout extends Error {
@@ -53,7 +60,7 @@ async function googleClient() {
   if (gClient) return gClient;
   await laadScript("https://accounts.google.com/gsi/client");
   gClient = google.accounts.oauth2.initTokenClient({
-    client_id: ids().google, scope: GOOGLE_SCOPES, include_granted_scopes: true,
+    client_id: ids().google, scope: scopesVoor(G_SCOPES, ["agenda"]).join(" "), include_granted_scopes: true,
     callback: (r) => gWacht?.(r),
     error_callback: (e) => gWacht?.({ error: e?.type === "popup_closed" ? "Venster gesloten" : (e?.message || e?.type || "Inloggen mislukt") }),
   });
@@ -69,18 +76,25 @@ function vraagGoogleToken(opties) {
 }
 function bewaarToken(v, r) { v.token = r.access_token; v.verloopt = Date.now() + (r.expires_in - 120) * 1000; }
 
-export async function koppelGoogle() {
-  const r = await vraagGoogleToken({ prompt: "select_account" });
+/** Koppelt een Google-account voor de gevraagde doelen (["agenda"], ["schijf"] of beide). Bestaande doelen blijven behouden. */
+export async function koppelGoogle(doelen = ["agenda"]) {
+  const r = await vraagGoogleToken({ prompt: "select_account", scope: scopesVoor(G_SCOPES, doelen).join(" ") });
   const info = await (await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: "Bearer " + r.access_token } })).json();
-  const agenda = google.accounts.oauth2.hasGrantedAllScopes(r, "https://www.googleapis.com/auth/calendar.events");
-  const v = { id: "google:" + info.email, soort: "google", email: info.email, naam: info.name || info.email, foto: info.picture || "",
-              primair: !primair() || primair()?.email === info.email, rechten: { agenda } };
+  const oud = verbindingen().find(x => x.id === "google:" + info.email);
+  // include_granted_scopes: het token bevat ook eerder gegeven toestemmingen — kijk wat er nu werkelijk mag
+  const mag = (d) => G_SCOPES[d].every(s => google.accounts.oauth2.hasGrantedAllScopes(r, s));
+  const nu = [...new Set([...(oud ? doelenVan(oud) : []), ...doelen])].filter(mag);
+  const v = { ...(oud || {}), id: "google:" + info.email, soort: "google", email: info.email, naam: info.name || info.email, foto: info.picture || "",
+              primair: oud?.primair ?? !primair(), doelen: nu, rechten: { agenda: nu.includes("agenda") } };
   bewaarToken(v, r);
-  return werkV(v);
+  werkV(v);
+  const geweigerd = doelen.filter(d => !nu.includes(d));
+  if (geweigerd.length) throw new Error(`Je hebt geen toestemming gegeven voor ${geweigerd.map(d => d === "agenda" ? "je agenda" : "de Tijdkompas-map in je Drive").join(" en ")}. Probeer opnieuw en vink het aan.`);
+  return v;
 }
 export async function vernieuw(v) {
   if (v.soort === "ms") { await msToken(v, true); return v; }
-  const r = await vraagGoogleToken({ prompt: "", hint: v.email, login_hint: v.email });
+  const r = await vraagGoogleToken({ prompt: "", hint: v.email, login_hint: v.email, scope: scopesVoor(G_SCOPES, doelenVan(v)).join(" ") });
   bewaarToken(v, r); return werkV(v);
 }
 
@@ -96,22 +110,31 @@ async function msClient() {
   await pca.initialize();
   msal = pca; return pca;
 }
-export async function koppelMs() {
-  if (!ids().microsoft) throw new Error("Outlook-koppeling is nog niet ingesteld (client-ID ontbreekt)");
+/** Koppelt een Microsoft-account (werk/school of persoonlijk) voor de gevraagde doelen. Bestaande doelen blijven behouden. */
+export async function koppelMs(doelen = ["agenda"]) {
+  if (!ids().microsoft) throw new Error("Microsoft-koppeling is nog niet ingesteld (client-ID ontbreekt)");
   if (!msal) { msClient(); throw new Error("Microsoft wordt nog geladen — klik nog een keer"); }
-  const r = await msal.loginPopup({ scopes: MS_SCOPES, prompt: "select_account" });
-  const a = r.account;
-  return werkV({ id: "ms:" + a.username.toLowerCase(), soort: "ms", email: a.username, naam: a.name || a.username, homeAccountId: a.homeAccountId, primair: false });
+  const r = await msal.loginPopup({ scopes: M_SCOPES.basis.concat(doelen.flatMap(d => M_SCOPES[d])), prompt: "select_account" });
+  const a = r.account, id = "ms:" + a.username.toLowerCase(), oud = verbindingen().find(x => x.id === id);
+  return werkV({ ...(oud || {}), id, soort: "ms", email: a.username, naam: a.name || a.username, homeAccountId: a.homeAccountId, primair: false,
+                 doelen: [...new Set([...(oud ? doelenVan(oud) : []), ...doelen])] });
 }
 async function msToken(v, interactief = false) {
   const pca = await msClient();
   const account = pca.getAccountByHomeId(v.homeAccountId);
   if (!account) throw new VerlopenFout(v);
-  try { return (await pca.acquireTokenSilent({ scopes: MS_SCOPES, account })).accessToken; }
+  const scopes = scopesVoor(M_SCOPES, doelenVan(v));
+  try { return (await pca.acquireTokenSilent({ scopes, account })).accessToken; }
   catch (e) {
     if (!interactief) throw new VerlopenFout(v);
-    return (await pca.acquireTokenPopup({ scopes: MS_SCOPES, account })).accessToken;
+    return (await pca.acquireTokenPopup({ scopes, account })).accessToken;
   }
+}
+/** Haalt één doel weg van een koppeling; zonder doelen wordt de koppeling helemaal verbroken. */
+export async function zonderDoel(v, doel) {
+  const rest = doelenVan(v).filter(d => d !== doel);
+  if (!rest.length) return ontkoppel(v);
+  werkV({ ...v, doelen: rest, rechten: { agenda: rest.includes("agenda") } });
 }
 
 export async function ontkoppel(v) {
@@ -126,7 +149,7 @@ export async function ontkoppel(v) {
 export function maakPrimair(v) { bewaarV(verbindingen().map(x => ({ ...x, primair: x.id === v.id }))); }
 
 // ================= API-aanroepen =================
-async function api(v, url, opties = {}) {
+export async function api(v, url, opties = {}) {
   let token;
   if (v.soort === "google") { if (isVerlopen(v)) throw new VerlopenFout(v); token = v.token; }
   else token = await msToken(v);
@@ -135,7 +158,7 @@ async function api(v, url, opties = {}) {
   const r = await fetch(url, { ...opties, headers });
   if (r.status === 401) { if (v.soort === "google") werkV({ ...v, verloopt: 0 }); throw new VerlopenFout(v); }
   if ((r.status === 404 || r.status === 410) && opties.weg) return null;
-  if (!r.ok) throw new Error(`${v.soort === "ms" ? "Outlook" : "Google"} ${r.status}: ${(await r.text()).slice(0, 180)}`);
+  if (!r.ok) { const f = new Error(`${v.soort === "ms" ? "Microsoft" : "Google"} ${r.status}: ${(await r.text()).slice(0, 180)}`); f.status = r.status; throw f; }
   if (r.status === 204 || opties.tekst) return opties.tekst ? r.text() : null;
   return r.json();
 }

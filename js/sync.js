@@ -1,9 +1,12 @@
 // Tijdkompas — afstemming met externe agenda's (ophalen + ingeplande blokken wegschrijven)
 import { opslag, bewaar, overzicht, locatie } from "./data.js";
-import { verbindingen, VerlopenFout, agendaLijst, haalAfspraken, zetAfspraak, verwijderAfspraak } from "./koppeling.js";
+import { verbindingen as alleVerbindingen, heeft, VerlopenFout, agendaLijst, haalAfspraken, zetAfspraak, verwijderAfspraak } from "./koppeling.js";
 import { omschrijving } from "./plan.js";
 
 const d = () => opslag.d;
+const verbindingen = () => alleVerbindingen().filter(v => heeft(v, "agenda"));
+// Korte vingerafdruk van een titel: zo hoeft de titel zelf niet in de cloud te staan om wijzigingen te herkennen
+export function vingerafdruk(s) { let h = 5381; for (const c of String(s ?? "")) h = (h * 33 + c.codePointAt(0)) >>> 0; return h.toString(36); }
 export const agendaSleutel = (v, cal) => `${v.id}|${cal}`;
 const verbindingVan = (sleutel) => verbindingen().find(v => sleutel.startsWith(v.id + "|"));
 const agendaIdVan = (sleutel) => sleutel.slice(sleutel.indexOf("|") + 1);
@@ -71,12 +74,12 @@ export async function zetNaarAgendas() {
     if (!v) { fouten.push(`Doelagenda van „${overzicht(b.overzicht)?.naam}” hoort bij een account dat hier niet gekoppeld is`); continue; }
     if (verlopen.has(v.id)) continue;
     const x = d().extern[b.id];
-    if (x && x.start === b.start && x.eind === b.eind && x.titel === b.titel) continue;
+    if (x && x.start === b.start && x.eind === b.eind && (x.th ? x.th === vingerafdruk(b.titel) : x.titel === b.titel)) continue;
     try {
       const eventId = await zetAfspraak(v, agendaIdVan(bron), {
         titel: (b.soort === "reis" ? "🚗 " : "") + b.titel, omschrijving: omschrijving(b), start: b.start, eind: b.eind,
         plaats: b.locatie && b.locatie !== "thuis" ? locatie(b.locatie)?.adres || locatie(b.locatie)?.naam : "", tkId: b.id }, x?.eventId);
-      d().extern[b.id] = { bron, eventId, item: b.item, start: b.start, eind: b.eind, titel: b.titel };
+      d().extern[b.id] = { bron, eventId, item: b.item, start: b.start, eind: b.eind, th: vingerafdruk(b.titel) };
       x?.eventId === eventId ? bij++ : nieuw++;
     } catch (e) { e instanceof VerlopenFout ? verlopen.set(v.id, v) : fouten.push(e.message); }
   }

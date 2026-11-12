@@ -36,6 +36,8 @@ Planner voor werk, privé en hobby's: projecten en taken, de Eisenhower-matrix (
 - **Lijsten delen**: nodig iemand uit op e-mailadres; die ziet de uitnodiging zodra hij inlogt. Alle leden zien en bewerken de taken en projecten van die lijst live.
 - In een gedeelde lijst kies je per taak **wie het doet**; de planner plant alleen jouw eigen taken in. Je werktijden en locaties blijven persoonlijk.
 - Zonder inloggen werkt alles ook, dan alleen in deze browser.
+- **Opslag per lijst in je eigen Google Drive of OneDrive** (verborgen app-map): bijvoorbeeld je werklijst in je zakelijke OneDrive. Zo'n lijst is persoonlijk; de cloud kent dan alleen naam, icoon en kleur. Wijzigingen van meerdere apparaten worden per taak samengevoegd.
+- Titels en plaatsen van agenda-afspraken gaan nooit naar de cloud, alleen tijden.
 
 Eenmalige setup door de eigenaar: zie [SETUP.md](SETUP.md).
 
@@ -55,4 +57,4 @@ Eenmalige setup door de eigenaar: zie [SETUP.md](SETUP.md).
 
 ## Techniek
 
-Statische site zonder build-stap: `js/data.js` (model + opslag), `js/plan.js` (dagindeling, inroosteren, .ics), `js/cloud.js` (Firebase: inloggen, Firestore-opslag als verschil-synchronisatie, delen), `js/koppeling.js` + `js/sync.js` (Google Agenda / Outlook), `js/app.js` (UI). Beveiligingsregels: `firestore.rules`.
+Statische site zonder build-stap: `js/data.js` (model + opslag), `js/plan.js` (dagindeling, inroosteren, .ics), `js/cloud.js` (Firebase: inloggen, Firestore-opslag als verschil-synchronisatie, delen), `js/koppeling.js` + `js/sync.js` (Google Agenda / Outlook), `js/schijf.js` (lijsten in eigen Drive/OneDrive, 3-wegs samenvoegen), `js/app.js` (UI). Beveiligingsregels: `firestore.rules`.

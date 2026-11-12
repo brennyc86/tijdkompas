@@ -4,6 +4,6 @@ export const CONFIG = {
   firebase: null,   // { apiKey: "…", authDomain: "….firebaseapp.com", projectId: "…", appId: "…" }
 
   // Optioneel: agenda's lezen en blokken wegschrijven
-  googleClientId: "",      // Google Agenda (OAuth-client van hetzelfde Google Cloud-project)
-  microsoftClientId: "",   // Outlook-agenda (Azure app-registratie)
+  googleClientId: "",      // Google Drive + Agenda (OAuth-webclient van het Firebase-project, SETUP.md stap C)
+  microsoftClientId: "",   // OneDrive + Outlook (SPA-platform op de Entra-registratie, SETUP.md stap C)
 };

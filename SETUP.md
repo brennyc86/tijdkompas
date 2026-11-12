@@ -23,6 +23,33 @@ Klaar: vanaf dan kan iedereen inloggen met Google. Er is geen goedkeuring van Go
 2. Kopieer de **Toepassings-id (client-id)**. Ga naar **Certificaten en geheimen → Nieuw clientgeheim** en kopieer de **Waarde**.
 3. In Firebase: **Authentication → Sign-in method → Nieuwe aanbieder → Microsoft** → plak toepassings-id en geheim → **Opslaan**.
 
-## C. Agenda's rechtstreeks koppelen (later)
+## C. Drive, OneDrive en agenda's koppelen (± 15 minuten)
 
-Lezen en schrijven in Google Agenda vraagt bij Google een verificatie (agenda-rechten zijn „gevoelig”). Tot die is afgerond kunnen maximaal 100 vooraf opgegeven testgebruikers hun agenda koppelen. Outlook-agenda's kunnen via de app-registratie van stap B. Tot die tijd werkt importeren via een .ics-bestand.
+Hiermee kan iedereen per lijst kiezen om hem in de eigen Google Drive of OneDrive te bewaren, en agenda's koppelen.
+Je gebruikt dezelfde projecten als bij A en B; er komen alleen een paar instellingen bij. Stuur daarna de twee **client-ID's** naar Claude
+(of zet ze zelf in `js/config.js` bij `googleClientId` en `microsoftClientId`). Geheime sleutels zijn hiervoor níet nodig.
+
+**Google** (in https://console.cloud.google.com, kies bovenin het Firebase-project uit stap A)
+1. **API's en services → Bibliotheek** → zet **Google Drive API** aan (en **Google Calendar API** voor agenda's).
+2. **API's en services → Inloggegevens** → open **Web client (auto created by Google Service)** →
+   bij **Geautoriseerde JavaScript-bronnen** `https://brennyc86.github.io` toevoegen → **Opslaan**. Kopieer de **Client-ID** (eindigt op `.apps.googleusercontent.com`).
+3. **Google Auth Platform → Gegevenstoegang** → **Bereiken toevoegen** → vink `.../auth/drive.appdata` aan (en voor agenda's `calendar.readonly` en `calendar.events`) → **Opslaan**.
+4. **Google Auth Platform → Doelgroep** → **App publiceren** (naar „In productie”). Anders kunnen alleen testgebruikers koppelen en vervalt de koppeling elke 7 dagen.
+   - Drive-opslag (`drive.appdata`) is een *niet-gevoelige* toestemming: daar is geen verificatie voor nodig.
+   - Agenda-rechten zijn *gevoelig*: tot Google de app heeft geverifieerd zien gebruikers een waarschuwing („niet geverifieerd”) en geldt een maximum van 100 gebruikers. Jij kunt het wel meteen gebruiken.
+
+**Microsoft** (in https://entra.microsoft.com, de app-registratie `Tijdkompas` uit stap B)
+1. **Verificatie → Een platform toevoegen → Toepassing met één pagina (SPA)** → omleidings-URI `https://brennyc86.github.io/tijdkompas/auth.html` → **Configureren**.
+   (Het Web-platform van stap B blijft gewoon staan.)
+2. **API-machtigingen → Een machtiging toevoegen → Microsoft Graph → Gedelegeerde machtigingen** → `Files.ReadWrite.AppFolder` en `Calendars.ReadWrite` (en `User.Read`, staat er meestal al) → **Machtigingen toevoegen**.
+3. Kopieer op **Overzicht** de **Toepassings-id (client-id)**.
+
+**Zakelijke Microsoft-accounts:** veel bedrijven laten medewerkers zelf geen toestemming geven aan apps van buiten. Krijg je bij het koppelen van je werk-OneDrive
+„Goedkeuring van beheerder vereist”, dan moet de IT-afdeling Tijdkompas één keer goedkeuren (ze zien precies welke rechten: alleen een eigen app-map en je agenda).
+Een „geverifieerde uitgever” in Entra maakt dat makkelijker, maar vraagt een Microsoft-partneraccount; dat kan later.
+
+### Goed om te weten
+- **Google Drive vraagt elk uur even opnieuw verbinden.** Zonder eigen server geeft Google een browser alleen toegang voor een uur; daarna verschijnt een balk
+  „Opnieuw verbinden” (één klik). Wijzigingen blijven intussen veilig op het apparaat staan. OneDrive heeft dit niet: dat vernieuwt zichzelf op de achtergrond.
+- Lijsten in je eigen schijf zijn **persoonlijk**: delen kan alleen met lijsten in de Tijdkompas-cloud.
+- Met een login weet de cloud van zo'n lijst alleen naam, icoon en kleur. De taken, en ook titels en plaatsen van agenda-afspraken, staan er niet in; alleen tijden.

@@ -6,10 +6,17 @@
 //   lijsten/{lijstId}                gedeeld: naam, kleur, icoon, eigenaar, leden[], ledenInfo{}, uitgenodigd[] (e-mails)
 //   lijsten/{lijstId}/items/{id}     taken en projecten van die lijst (zichtbaar voor alle leden)
 //
+// Lijsten die in je eigen Drive/OneDrive staan (schijf.js) staan hier alleen als verwijzing in lijstInst
+// (naam, icoon, kleur, welk account). Titels en plaatsen van agenda-afspraken, en titels van ingeplande blokken
+// uit zulke lijsten, gaan niet naar de cloud: alleen tijden. Dit apparaat onthoudt de titels zelf.
+//
 // De app blijft werken met één object in het geheugen (opslag.d). Deze module vertaalt dat heen en weer:
 // wijzigingen worden als verschil naar Firestore geschreven, en wijzigingen van anderen komen live binnen.
 import { CONFIG } from "./config.js";
 import { opslag, sessie, uid as nieuwId, startData } from "./data.js";
+import { aanvullen, haak, laadOntbrekende, vergeet } from "./schijf.js";
+import { herkenLocatie } from "./plan.js";
+import { vingerafdruk } from "./sync.js";
 
 const B = "https://www.gstatic.com/firebasejs/10.14.1/";
 let A = null, F = null, auth = null, db = null;
@@ -19,6 +26,21 @@ const luisteraars = new Set();
 export const opCloud = (f) => luisteraars.add(f);
 const meld = () => luisteraars.forEach(f => { try { f(); } catch {} });
 export const cloudIngesteld = () => !!CONFIG.firebase?.apiKey;
+haak.ingelogd = () => !!cloud.gebruiker;
+haak.herbouw = () => bouwStraks();
+
+// Titels die bewust niet in de cloud staan, bewaard op dit apparaat
+const TITELS = "tk_titels";
+function leesTitels() { try { return JSON.parse(localStorage.getItem(TITELS) || "{}"); } catch { return {}; } }
+function onthoudTitels(d) {
+  const t = leesTitels(); t.bezet ||= {}; t.blok ||= {};
+  for (const e of d.bezet || []) if (e.titel && e.titel !== "Bezet") t.bezet[e.id] = { titel: e.titel, plaats: e.plaats || "" };
+  for (const b of d.planning || []) if (b.titel) t.blok[b.id] = b.titel;
+  const nuB = new Set((d.bezet || []).map(e => e.id)), nuP = new Set((d.planning || []).map(b => b.id));
+  for (const k of Object.keys(t.bezet)) if (!nuB.has(k)) delete t.bezet[k];
+  for (const k of Object.keys(t.blok)) if (!nuP.has(k)) delete t.blok[k];
+  try { localStorage.setItem(TITELS, JSON.stringify(t)); } catch {}
+}
 
 // ---------- opstarten ----------
 export async function cloudStart(test) {
@@ -107,7 +129,7 @@ async function aangemeld(u) {
 function afgemeld() {
   const wasIn = !!cloud.gebruiker;
   stop(); cloud.gebruiker = null; cloud.uitnodigingen = []; sessie.ik = null;
-  if (wasIn) opslag.demo();      // gegevens van het account niet op dit apparaat laten staan
+  if (wasIn) { vergeet(); try { localStorage.removeItem(TITELS); } catch {} opslag.demo(); }   // gegevens van het account niet op dit apparaat laten staan
   meld();
   return Promise.resolve();
 }
@@ -168,35 +190,53 @@ function bouw() {
   // eigen wijzigingen die nog niet weg zijn eerst versturen; de snapshots daarvan bouwen daarna opnieuw
   if (schrijfTimer) { clearTimeout(schrijfTimer); schrijfTimer = null; if (schrijfVerschil() > 0) return; }
   const u = gebruikerDoc || {}, volgorde = u.lijstVolgorde || [];
-  const ids = [...lijstDocs.keys()].sort((a, b) => {
+  const opSchijf = Object.entries(u.lijstInst || {}).filter(([, x]) => x?.opslag).map(([id]) => id);
+  const kop = (id) => lijstDocs.get(id) || u.lijstInst[id];
+  const ids = [...lijstDocs.keys(), ...opSchijf.filter(id => !lijstDocs.has(id))].sort((a, b) => {
     const x = volgorde.indexOf(a), y = volgorde.indexOf(b);
-    return (x < 0 ? 1e9 : x) - (y < 0 ? 1e9 : y) || String(lijstDocs.get(a).naam).localeCompare(lijstDocs.get(b).naam);
+    return (x < 0 ? 1e9 : x) - (y < 0 ? 1e9 : y) || String(kop(a).naam).localeCompare(kop(b).naam);
   });
   const items = ids.flatMap(id => (itemDocs.get(id) || []).map(x => ({ ...x, overzicht: id })));
-  const d = {
+  const titels = leesTitels();
+  const d = aanvullen({
     locaties: u.locaties, beschikbaar: u.beschikbaar, instellingen: u.instellingen, agendas: u.agendas || {}, extern: u.extern || {},
-    planning: u.planning || [], bezet: u.bezet || [], agendaSync: u.agendaSync, gewijzigd: u.gewijzigd,
+    planning: u.planning || [], agendaSync: u.agendaSync, gewijzigd: u.gewijzigd,
+    bezet: (u.bezet || []).map(e => ({ ...e, titel: titels.bezet?.[e.id]?.titel || e.titel || "Bezet", plaats: titels.bezet?.[e.id]?.plaats || e.plaats || "" })),
     overzichten: ids.map(id => {
       const l = lijstDocs.get(id);
+      if (!l) { const s = u.lijstInst[id]; return { id, naam: s.naam || "Lijst", kleur: s.kleur || "#8a978e", icoon: s.icoon || "🔒", opslag: s.opslag, slot: true,
+                                                    eigenaar: sessie.ik, leden: [sessie.ik], ledenInfo: {}, uitgenodigd: [], modus: "vrij", locatie: "", tijden: [], doelAgenda: null }; }
       return { id, naam: l.naam, kleur: l.kleur, icoon: l.icoon, eigenaar: l.eigenaar, leden: l.leden || [], ledenInfo: l.ledenInfo || {},
                uitgenodigd: l.uitgenodigd || [], modus: "vrij", locatie: "", tijden: [], doelAgenda: null, ...(u.lijstInst?.[id] || {}) };
     }),
     taken: items.filter(x => x.type === "taak"), projecten: items.filter(x => x.type === "project"), demo: false,
-  };
+  }, { nieuweToevoegen: false });
+  // titels van blokken uit schijflijsten terugzetten (de cloud kent alleen tijden)
+  const itemTitel = new Map([...d.taken, ...d.projecten].map(x => [x.id, x.titel]));
+  d.planning = d.planning.map(b => b.titel ? b : { ...b, titel: itemTitel.get(b.item) || titels.blok?.[b.id] || "🔒 Niet geladen" });
   opslag.vervang(d, { stil: true });
+  laadOntbrekende(d);
 }
 
 // ---------- van het geheugen naar Firestore ----------
 const PERSOONLIJK = ["modus", "locatie", "tijden", "doelAgenda"];
 function naarDocs(d) {
   const ik = sessie.ik, docs = new Map();
+  const schijfLijst = new Set(d.overzichten.filter(o => o.opslag).map(o => o.id));
+  onthoudTitels(d);
   docs.set("gebruikers/" + ik, schoon({
-    locaties: d.locaties, beschikbaar: d.beschikbaar, instellingen: d.instellingen, agendas: d.agendas || {}, extern: d.extern || {},
-    planning: d.planning || [], bezet: d.bezet || [], agendaSync: d.agendaSync || "", gewijzigd: d.gewijzigd || "",
+    locaties: d.locaties, beschikbaar: d.beschikbaar, instellingen: d.instellingen, agendas: d.agendas || {},
+    extern: Object.fromEntries(Object.entries(d.extern || {}).map(([k, x]) => { const { titel, ...r } = x; return [k, titel !== undefined && !r.th ? { ...r, th: vingerafdruk(titel) } : r]; })),
+    planning: (d.planning || []).map(b => schijfLijst.has(b.overzicht) && b.soort !== "reis" ? { ...b, titel: "" } : b),
+    bezet: (d.bezet || []).map(e => ({ ...e, titel: "", plaats: "", loc: e.loc ?? (herkenLocatie(e.plaats) || "") })),
+    agendaSync: d.agendaSync || "", gewijzigd: d.gewijzigd || "",
     lijstVolgorde: d.overzichten.map(o => o.id),
-    lijstInst: Object.fromEntries(d.overzichten.map(o => [o.id, Object.fromEntries(PERSOONLIJK.map(k => [k, o[k] ?? null]))])),
+    lijstInst: Object.fromEntries(d.overzichten.map(o => [o.id, o.opslag
+      ? { opslag: o.opslag, naam: o.naam || "", icoon: o.icoon || "", kleur: o.kleur || "" }
+      : Object.fromEntries(PERSOONLIJK.map(k => [k, o[k] ?? null]))])),
   }));
   for (const o of d.overzichten) {
+    if (o.opslag) continue;
     docs.set("lijsten/" + o.id, schoon({
       naam: o.naam, kleur: o.kleur, icoon: o.icoon, eigenaar: o.eigenaar || ik,
       leden: o.leden?.length ? o.leden : [ik], ledenInfo: o.ledenInfo && Object.keys(o.ledenInfo).length ? o.ledenInfo : { [ik]: ikInfo() },
@@ -204,7 +244,7 @@ function naarDocs(d) {
     }));
   }
   for (const x of [...d.taken, ...d.projecten]) {
-    if (!d.overzichten.some(o => o.id === x.overzicht)) continue;
+    if (!d.overzichten.some(o => o.id === x.overzicht) || schijfLijst.has(x.overzicht)) continue;
     const { overzicht, ...rest } = x;
     docs.set(`lijsten/${overzicht}/items/${x.id}`, schoon(rest));
   }
