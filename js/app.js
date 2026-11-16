@@ -1,7 +1,8 @@
 // Tijdkompas — gebruikersinterface
 import { opslag, bewaar, KWADRANTEN, kwadrant, overzicht, project, taak, takenVan, projectVoortgang,
-         nieuweTaak, nieuwProject, werkBij, verwijder, koppel, rondAf, heropen, linkInfo, kalibratie, uid, locatie, effectieveLocatie, sessie } from "./data.js";
-import { planAutomatisch, doelDatum, harde, prioriteit, googleLink, outlookLink, maakIcs, leesIcs, dagStr, dagIndeling, eventSoort, SOORTEN } from "./plan.js";
+         nieuweTaak, nieuwProject, werkBij, verwijder, koppel, rondAf, heropen, linkInfo, kalibratie, uid, locatie, effectieveLocatie, sessie,
+         kinderen, lijstVolgorde, metKinderen, mijnId, isIk, personen, naamVanPersoon, isMijn, isTeam, wie, wachtNogOp, wachtenOp, maaktKring } from "./data.js";
+import { planAutomatisch, werkGeplandBij, doelDatum, harde, prioriteit, googleLink, outlookLink, maakIcs, leesIcs, dagStr, dagIndeling, eventSoort, SOORTEN } from "./plan.js";
 import { ids, verbindingen as alleVerbindingen, heeft, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, zonderDoel } from "./koppeling.js";
 import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroniseerAlles, naamVan, lijstWeg } from "./schijf.js";
 import { verversAgendas, zetNaarAgendas } from "./sync.js";
@@ -30,6 +31,34 @@ function actieveOverzichten() {
   return a.length ? a : ids;
 }
 const zichtbaar = (it) => actieveOverzichten().includes(it.overzicht);
+
+// ---------- wie: mijn taken / het team / een collega / afhankelijkheden ----------
+const zichtbareLijsten = () => actieveOverzichten().map(overzicht).filter(Boolean);
+/** Anderen in de zichtbare lijsten (leden en mensen zonder Tijdkompas) */
+function anderen() {
+  const m = new Map();
+  for (const o of zichtbareLijsten()) for (const p of personen(o)) if (!p.ik && !m.has(p.id)) m.set(p.id, p.naam);
+  return [...m];
+}
+const heeftTeam = () => anderen().length > 0 || d().taken.some(t => zichtbaar(t) && (t.wachtOp || []).length);
+function doorWie(t, f = voorkeur.lees("wie", "alle")) {
+  if (t.type === "project" || f === "alle") return true;
+  if (f === "mijn") return isMijn(t);
+  if (f === "team") return isTeam(t);
+  if (f === "wachtmij") return isMijn(t) && wachtenOp(t).some(x => !isMijn(x) || wie(x).some(y => !isIk(y)));
+  if (f === "geblokt") return wachtNogOp(t).length > 0;
+  if (f.startsWith("p:")) return wie(t).includes(f.slice(2));
+  if (f.startsWith("w:")) return wachtenOp(t).some(x => wie(x).includes(f.slice(2)));
+  return true;
+}
+function wieKeuze() {
+  if (!heeftTeam()) return "";
+  const f = voorkeur.lees("wie", "alle"), a = anderen();
+  const opt = (v, n) => `<option value="${esc(v)}" ${f === v ? "selected" : ""}>${esc(n)}</option>`;
+  return `<select name="wie" aria-label="Wiens taken" title="Wiens taken">${opt("alle", "👥 Iedereen")}${opt("mijn", "🙋 Mijn taken")}${opt("team", "👥 Nog niet verdeeld")}
+    ${a.length ? `<optgroup label="Taken van">${a.map(([id, n]) => opt("p:" + id, n)).join("")}</optgroup>` : ""}
+    <optgroup label="Afhankelijkheden">${opt("wachtmij", "⏳ Waar anderen op mij wachten")}${a.map(([id, n]) => opt("w:" + id, "⏳ Waar " + n + " op wacht")).join("")}${opt("geblokt", "⛓ Wacht op een andere taak")}</optgroup></select>`;
+}
 
 // ---------- opmaak ----------
 const DAG = ["zo", "ma", "di", "wo", "do", "vr", "za"];
@@ -91,16 +120,49 @@ function duurTekst(it) {
   return it.schatting ? `<span class="duur" title="Geschatte tijd">${fmtDuur(it.schatting)}</span>` : "";
 }
 
+const kortTitel = (s) => s.length > 32 ? s.slice(0, 30) + "…" : s;
+function wieTekst(t) {
+  const o = overzicht(t.overzicht), w = wie(t);
+  if (!w.length) return "de hele groep";
+  return w.map(x => naamVanPersoon(x, o)).join(", ");
+}
+function wieTag(t) {
+  if (t.type !== "taak") return "";
+  const o = overzicht(t.overzicht), w = wie(t);
+  if (personen(o).length < 2 && w.every(isIk)) return "";
+  if (!w.length) return `<span class="tag team" title="Nog niet verdeeld: de hele groep">👥 team</span>`;
+  return `<span class="tag wie" title="Wie doet het">👤 ${esc(wieTekst(t))}</span>`;
+}
+function afhTags(t) {
+  if (t.type !== "taak") return "";
+  const uit = [];
+  if (t.status === "klaar") {
+    if (t.klaarDoor && !isIk(t.klaarDoor)) uit.push(`<span title="Afgevinkt door">✓ ${esc(naamVanPersoon(t.klaarDoor, overzicht(t.overzicht)))}</span>`);
+    return uit.join("");
+  }
+  const wacht = wachtNogOp(t);
+  if (wacht.length) uit.push(`<span class="tag wacht" title="Kan pas verder als dit klaar is:
+${esc(wacht.map(x => "• " + x.titel + " (" + wieTekst(x) + ")").join("\n"))}">⛓ wacht op ${wacht.length === 1 ? "„" + esc(kortTitel(wacht[0].titel)) + "”" + (wie(wacht[0]).every(isIk) ? "" : " · " + esc(wieTekst(wacht[0]))) : wacht.length + " taken"}</span>`);
+  const op = wachtenOp(t);
+  if (op.length) {
+    const namen = [...new Set(op.flatMap(x => wie(x).filter(y => !isIk(y)).map(y => naamVanPersoon(y, overzicht(x.overzicht)))))];
+    uit.push(`<span class="tag hierop" title="Wacht hierop:
+${esc(op.map(x => "• " + x.titel + " (" + wieTekst(x) + ")").join("\n"))}">⏳ ${namen.length ? esc(namen.join(", ")) + " wacht" + (namen.length > 1 ? "en" : "") : op.length === 1 ? "1 taak wacht" : op.length + " taken wachten"} hierop</span>`);
+  }
+  if (t.gepland && new Date(t.gepland.tot) > new Date()) uit.push(`<span title="Ingepland${isMijn(t) ? "" : " door " + esc(wieTekst(t))}">📅 ${fmtDatum(dagStr(new Date(t.gepland.van)))}</span>`);
+  return uit.join("");
+}
+
 function itemRij(t, { toonProject = true, toonOv = true } = {}) {
   const p = t.project ? project(t.project) : null;
   const ov = overzicht(t.overzicht);
-  return `<div class="item ${t.status === "klaar" ? "klaar" : ""}" data-id="${t.id}" data-type="taak" style="--ok:${ovKleur(t.overzicht)}">
+  return `<div class="item ${t.status === "klaar" ? "klaar" : ""} ${t.status !== "klaar" && wachtNogOp(t).length ? "geblokt" : ""}" data-id="${t.id}" data-type="taak" style="--ok:${ovKleur(t.overzicht)}">
     <button class="vink" type="button" aria-label="${t.status === "klaar" ? "Heropenen" : "Afronden"}">${t.status === "klaar" ? "✓" : ""}</button>
     <div class="ibody"><div class="ititel">${esc(t.titel)}</div>
       <div class="imeta">${qTag(t)}${toonProject && p ? `<span class="tag proj">◆ ${esc(p.titel)}</span>` : ""}${datumTags(t)}
       ${toonOv && actieveOverzichten().length > 1 && ov ? `<span>${ov.icoon} ${esc(ov.naam)}</span>` : ""}
       ${t.locatie && locatie(t.locatie) ? `<span title="Locatie">📍 ${esc(locatie(t.locatie).naam)}</span>` : ""}
-      ${t.toegewezen && sessie.ik && t.toegewezen !== sessie.ik ? `<span title="Toegewezen">👤 ${esc(ov?.ledenInfo?.[t.toegewezen]?.naam || "iemand anders")}</span>` : ""}
+      ${wieTag(t)}${afhTags(t)}
 </div></div>
     ${linkjes(t)}${duurTekst(t)}</div>`;
 }
@@ -111,27 +173,52 @@ function toast(tekst) {
 }
 
 // ---------- kop: overzicht-chips ----------
+const CHIPTIP = "Klik: alleen deze · Ctrl+klik (telefoon: lang indrukken): erbij of eraf";
 function renderChips() {
   const ids = actieveOverzichten(), alle = ids.length === d().overzichten.length;
+  const chip = (o, sub) => `<button class="ovchip${sub ? " sub" : ""}" type="button" data-ov="${o.id}" style="--k:${o.kleur}" aria-pressed="${ids.includes(o.id)}"
+      title="${esc(o.naam)} — ${CHIPTIP}${kinderen(o.id).length ? " (met alles eronder)" : ""}"><span class="stip"></span>${o.icoon} ${esc(o.naam)}</button>`;
   $("#ovChips").innerHTML =
-    `<button class="ovchip alles" type="button" data-ov="*" aria-pressed="${alle}">Alles</button>` +
-    d().overzichten.map(o => `<button class="ovchip" type="button" data-ov="${o.id}" style="--k:${o.kleur}" aria-pressed="${!alle && ids.includes(o.id)}"
-      title="Tonen/verbergen — combineer gerust meerdere"><span class="stip"></span>${o.icoon} ${esc(o.naam)}</button>`).join("");
+    `<button class="ovchip alles" type="button" data-ov="*" aria-pressed="${alle}" title="Alle lijsten tonen — daarna kun je er met Ctrl+klik losse uit halen">Alles</button>` +
+    d().overzichten.filter(o => !o.ouder || !overzicht(o.ouder)).map(o => {
+      const k = kinderen(o.id);
+      return k.length ? `<span class="ovgroep" style="--k:${o.kleur}">${chip(o)}${k.map(x => chip(x, true)).join("")}</span>` : chip(o);
+    }).join("") +
+    `<button class="ovchip nieuw" type="button" data-ov="+" title="Nieuwe lijst maken" aria-label="Nieuwe lijst">＋</button>`;
 }
-$("#ovChips").addEventListener("click", (e) => {
-  const b = e.target.closest(".ovchip"); if (!b) return;
-  const id = b.dataset.ov;
+// Klik = alleen deze (een groep met alles eronder); nog eens klikken = weer alles. Ctrl/⌘-klik of lang indrukken = erbij of eraf.
+function kiesLijst(id, wissel) {
+  const alleIds = d().overzichten.map(o => o.id), huidig = actieveOverzichten();
   if (id === "*") actief = null;
   else {
-    const huidig = actieveOverzichten(), alle = huidig.length === d().overzichten.length;
-    if (alle) actief = [id];                       // vanuit "Alles": alleen dit overzicht
-    else {                                          // anders: aan/uit zetten = combineren
-      const s = huidig.includes(id) ? huidig.filter(x => x !== id) : [...huidig, id];
-      actief = s.length && s.length < d().overzichten.length ? s : null;
+    const groep = metKinderen(id);
+    if (wissel) {
+      const s = huidig.includes(id) ? huidig.filter(x => !groep.includes(x)) : [...new Set([...huidig, ...groep])];
+      if (!s.length) { toast("Er blijft minstens één lijst zichtbaar"); return; }
+      actief = s.length === alleIds.length ? null : s;
+    } else {
+      const zelfde = huidig.length === groep.length && groep.every(x => huidig.includes(x));
+      actief = zelfde || groep.length === alleIds.length ? null : groep;
+      const n = voorkeur.lees("chipTip", 0);
+      if (actief && n < 2) { voorkeur.zet("chipTip", n + 1); setTimeout(() => toast("Tip: Ctrl+klik (telefoon: lang indrukken) zet een lijst erbij of eraf"), 300); }
     }
   }
   voorkeur.zet("actief", actief);
   render();
+}
+let langDruk = null, langGedaan = false;
+$("#ovChips").addEventListener("pointerdown", (e) => {
+  const b = e.target.closest(".ovchip"); if (!b || e.pointerType === "mouse" || b.dataset.ov === "+") return;
+  langGedaan = false; clearTimeout(langDruk);
+  langDruk = setTimeout(() => { langGedaan = true; navigator.vibrate?.(15); kiesLijst(b.dataset.ov, true); }, 500);
+});
+["pointerup", "pointercancel"].forEach(t => $("#ovChips").addEventListener(t, () => clearTimeout(langDruk)));
+$("#ovChips").addEventListener("contextmenu", (e) => { if (e.target.closest(".ovchip")) e.preventDefault(); });
+$("#ovChips").addEventListener("click", (e) => {
+  const b = e.target.closest(".ovchip"); if (!b) return;
+  if (langGedaan) { langGedaan = false; return; }
+  if (b.dataset.ov === "+") { nieuweLijst(); return; }
+  kiesLijst(b.dataset.ov, e.ctrlKey || e.metaKey || e.shiftKey);
 });
 
 // ---------- weergaves ----------
@@ -170,7 +257,8 @@ function snelInvoer(ph = "Nieuwe taak… bv. Offerte sturen ~45m !u ^vr #present
 function vandaag() {
   const nu = new Date(), vd = vandaagStr();
   const open = d().taken.filter(t => t.status !== "klaar" && zichtbaar(t));
-  const focus = [...open].sort((a, b) => prioriteit(b) - prioriteit(a)).filter(t => kwadrant(t) !== "schrappen").slice(0, 8);
+  const focus = [...open].filter(t => isMijn(t) && !wachtNogOp(t).length).sort((a, b) => prioriteit(b) - prioriteit(a)).filter(t => kwadrant(t) !== "schrappen").slice(0, 8);
+  const opMij = open.filter(t => doorWie(t, "wachtmij"));
   const blokken = [
     ...d().planning.filter(b => dagStr(new Date(b.start)) === vd).filter(b => actieveOverzichten().includes(b.overzicht)),
     ...d().bezet.filter(b => dagStr(new Date(b.start)) === vd).map(b => ({ ...b, bezet: true })),
@@ -201,6 +289,7 @@ function vandaag() {
         <div class="stat"><b>${open.filter(t => kwadrant(t) === "doen").length}</b><span>urgent &amp; belangrijk</span></div>
         <div class="stat" title="Werkelijke tijd gedeeld door geschatte tijd (afgeronde taken)"><b>${kal.n >= 3 ? "×" + kal.factor.toFixed(2) : "–"}</b><span>schatfactor${kal.n < 3 ? " (na 3 taken)" : ""}</span></div>
       </div>
+      ${opMij.length ? `<h3>⏳ Anderen wachten op jou</h3><div class="lijst">${opMij.map(t => itemRij(t)).join("")}</div>` : ""}
       <h3>Deadlines komende 7 dagen</h3>
       <div class="lijst">${binnenWeek.map(i => i.type === "taak" ? itemRij(i) : projectRij(i)).join("") || `<div class="leeg">Geen deadlines deze week.</div>`}</div>
     </aside>
@@ -221,13 +310,13 @@ function matrix() {
   const items = [
     ...(toon !== "taken" ? d().projecten : []),
     ...(toon !== "projecten" ? d().taken : []),
-  ].filter(i => i.status !== "klaar" && zichtbaar(i));
+  ].filter(i => i.status !== "klaar" && zichtbaar(i) && doorWie(i));
   const kaart = (i) => {
     const p = i.type === "taak" && i.project ? project(i.project) : null;
     const dl = doelDatum(i);
     return `<div class="kaartje ${i.type === "project" ? "proj" : ""}" data-id="${i.id}" data-type="${i.type}" style="--ok:${ovKleur(i.overzicht)}">
       ${i.type === "project" ? `<span style="color:var(--ok)">◆</span>` : ""}<span class="ktit">${esc(i.titel)}${p ? ` <small>· ${esc(p.titel)}</small>` : ""}</span>
-      ${dl ? `<small>${fmtDatum(dl)}</small>` : ""}${i.schatting ? `<small>${fmtDuur(i.schatting)}</small>` : ""}</div>`;
+      ${dl ? `<small>${fmtDatum(dl)}</small>` : ""}${i.schatting ? `<small>${fmtDuur(i.schatting)}</small>` : ""}${i.type === "taak" && wachtNogOp(i).length ? `<small title="Wacht op een andere taak">⛓</small>` : ""}${i.type === "taak" && !isMijn(i) ? `<small>👤 ${esc(wieTekst(i))}</small>` : ""}</div>`;
   };
   const vak = (q) => {
     const lijst = items.filter(i => kwadrant(i) === q).sort((a, b) => prioriteit(b) - prioriteit(a));
@@ -237,7 +326,8 @@ function matrix() {
       ${lijst.map(kaart).join("") || `<span class="hint">Sleep iets hierheen</span>`}</section>`;
   };
   return `<div class="titelbalk"><h1>Eisenhower-matrix</h1><span class="sub">Sleep kaartjes om urgentie en belang te wijzigen</span>
-    <div class="rechts chips" data-actie="matrixToon">${["beide", "projecten", "taken"].map(x => `<button type="button" data-w="${x}" style="${x === toon ? "border-color:var(--accent);color:var(--accent)" : ""}">${x[0].toUpperCase() + x.slice(1)}</button>`).join("")}</div></div>
+    <div class="rechts" data-actie="wieKeuze">${wieKeuze()}</div>
+    <div class="rechts chips" data-actie="matrixToon" style="margin-left:0">${["beide", "projecten", "taken"].map(x => `<button type="button" data-w="${x}" style="${x === toon ? "border-color:var(--accent);color:var(--accent)" : ""}">${x[0].toUpperCase() + x.slice(1)}</button>`).join("")}</div></div>
   <div class="matrix">
     <div></div><div class="as">Urgent</div><div class="as">Niet urgent</div>
     <div class="as v">Belangrijk</div>${vak("doen")}${vak("plannen")}
@@ -320,7 +410,7 @@ function projecten() {
 // ===== Taken =====
 function taken() {
   const f = voorkeur.lees("takenFilter", { status: "open", groep: "project", zoek: "" });
-  let lijst = d().taken.filter(zichtbaar)
+  let lijst = d().taken.filter(zichtbaar).filter(t => doorWie(t))
     .filter(t => f.status === "alles" || (f.status === "open" ? t.status !== "klaar" : t.status === "klaar"))
     .filter(t => !f.zoek || (t.titel + " " + t.notitie).toLowerCase().includes(f.zoek.toLowerCase()))
     .sort((a, b) => prioriteit(b) - prioriteit(a));
@@ -344,9 +434,10 @@ function taken() {
     <input type="text" name="zoek" placeholder="Zoeken…" value="${esc(f.zoek)}">
     <select name="status">${[["open", "Openstaand"], ["klaar", "Afgerond"], ["alles", "Alles"]].map(([v, n]) => `<option value="${v}" ${f.status === v ? "selected" : ""}>${n}</option>`).join("")}</select>
     <select name="groep">${[["project", "Per project"], ["kwadrant", "Per kwadrant"], ["datum", "Op datum"], ["geen", "Op prioriteit"]].map(([v, n]) => `<option value="${v}" ${f.groep === v ? "selected" : ""}>${n}</option>`).join("")}</select>
+    ${wieKeuze()}
   </div>
   ${inhoud || `<div class="leeg">Geen taken gevonden.</div>`}
-  <p class="hint" style="margin-top:16px">Snelinvoer: <b>~1u30</b> duur · <b>!u</b> urgent · <b>!b</b> belangrijk · <b>!nb</b> niet belangrijk · <b>^vr</b> / <b>^15-11</b> / <b>^morgen</b> deadline · <b>#woord</b> project · <b>+werk</b> overzicht</p>`;
+  <p class="hint" style="margin-top:16px">Snelinvoer: <b>~1u30</b> duur · <b>!u</b> urgent · <b>!b</b> belangrijk · <b>!nb</b> niet belangrijk · <b>^vr</b> / <b>^15-11</b> / <b>^morgen</b> deadline · <b>#woord</b> project · <b>+werk</b> lijst · <b>@naam</b> wie (<b>@team</b> = hele groep)</p>`;
 }
 
 // ===== Agenda =====
@@ -504,13 +595,18 @@ function instellingen() {
   ${inhoud()}`;
 }
 
+function mensenBlok(o) {
+  return `<div class="leden"><span class="hint">Zonder Tijdkompas:</span>
+    ${(o.mensen || []).map(n => `<span class="lid"><span class="avatar">${esc(n[0].toUpperCase())}</span>${esc(n)} <button type="button" class="x" data-actie="mensWeg" data-w="${esc(n)}" title="Weghalen">✕</button></span>`).join("")}
+    <button type="button" class="knop klein" data-actie="mensBij" title="Collega die Tijdkompas niet gebruikt: je kunt taken aan hem/haar toewijzen en erop wachten">＋ persoon</button></div>`;
+}
 function ledenBlok(o) {
-  if (o.opslag) return `<div class="hint">📁 Persoonlijke lijst in je ${esc(naamVan(o.opslag))}. Delen kan alleen met lijsten in de Tijdkompas-cloud.</div>`;
+  if (o.opslag) return `<div class="hint">📁 Persoonlijke lijst in je ${esc(naamVan(o.opslag))}. Delen kan alleen met lijsten in de Tijdkompas-cloud.</div>` + mensenBlok(o);
   const leden = Object.entries(o.ledenInfo || {}).filter(([u]) => (o.leden || []).includes(u));
   return `<div class="leden">
     ${leden.length > 1 || (o.uitgenodigd || []).length ? leden.map(([u, l]) => `<span class="lid" title="${esc(l.email)}">${l.foto ? `<img class="avatar" src="${esc(l.foto)}" alt="" referrerpolicy="no-referrer">` : `<span class="avatar">${esc((l.naam || "?")[0].toUpperCase())}</span>`}${esc(u === sessie.ik ? "jij" : l.naam)}${u === o.eigenaar ? " <small class='hint'>eigenaar</small>" : ""}${u !== sessie.ik && u !== o.eigenaar && o.eigenaar === sessie.ik ? ` <button type="button" class="x" data-actie="lidWeg" data-w="${esc(u)}" title="Uit lijst halen">✕</button>` : ""}</span>`).join("") : ""}
     ${(o.uitgenodigd || []).map(m => `<span class="lid uitgenodigd" title="Uitgenodigd, nog niet geaccepteerd"><span class="avatar">✉</span>${esc(m)} <button type="button" class="x" data-actie="uitnodigingWeg" data-w="${esc(m)}" title="Uitnodiging intrekken">✕</button></span>`).join("")}
-    <button type="button" class="knop klein" data-actie="ovDelen">👥 Delen…</button></div>`;
+    <button type="button" class="knop klein" data-actie="ovDelen">👥 Delen…</button></div>` + mensenBlok(o);
 }
 
 // Waar staat deze lijst? Tijdkompas-cloud (of alleen deze browser) of je eigen Drive/OneDrive
@@ -529,8 +625,9 @@ function opslagKeuze(o) {
 
 function instLijsten() {
   return `<p class="hint">Elke lijst heeft een eigen naam, kleur en standaardlocatie. Kies per lijst of hij <b>vaste tijden</b> heeft (zoals werk of een clubavond)
-    of in je <b>vrije tijd</b> wordt ingepland. Bovenin de app kies je welke lijsten je ziet: één, een combinatie, of alles.</p>
-  ${d().overzichten.map(o => {
+    of in je <b>vrije tijd</b> wordt ingepland. Lijsten kun je <b>groeperen</b> met „Onderdeel van” (bv. Team en Werkgroep onder Werk).
+    Bovenin kies je wat je ziet: klik = alleen die lijst (of groep), <b>Ctrl+klik</b> (telefoon: lang indrukken) = erbij of eraf — bv. Alles en dan Ctrl+klik op Werk voor „alles behalve werk”.</p>
+  ${lijstVolgorde().map(o => {
     const l = locatie(o.locatie);
     if (o.slot) return `<div class="ovrij" data-ov="${o.id}">
     <span style="text-align:center;font-size:20px">${esc(o.icoon)}</span><span></span>
@@ -540,7 +637,7 @@ function instLijsten() {
       ${o.opslag.startsWith("ms:") ? `<button type="button" class="knop klein" data-actie="koppelMs" data-w="schijf">${msLogo} OneDrive koppelen</button>`
         : `<button type="button" class="knop klein" data-actie="koppelGoogle" data-w="schijf">${googleLogo} Google Drive koppelen</button>`}</div>
   </div>`;
-    return `<div class="ovrij" data-ov="${o.id}">
+    return `<div class="ovrij ${o.ouder && overzicht(o.ouder) ? "kind" : ""}" data-ov="${o.id}">
     <input type="text" value="${esc(o.icoon)}" data-veld="icoon" aria-label="Icoon" style="text-align:center;padding:6px">
     <input type="color" value="${esc(o.kleur)}" data-veld="kleur" aria-label="Kleur">
     <input type="text" value="${esc(o.naam)}" data-veld="naam" aria-label="Naam" style="font-weight:600">
@@ -550,6 +647,8 @@ function instLijsten() {
         <button type="button" data-actie="modus" data-w="vast" aria-pressed="${o.modus === "vast"}">🕘 Vaste tijden</button>
         <button type="button" data-actie="modus" data-w="vrij" aria-pressed="${o.modus === "vrij"}">🌿 Vrije tijd</button>
       </div>
+      <label class="veld">Onderdeel van<select data-veld="ouder" ${kinderen(o.id).length ? `disabled title="Deze lijst is zelf een groep"` : ""}><option value="">— geen (zelf een groep) —</option>
+        ${d().overzichten.filter(x => x !== o && (!x.ouder || !overzicht(x.ouder))).map(x => `<option value="${x.id}" ${o.ouder === x.id ? "selected" : ""}>${x.icoon} ${esc(x.naam)}</option>`).join("")}</select></label>
       <label class="veld">Standaardlocatie<select data-veld="locatie">${locOpties(o.locatie, "Geen vaste plek")}</select></label>
       <label class="veld">Ingeplande blokken naar agenda<select data-veld="doelAgenda">${doelAgendaOpties(o.doelAgenda)}</select></label>
       ${opslagKeuze(o)}
@@ -809,8 +908,10 @@ function openEditor(item, standaard = {}) {
   const type = item?.type || standaard.type || "taak";
   const c = structuredClone(item || {
     type, titel: "", notitie: "", urgent: false, belangrijk: true, deadline: "", streef: "", schatting: 0, werkelijk: 0,
-    status: "open", links: [], gedeeldMet: [], project: null, overzicht: actieveOverzichten()[0], ...standaard,
+    status: "open", links: [], gedeeldMet: [], project: null, overzicht: actieveOverzichten().find(id => !overzicht(id)?.slot) || actieveOverzichten()[0],
+    wie: [mijnId()], wachtOp: [], ...standaard,
   });
+  if (type === "taak") { c.wie = [...wie(c)]; c.wachtOp ||= []; }
   if (c.project && !standaard.overzicht && nieuw) c.overzicht = project(c.project)?.overzicht || c.overzicht;
   const isProj = type === "project";
 
@@ -825,14 +926,13 @@ function openEditor(item, standaard = {}) {
     <div class="dlijf">
       <input class="grootTitel" type="text" name="titel" value="${esc(c.titel)}" placeholder="${isProj ? "Naam van het project" : "Wat moet er gebeuren?"}" required autofocus>
       <div class="rij">
-        <label class="veld">Overzicht<select name="overzicht">${d().overzichten.map(o => `<option value="${o.id}" ${o.id === c.overzicht ? "selected" : ""}>${o.icoon} ${esc(o.naam)}</option>`).join("")}</select></label>
+        <label class="veld">Lijst<select name="overzicht">${lijstVolgorde().filter(o => !o.slot || o.id === c.overzicht).map(o => `<option value="${o.id}" ${o.id === c.overzicht ? "selected" : ""}>${o.ouder && overzicht(o.ouder) ? "　↳ " : ""}${o.icoon} ${esc(o.naam)}</option>`).join("")}</select></label>
         ${isProj ? "" : `<label class="veld">Project<select name="project"><option value="">— losse taak —</option>${d().projecten.filter(p => p.status !== "klaar" || p.id === c.project).map(p => `<option value="${p.id}" ${p.id === c.project ? "selected" : ""}>◆ ${esc(p.titel)}</option>`).join("")}</select></label>`}
-        ${!isProj && (overzicht(c.overzicht)?.leden || []).length > 1 ? `<label class="veld">👤 Wie doet het?<select name="toegewezen">${overzicht(c.overzicht).leden.map(u =>
-          `<option value="${esc(u)}" ${u === (c.toegewezen || sessie.ik) ? "selected" : ""}>${u === sessie.ik ? "Ik" : esc(overzicht(c.overzicht).ledenInfo?.[u]?.naam || u)}</option>`).join("")}</select></label>` : ""}
         <label class="veld">📍 Locatie<select name="locatie">${(() => { const volg = locatie(effectieveLocatie({ ...c, locatie: "" }));
           return `<option value="">${volg ? "Zoals " + (c.project && !isProj ? "project/" : "") + "lijst: " + esc(volg.naam) : "Geen vaste plek"}</option>` +
             d().locaties.map(l => `<option value="${l.id}" ${l.id === c.locatie ? "selected" : ""}>${l.icoon} ${esc(l.naam)}${l.reistijd ? ` (${l.reistijd} min)` : ""}</option>`).join(""); })()}</select></label>
       </div>
+      ${isProj ? "" : wieBlok(c)}
       <div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">Urgent / belangrijk</div>
         <div class="minimatrix">${["doen", "plannen", "delegeren", "schrappen"].map(k => `<button type="button" data-q="${k}" style="--qk:${qKleur(k)}" aria-pressed="${k === q}"><b style="color:${qKleur(k)}">${KWADRANTEN[k].naam}</b><small>${KWADRANTEN[k].sub}</small></button>`).join("")}</div></div>
       <div class="rij">
@@ -841,6 +941,9 @@ function openEditor(item, standaard = {}) {
         <label class="veld">Geschatte tijd<input type="text" name="schatting" value="${fmtDuur(c.schatting)}" placeholder="bv. 1u30"></label>
         <label class="veld">Werkelijke tijd<input type="text" name="werkelijk" value="${fmtDuur(c.werkelijk)}" placeholder="achteraf"></label>
       </div>
+      ${!nieuw && c.status === "klaar" ? `<div class="rij"><label class="veld">✓ Afgerond op<input type="datetime-local" name="klaarOp" value="${lokaalDT(c.klaarOp || new Date())}"></label>
+        ${c.klaarDoor && !isIk(c.klaarDoor) ? `<span class="hint" style="align-self:end">door ${esc(naamVanPersoon(c.klaarDoor, overzicht(c.overzicht)))}</span>` : ""}</div>` : ""}
+      ${isProj ? "" : afhBlok(c, item)}
       ${v && v.schatTaken ? `<div class="vergelijk">Som van de taken: ${fmtDuur(v.schatTaken)} geschat · ${fmtDuur(v.werkelijk) || "0"} besteed · ${v.klaar}/${v.totaal} klaar</div>` : ""}
       <label class="veld">Notitie<textarea name="notitie" placeholder="Context, afspraken, volgende stap…">${esc(c.notitie)}</textarea></label>
 
@@ -874,7 +977,8 @@ function openEditor(item, standaard = {}) {
     const f = $("#editForm"); if (!f) return;
     c.titel = f.titel.value.trim(); c.overzicht = f.overzicht.value; c.notitie = f.notitie.value;
     c.deadline = f.deadline.value; c.streef = f.streef.value; c.locatie = f.locatie.value;
-    if (f.toegewezen) c.toegewezen = f.toegewezen.value;
+    if (f.klaarOp?.value) c.klaarOp = new Date(f.klaarOp.value).toISOString();
+    if (!isProj) { const geldig = new Set(personen(overzicht(c.overzicht)).map(p => p.id)); c.wie = c.wie.filter(x => isIk(x) || geldig.has(x)); }
     c.schatting = leesDuur(f.schatting.value); c.werkelijk = leesDuur(f.werkelijk.value);
     if (f.project) c.project = f.project.value || null;
   };
@@ -884,7 +988,8 @@ function openEditor(item, standaard = {}) {
     const opdeling = $("#editForm").opdeling?.value || "";
     const velden = { titel: c.titel, overzicht: c.overzicht, notitie: c.notitie, deadline: c.deadline, streef: c.streef, schatting: c.schatting,
                      werkelijk: c.werkelijk, urgent: c.urgent, belangrijk: c.belangrijk, links: c.links, gedeeldMet: c.gedeeldMet, locatie: c.locatie || "" };
-    if (!isProj && (c.toegewezen || sessie.ik)) velden.toegewezen = c.toegewezen || sessie.ik;
+    if (!isProj) { velden.wie = c.wie; velden.wachtOp = c.wachtOp; }
+    if (!nieuw && c.status === "klaar" && c.klaarOp) velden.klaarOp = c.klaarOp;
     if (nieuw) {
       if (isProj) {
         const p = nieuwProject(velden);
@@ -905,6 +1010,20 @@ function openEditor(item, standaard = {}) {
   teken();
   dlg.onclick = (e) => {
     const b = e.target.closest("button,[data-q]"); if (!b) return;
+    if (b.dataset.wie !== undefined) {
+      lees(); const id = b.dataset.wie;
+      if (!id) c.wie = [];
+      else if (isIk(id)) c.wie = c.wie.some(isIk) ? c.wie.filter(x => !isIk(x)) : [mijnId(), ...c.wie];
+      else c.wie = c.wie.includes(id) ? c.wie.filter(x => x !== id) : [...c.wie, id];
+      teken(); return;
+    }
+    if (b.dataset.depweg) { lees(); c.wachtOp = c.wachtOp.filter(x => x !== b.dataset.depweg); teken(); return; }
+    if (b.dataset.actie === "persoonBij") {
+      const o = overzicht($("#editForm").overzicht.value), n = prompt(`Naam van iemand zonder Tijdkompas, toe te voegen aan „${o.naam}”:`, "")?.trim();
+      if (!n) return; lees();
+      if (!(o.mensen || []).includes(n)) { o.mensen = [...(o.mensen || []), n]; bewaar(); }
+      c.wie = [...c.wie.filter(x => x !== "~" + n), "~" + n]; teken(); return;
+    }
     const q = b.dataset.q;
     if (q) { lees(); Object.assign(c, { urgent: KWADRANTEN[q].urgent, belangrijk: KWADRANTEN[q].belangrijk }); teken(); return; }
     const a = b.dataset.actie;
@@ -923,13 +1042,17 @@ function openEditor(item, standaard = {}) {
       teken(); $("#subNieuw").focus();
     } else if (a === "subKoppel") { const id = $("#subKoppel").value; if (id) { lees(); koppel(taak(id), item.id); teken(); } }
     else if (b.dataset.loskoppel) { lees(); koppel(taak(b.dataset.loskoppel), null); toast("Taak uit project gehaald — staat nu los"); teken(); }
-    else if (b.dataset.subvink) { lees(); const t = taak(b.dataset.subvink); t.status === "klaar" ? heropen(t) : vraagWerkelijk(t, teken); teken(); }
+    else if (b.dataset.subvink) { lees(); const t = taak(b.dataset.subvink); t.status === "klaar" ? heropen(t) : vraagAfronden(t, teken); teken(); }
     else if (a === "uitProject") { lees(); c.project = null; if (opslaan()) { dlg.close(); toast("Taak staat nu los"); } }
     else if (a === "weg") {
       const extra = isProj && takenVan(item.id).length ? `\nDe ${takenVan(item.id).length} taken blijven bestaan als losse taken.` : "";
       if (confirm(`„${item.titel}” verwijderen?${extra}`)) { verwijder(item); dlg.close(); toast("Verwijderd"); }
-    } else if (a === "klaar") { if (opslaan()) { dlg.close(); vraagWerkelijk(item); } }
+    } else if (a === "klaar") { if (opslaan()) { dlg.close(); vraagAfronden(item); } }
     else if (a === "heropen") { if (opslaan()) { heropen(item); dlg.close(); } }
+  };
+  dlg.onchange = (e) => {
+    if (e.target.name === "overzicht") { lees(); teken(); }
+    else if (e.target.id === "depKies" && e.target.value) { lees(); c.wachtOp = [...c.wachtOp, e.target.value]; teken(); }
   };
   dlg.onkeydown = (e) => {
     if (e.key !== "Enter" || e.target.tagName === "TEXTAREA") return;
@@ -938,32 +1061,101 @@ function openEditor(item, standaard = {}) {
     else if (id === "deelMail") { e.preventDefault(); $('[data-actie="deelBij"]', dlg).click(); }
     else if (id === "subNieuw") { e.preventDefault(); $('[data-actie="subBij"]', dlg).click(); }
   };
-  dlg.onclose = () => { if (dlg.returnValue === "ok") opslaan(); dlg.onclose = null; dlg.onclick = null; };
+  dlg.onclose = () => { if (dlg.returnValue === "ok") opslaan(); dlg.onclose = null; dlg.onclick = null; dlg.onchange = null; };
   dlg.onsubmit = (e) => { if (e.submitter?.value === "ok") { lees(); if (!c.titel) { e.preventDefault(); return; } } };
   dlg.returnValue = "";
   dlg.showModal();
 }
 
-// "Klaar! Hoe lang duurde het?"
-function vraagWerkelijk(item, na) {
+// datetime-local wil lokale tijd zonder zone: 2026-11-16T14:05
+const lokaalDT = (x) => { const t = new Date(x); return `${dagStr(t)}T${fmtTijd(t.toISOString())}`; };
+// Gewerkte tijd: een kaal getal is hier uren ("1,5" = 1u30), anders zoals overal ("45m", "1u15")
+const leesUren = (s) => /^\s*\d+([.,]\d+)?\s*$/.test(String(s || "")) ? Math.round(parseFloat(String(s).replace(",", ".")) * 60) : leesDuur(s);
+
+// Wie doet het? Meerdere mag; niemand gekozen = de hele groep. Iedereen in de lijst kan altijd meedoen of afvinken.
+function wieBlok(c) {
+  const o = overzicht(c.overzicht), pers = personen(o), w = c.wie || [];
+  const aan = (p) => p.ik ? w.some(isIk) : w.includes(p.id);
+  return `<div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">👤 Wie doet het?</div>
+    <div class="chips wiechips">
+      ${pers.length > 1 ? `<button type="button" data-wie="" aria-pressed="${!w.length}" title="Niet verdeeld: iemand uit de groep pakt het op">👥 Hele groep</button>` : ""}
+      ${pers.map(p => `<button type="button" data-wie="${esc(p.id)}" aria-pressed="${aan(p)}" ${p.lid || p.ik ? "" : `title="Gebruikt geen Tijdkompas"`}>${p.ik ? "🙋 Ik" : esc(p.naam)}</button>`).join("")}
+      <button type="button" class="plus" data-actie="persoonBij" title="Iemand zonder Tijdkompas toevoegen aan deze lijst">＋ persoon</button>
+    </div>
+    ${pers.length > 1 ? `<div class="hint" style="margin-top:4px">Meerdere mag. Ook als het van een ander is, blijft de groep verantwoordelijk: iedereen kan meedoen (🙋 Ik) of het afvinken. De planner plant alleen wat (ook) van jou is.</div>` : ""}</div>`;
+}
+// Afhankelijkheden: waar wacht deze taak op, en wie wacht erop?
+function afhBlok(c, item) {
+  const deps = (c.wachtOp || []).map(taak).filter(Boolean);
+  const kan = d().taken.filter(t => t.status !== "klaar" && t.id !== item?.id && !c.wachtOp.includes(t.id) && !(item && maaktKring(item.id, t.id)));
+  const groepen = [overzicht(c.overzicht), ...lijstVolgorde().filter(o => o.id !== c.overzicht)].filter(Boolean)
+    .map(o => [o, kan.filter(t => t.overzicht === o.id)]).filter(([, l]) => l.length);
+  const info = (t) => [wie(t).every(isIk) ? "" : "👤 " + wieTekst(t), t.status === "klaar" ? "✅ klaar" : t.gepland ? "📅 " + fmtDatum(dagStr(new Date(t.gepland.van))) : "nog niet ingepland",
+                       t.deadline ? "⏰ " + fmtDatum(t.deadline) : ""].filter(Boolean).join(" · ");
+  const wachters = item ? wachtenOp(item) : [];
+  return `<div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">⛓ Wacht op</div>
+    <div class="lijst">${deps.map(t => `<div class="linkrij"><span>${t.status === "klaar" ? "✅" : "⛓"}</span><span>${esc(t.titel)}</span><span class="hint">${esc(info(t))}</span>
+        <button type="button" class="x" data-depweg="${t.id}" aria-label="Niet meer op wachten">✕</button></div>`).join("")}
+      ${groepen.length ? `<div class="linkrij"><span>＋</span><select id="depKies"><option value="">Kan pas als een andere taak klaar is…</option>
+        ${groepen.map(([o, l]) => `<optgroup label="${esc(o.icoon + " " + o.naam)}">${l.sort((a, b) => a.titel.localeCompare(b.titel)).map(t => `<option value="${t.id}">${esc(t.titel)}${wie(t).every(isIk) ? "" : " — " + esc(wieTekst(t))}</option>`).join("")}</optgroup>`).join("")}</select></div>` : ""}</div>
+    ${wachters.length ? `<div class="hint" style="margin-top:6px">⏳ Hierop wacht: ${wachters.map(t => `„${esc(t.titel)}” (${esc(wieTekst(t))})`).join(", ")}</div>` : ""}</div>`;
+}
+
+// "Klaar!" — wanneer, en (als je wilt) hoeveel tijd het kostte
+function vraagAfronden(item, na) {
   const s = item.schatting || 0;
   const opties = s ? [[s, "zoals geschat"], [Math.round(s * 1.5 / 5) * 5, "×1,5"], [s * 2, "×2"], [Math.round(s * 0.5 / 5) * 5, "de helft"]] : [[15, ""], [30, ""], [60, ""], [120, ""]];
-  dlg2.innerHTML = `<form method="dialog"><div class="dkop"><h2>✓ Klaar: ${esc(item.titel)}</h2><button type="button" class="sluit" data-sluit aria-label="Sluiten">×</button></div>
-    <div class="dlijf"><div>Hoe lang heeft het werkelijk geduurd?${s ? ` <span class="hint">Geschat: ${fmtDuur(s)}</span>` : ""}</div>
+  const verder = wachtenOp(item).filter(x => wachtNogOp(x).every(y => y.id === item.id));
+  dlg2.innerHTML = `<form method="dialog"><div class="dkop"><h2>✓ Afronden: ${esc(item.titel)}</h2><button type="button" class="sluit" data-sluit aria-label="Sluiten">×</button></div>
+    <div class="dlijf">
+      <div class="rij"><label class="veld">Afgerond op<input type="datetime-local" id="klaarOp" value="${lokaalDT(new Date())}"></label>
+        <label class="veld">Gewerkte tijd <small class="hint">(mag leeg)</small><input type="text" id="werkInv" value="${item.werkelijk ? fmtDuur(item.werkelijk) : ""}" placeholder="bv. 1,5 (uur) of 45m"></label></div>
       <div class="chips">${opties.map(([m, n]) => `<button type="button" data-m="${m}">${fmtDuur(m)}${n ? ` <small class="hint">${n}</small>` : ""}</button>`).join("")}</div>
-      <label class="veld">Werkelijke tijd<input type="text" id="werkInv" value="${fmtDuur(item.werkelijk || s)}" placeholder="bv. 1u15"></label>
-      <p class="hint" style="margin:0">Hiermee leert Tijdkompas hoe goed je schat, en plant het voortaan realistischer.</p></div>
-    <div class="dvoet"><button type="button" class="knop" data-skip>Weet ik niet</button><div class="rechts"><button class="knop prim" value="ok">Opslaan</button></div></div></form>`;
-  dlg2.onclick = (e) => { const b = e.target.closest("[data-m]"); if (b) $("#werkInv").value = fmtDuur(+b.dataset.m); if (e.target.closest("[data-skip]")) dlg2.close("skip"); };
+      <p class="hint" style="margin:0">Hoeft niet. Vul je het in, dan leert Tijdkompas hoe goed je schat en plant het een volgende keer realistischer.${s ? ` Geschat was ${fmtDuur(s)}.` : ""}</p>
+      ${verder.length ? `<p class="hint" style="margin:0">🔓 Hierna kan verder: ${verder.map(t => `„${esc(t.titel)}” (${esc(wieTekst(t))})`).join(", ")}</p>` : ""}</div>
+    <div class="dvoet"><div class="rechts"><button class="knop prim" value="ok">✓ Afronden</button></div></div></form>`;
+  dlg2.onclick = (e) => { const b = e.target.closest("[data-m]"); if (b) $("#werkInv").value = fmtDuur(+b.dataset.m); };
   dlg2.onclose = () => {
-    if (dlg2.returnValue === "ok") rondAf(item, leesDuur($("#werkInv").value) || null);
-    else if (dlg2.returnValue === "skip") rondAf(item, null);
+    if (dlg2.returnValue === "ok") {
+      const op = $("#klaarOp").value ? new Date($("#klaarOp").value) : new Date();
+      rondAf(item, leesUren($("#werkInv").value) || null, isNaN(op) ? new Date() : op);
+      toast(verder.length ? `Afgerond ✓ — „${verder[0].titel}” kan nu verder` : "Mooi! Afgerond ✓");
+    }
     dlg2.onclose = null; na?.();
-    if (dlg2.returnValue === "ok" || dlg2.returnValue === "skip") toast("Mooi! Afgerond ✓");
   };
   dlg2.returnValue = "";
   dlg2.showModal();
-  setTimeout(() => $("#werkInv")?.select(), 50);
+}
+
+// Nieuwe lijst, ook vanuit de lijstknoppen bovenin
+const LIJSTKLEUREN = ["#d8a24e", "#6fb38a", "#6f9fd8", "#c48ed8", "#d87a6f", "#5fb8b0", "#b8b05f", "#8a978e"];
+function nieuweLijst() {
+  const groepen = d().overzichten.filter(o => (!o.ouder || !overzicht(o.ouder)) && !o.slot);
+  const vrijeKleur = LIJSTKLEUREN.find(k => !d().overzichten.some(o => o.kleur === k)) || LIJSTKLEUREN[d().overzichten.length % LIJSTKLEUREN.length];
+  dlg2.innerHTML = `<form method="dialog" id="lijstForm"><div class="dkop"><h2>Nieuwe lijst</h2><button type="button" class="sluit" data-sluit aria-label="Sluiten">×</button></div>
+    <div class="dlijf">
+      <div class="rij"><label class="veld" style="max-width:70px">Icoon<input type="text" name="icoon" value="📁" style="text-align:center"></label>
+        <label class="veld" style="max-width:70px">Kleur<input type="color" name="kleur" value="${vrijeKleur}"></label>
+        <label class="veld">Naam<input type="text" name="naam" placeholder="bv. Werkgroep duurzaamheid" required autofocus></label></div>
+      <label class="veld">Onderdeel van<select name="ouder"><option value="">— geen (zelf een groep) —</option>${groepen.map(o => `<option value="${o.id}">${o.icoon} ${esc(o.naam)}</option>`).join("")}</select></label>
+      <p class="hint" style="margin:0">Onder een groep (bv. Werk) neemt de lijst de tijden, locatie en doelagenda van die groep over; dat kun je daarna aanpassen bij Instellingen → Lijsten. Daar kun je hem ook delen.</p>
+    </div>
+    <div class="dvoet"><div class="rechts"><button class="knop prim" value="ok">Maken</button></div></div></form>`;
+  dlg2.onclick = null;
+  dlg2.onclose = () => {
+    dlg2.onclose = null;
+    if (dlg2.returnValue !== "ok") return;
+    const f = $("#lijstForm"), v = (n) => $(`[name=${n}]`, f).value, naam = v("naam").trim(); if (!naam) return;
+    const ouder = overzicht(v("ouder"));
+    const o = { id: uid() + (sessie.ik ? uid() : ""), naam, kleur: v("kleur"), icoon: v("icoon").trim() || "📁", ouder: ouder?.id || "", mensen: [],
+                modus: ouder?.modus || "vrij", locatie: ouder?.locatie || "", doelAgenda: ouder?.doelAgenda ?? null, tijden: structuredClone(ouder?.tijden || []) };
+    d().overzichten.push(o);
+    if (actief) { actief = [...actief, o.id]; voorkeur.zet("actief", actief); }
+    bewaar(); toast(`Lijst „${naam}” gemaakt`);
+  };
+  dlg2.onsubmit = (e) => { const f = $("#lijstForm"); if (f && e.submitter?.value === "ok" && !$("[name=naam]", f).value.trim()) e.preventDefault(); };
+  dlg2.returnValue = "";
+  dlg2.showModal();
 }
 
 // ---------- blok in agenda ----------
@@ -1003,8 +1195,24 @@ function verwerkSnel(tekst) {
   neem(/\s\^(\S+)/g, (_, x) => v.deadline = leesDatum(x));
   neem(/\s\+(\S+)/g, (_, x) => { const o = d().overzichten.find(o => o.naam.toLowerCase().startsWith(x.toLowerCase())); if (o) v.overzicht = o.id; });
   neem(/\s#(\S+)/g, (_, x) => { const p = d().projecten.find(p => p.status !== "klaar" && p.titel.toLowerCase().includes(x.toLowerCase())); if (p) { v.project = p.id; v.overzicht = p.overzicht; } });
+  const namen = [];
+  neem(/\s@(\S+)/g, (_, x) => namen.push(x.toLowerCase()));
   v.titel = t.replace(/\s+/g, " ").trim();
   if (!v.overzicht) v.overzicht = actieveOverzichten()[0];
+  if (namen.length) {
+    const o = overzicht(v.overzicht), pers = personen(o), nieuw = [];
+    if (namen.includes("team") || namen.includes("iedereen")) v.wie = [];
+    else v.wie = [...new Set(namen.map(n => {
+      if (n === "ik" || n === "mij") return mijnId();
+      const p = pers.find(p => !p.ik && p.naam.toLowerCase().startsWith(n));
+      if (p) return p.id;
+      // onbekend in deze lijst: iemand zonder Tijdkompas erbij zetten (bekende naam uit een andere lijst, anders zoals getypt)
+      const elders = d().overzichten.flatMap(x => x.mensen || []).find(m => m.toLowerCase().startsWith(n));
+      const naam = elders || n[0].toUpperCase() + n.slice(1);
+      o.mensen = [...(o.mensen || []), naam]; nieuw.push(naam); return "~" + naam;
+    }))];
+    if (nieuw.length) setTimeout(() => toast(`${nieuw.join(", ")} toegevoegd aan „${o.naam}”`), 2700);
+  }
   if (!v.titel) return null;
   if (!v.deadline) delete v.deadline;
   return nieuweTaak(v);
@@ -1041,7 +1249,7 @@ main.addEventListener("click", async (e) => {
   const el = e.target.closest("[data-actie]");
   if (vink) {
     const rij = vink.closest("[data-id]"); const t = rij.dataset.type === "project" ? project(rij.dataset.id) : taak(rij.dataset.id);
-    if (t.status === "klaar") { heropen(t); toast("Heropend"); } else vraagWerkelijk(t);
+    if (t.status === "klaar") { heropen(t); toast("Heropend"); } else vraagAfronden(t);
     return;
   }
   if (el && el.tagName !== "FORM" && el.tagName !== "DIV" || (el?.tagName === "DIV" && e.target.closest("button[data-w]"))) {
@@ -1056,7 +1264,7 @@ main.addEventListener("click", async (e) => {
       const r = planAutomatisch(actieveOverzichten()); laatsteWaarschuwingen = r.waarschuwingen; bewaar();
       toast(`${r.blokken} blokken ingepland${r.waarschuwingen.length ? " · " + r.waarschuwingen.length + " waarschuwing(en)" : ""}`);
     }
-    else if (a === "wisPlanning") { if (confirm("Alle toekomstige, niet-vastgezette blokken wissen?")) { const nu = new Date(); d().planning = d().planning.filter(b => b.vast || new Date(b.eind) <= nu); laatsteWaarschuwingen = []; bewaar(); } }
+    else if (a === "wisPlanning") { if (confirm("Alle toekomstige, niet-vastgezette blokken wissen?")) { const nu = new Date(); d().planning = d().planning.filter(b => b.vast || new Date(b.eind) <= nu); werkGeplandBij(d().overzichten.map(o => o.id)); laatsteWaarschuwingen = []; bewaar(); } }
     else if (a === "exportIcs") {
       const bl = d().planning.filter(b => new Date(b.eind) > new Date() && actieveOverzichten().includes(b.overzicht));
       download("tijdkompas-planning.ics", maakIcs(bl), "text/calendar");
@@ -1079,7 +1287,19 @@ main.addEventListener("click", async (e) => {
       try { const x = JSON.parse(b.tekst); if (!Array.isArray(x.taken)) throw 0; if (confirm("Huidige gegevens vervangen door deze back-up?")) { opslag.vervang(x); toast("Back-up teruggezet"); } }
       catch { toast("Dit is geen geldige Tijdkompas-back-up"); }
     }
-    else if (a === "ovBij") { d().overzichten.push({ id: uid() + (sessie.ik ? uid() : ""), naam: "Nieuwe lijst", kleur: "#c48ed8", icoon: "📁", modus: "vrij", locatie: "", doelAgenda: null, tijden: [] }); bewaar(); }
+    else if (a === "ovBij") nieuweLijst();
+    else if (a === "mensBij") {
+      const o = overzicht(el.closest("[data-ov]").dataset.ov), n = prompt(`Naam van iemand zonder Tijdkompas (bv. een collega) voor „${o.naam}”:`, "")?.trim();
+      if (n && !(o.mensen || []).includes(n)) { o.mensen = [...(o.mensen || []), n]; bewaar(); }
+    }
+    else if (a === "mensWeg") {
+      const o = overzicht(el.closest("[data-ov]").dataset.ov), n = d().taken.filter(t => t.overzicht === o.id && wie(t).includes("~" + w)).length;
+      if (confirm(`${w} weghalen uit „${o.naam}”?${n ? `\n${n} taken van ${w} gaan dan naar de hele groep.` : ""}`)) {
+        o.mensen = (o.mensen || []).filter(x => x !== w);
+        d().taken.forEach(t => { if (t.overzicht === o.id && wie(t).includes("~" + w)) t.wie = wie(t).filter(x => x !== "~" + w); });
+        bewaar();
+      }
+    }
     else if (a === "instTab" && w) { e.preventDefault(); voorkeur.zet("instTab", w); render(); window.scrollTo(0, 0); }
     else if (a === "modus" && w) {
       const o = overzicht(el.closest("[data-ov]").dataset.ov); o.modus = w;
@@ -1130,9 +1350,11 @@ main.addEventListener("click", async (e) => {
         return;
       }
       const n = d().taken.filter(t => t.overzicht === o.id).length + d().projecten.filter(p => p.overzicht === o.id).length;
-      if (d().overzichten.length === 1) { toast("Er moet minstens één overzicht blijven"); return; }
+      if (d().overzichten.length === 1) { toast("Er moet minstens één lijst blijven"); return; }
       if (n) { toast(`Verplaats eerst de ${n} taken/projecten in „${o.naam}”`); return; }
-      if (confirm(`Overzicht „${o.naam}” verwijderen?`)) { lijstWeg(o.id); d().overzichten = d().overzichten.filter(x => x !== o); bewaar(); }
+      if (confirm(`Lijst „${o.naam}” verwijderen?${kinderen(o.id).length ? "\nDe lijsten eronder blijven bestaan, los." : ""}`)) {
+        lijstWeg(o.id); kinderen(o.id).forEach(x => x.ouder = ""); d().overzichten = d().overzichten.filter(x => x !== o); bewaar();
+      }
     }
     else if (a === "tijdBij") { const o = overzicht(el.closest("[data-ov]").dataset.ov); o.tijden.push({ dagen: [1, 2, 3, 4, 5], van: "09:00", tot: "17:00", locatie: o.locatie || "" }); bewaar(); }
     else if (a === "tijdWeg") {
@@ -1194,9 +1416,13 @@ main.addEventListener("change", (e) => {
       doeVerplaats(o.id, w); return;
     }
     const waarde = veld === "doelAgenda" ? (e.target.value || null) : e.target.value;
+    if (veld === "ouder" && waarde) {                     // nieuw in een groep: zichtbaar houden als de groep zichtbaar is
+      if (actief && actief.includes(waarde) && !actief.includes(o.id)) { actief.push(o.id); voorkeur.zet("actief", actief); }
+    }
     if (rij) o.tijden[+rij.dataset.i][veld] = waarde; else o[veld] = waarde;
     bewaar(); return;
   }
+  if (e.target.name === "wie") { voorkeur.zet("wie", e.target.value); render(); return; }
   const g = e.target.closest("[data-actie]"); if (!g) return;
   if (g.dataset.actie === "takenFilter" && e.target.name !== "zoek") {
     const f = voorkeur.lees("takenFilter", { status: "open", groep: "project", zoek: "" }); f[e.target.name] = e.target.value; voorkeur.zet("takenFilter", f); render();

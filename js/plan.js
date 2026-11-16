@@ -6,7 +6,7 @@
 //  • "vrij"  — alles wat overblijft binnen je beschikbaarheid, na aftrek van vaste tijden, reistijd en afspraken.
 //              Staat de lijst (of taak) op een locatie met reistijd, dan krijgt elke sessie reis heen + terug;
 //              taken op dezelfde locatie worden achter elkaar gezet zodat je maar één keer reist.
-import { opslag, kwadrant, kalibratie, project, overzicht, locatie, effectieveLocatie, uid, linkInfo, sessie } from "./data.js";
+import { opslag, kwadrant, kalibratie, project, overzicht, locatie, effectieveLocatie, uid, linkInfo, isMijn, taak } from "./data.js";
 
 const MIN = 60000;
 const rondOp = (d, stap = 15) => new Date(Math.ceil(d.getTime() / (stap * MIN)) * stap * MIN);
@@ -154,9 +154,27 @@ export function planAutomatisch(actieveOverzichten) {
     ...d.taken.filter(t => t.status !== "klaar"),
     ...d.projecten.filter(p => p.status !== "klaar" && p.schatting > 0 && !d.taken.some(t => t.project === p.id && t.status !== "klaar")),
   ].filter(i => actieveOverzichten.includes(i.overzicht))
-   .filter(i => !sessie.ik || !i.toegewezen || i.toegewezen === sessie.ik)     // gedeelde lijst: alleen wat aan jou is toegewezen
-   .filter(i => inst.schrappenInplannen || kwadrant(i) !== "schrappen");
-  items.sort((a, b) => prioriteit(b, nu) - prioriteit(a, nu));
+   .filter(isMijn)                                                   // gedeelde lijst: alleen wat (ook) aan jou is toegewezen
+   .filter(i => inst.schrappenInplannen || kwadrant(i) !== "schrappen" || d.taken.some(x => x.status !== "klaar" && (x.wachtOp || []).includes(i.id)));
+  // Waar een ander op wacht, krijgt minstens de prioriteit van die wachtende taak; en komt er vóór
+  const pr = new Map(), bezig = new Set();
+  const effPrio = (t) => {
+    if (pr.has(t.id)) return pr.get(t.id);
+    if (bezig.has(t.id)) return prioriteit(t, nu);
+    bezig.add(t.id);
+    let p = prioriteit(t, nu);
+    for (const x of d.taken) if (x.status !== "klaar" && (x.wachtOp || []).includes(t.id)) p = Math.max(p, effPrio(x));
+    bezig.delete(t.id); pr.set(t.id, p); return p;
+  };
+  items.sort((a, b) => effPrio(b) - effPrio(a));
+  const volgorde = [], gedaan = new Set();
+  const zet = (it, pad = new Set()) => {
+    if (gedaan.has(it.id) || pad.has(it.id)) return; pad.add(it.id);
+    for (const id of it.wachtOp || []) { const v = items.find(x => x.id === id); if (v) zet(v, pad); }
+    gedaan.add(it.id); volgorde.push(it);
+  };
+  items.forEach(it => zet(it));
+  const eindVan = {};                                                 // tot wanneer een taak in deze ronde is ingepland
 
   const waarschuwingen = [];
   let blokken = 0;
@@ -170,8 +188,18 @@ export function planAutomatisch(actieveOverzichten) {
   };
   const weg = (b) => { d.planning = d.planning.filter(x => x !== b); const i = bezet.findIndex(x => x.ref === b.id); if (i >= 0) bezet.splice(i, 1); };
 
-  for (const it of items) {
+  for (const it of volgorde) {
     const ov = overzicht(it.overzicht); if (!ov) continue;
+    // Wacht deze taak op een andere? Dan pas inplannen ná het einde daarvan
+    let vanaf = start, wachtOpOnbekend = null;
+    for (const id of it.wachtOp || []) {
+      const v = taak(id); if (!v || v.status === "klaar") continue;
+      const eigen = d.planning.filter(b => b.item === id && b.soort !== "reis").map(b => new Date(b.eind));
+      const tot = eindVan[id] !== undefined ? eindVan[id] : eigen.length ? new Date(Math.max(...eigen)) : v.gepland?.tot ? new Date(v.gepland.tot) : null;
+      if (!tot) { wachtOpOnbekend = v; break; }
+      if (tot > vanaf) vanaf = rondOp(new Date(tot.getTime() + buf), 5);
+    }
+    if (wachtOpOnbekend) { eindVan[it.id] = null; waarschuwingen.push(`„${it.titel}” wacht op „${wachtOpOnbekend.titel}”, en die is nog niet ingepland — daarom nog niet ingepland.`); continue; }
     const al = d.planning.filter(b => b.item === it.id && b.vast && b.soort !== "reis").reduce((s, b) => s + minuten(new Date(b.start), new Date(b.eind)), 0);
     let fac = 1;
     if (inst.kalibratie) { factorCache[it.overzicht] ??= kalibratie(it.overzicht).factor; fac = Math.min(2, Math.max(0.8, factorCache[it.overzicht])); }
@@ -189,9 +217,9 @@ export function planAutomatisch(actieveOverzichten) {
 
     for (let dag = new Date(start.getFullYear(), start.getMonth(), start.getDate()); dag < eind && rest > 0; dag.setDate(dag.getDate() + 1)) {
       const I = ind(dag);
-      const vensters = ov.modus === "vast"
+      const vensters = (ov.modus === "vast"
         ? I.vast.filter(v => v.lijst === ov.id && (!eigenLoc || v.locatie === eigenLoc)).map(v => [v.a, v.b])
-        : I.vrij;
+        : I.vrij).map(([a, b]) => [a < vanaf ? vanaf : a, b]).filter(([a, b]) => b - a >= 5 * MIN);
       if (!vensters.length) continue;
       const sleutel = dagStr(dag) + "|" + (ov.modus === "vast" ? ov.id : "vrij");
       if (ruimte[sleutel] == null) {
@@ -211,7 +239,7 @@ export function planAutomatisch(actieveOverzichten) {
         gelukt = false;
         // 1. Aanschuiven bij een sessie op dezelfde locatie (scheelt een reis)
         if (reis) {
-          for (const s of sessies.filter(s => s.loc === loc && s.dag === dagStr(dag))) {
+          for (const s of sessies.filter(s => s.loc === loc && s.dag === dagStr(dag) && s.eindTaak >= vanaf)) {
             const venster = vensters.find(([a, b]) => s.eindTaak >= a && s.eindTaak <= b); if (!venster) continue;
             const g = gaten(s.eindTaak, venster[1], s.terug.id).find(([a]) => a <= new Date(s.eindTaak.getTime() + buf + 5 * MIN));
             if (!g) continue;
@@ -246,10 +274,24 @@ export function planAutomatisch(actieveOverzichten) {
         }
       }
     }
+    eindVan[it.id] = rest > 0 ? null : laatste ? new Date(laatste.eind) : (d.planning.filter(b => b.item === it.id && b.soort !== "reis").map(b => new Date(b.eind)).sort((a, b) => b - a)[0] || start);
     if (rest > 0) waarschuwingen.push(`„${it.titel}”: nog ${rest} min die niet binnen ${inst.horizon} dagen past${ov.modus === "vast" ? ` in de vaste tijden van ${ov.naam}` : ""}.`);
     else if (deadline && laatste && dagStr(new Date(laatste.eind)) > deadline) waarschuwingen.push(`„${it.titel}”: past pas na de deadline (${deadline}).`);
   }
+  werkGeplandBij(actieveOverzichten);
   return { blokken, waarschuwingen };
+}
+
+/** Zet op je eigen open taken wanneer ze ingepland staan, zodat wie erop wacht dat kan zien (gaat mee met de gedeelde lijst) */
+export function werkGeplandBij(actieveOverzichten) {
+  const d = opslag.d, nu = new Date();
+  for (const t of d.taken) {
+    if (t.status === "klaar" || !actieveOverzichten.includes(t.overzicht) || !isMijn(t)) continue;
+    const bl = d.planning.filter(b => b.item === t.id && b.soort !== "reis" && new Date(b.eind) > nu);
+    const g = bl.length ? { van: bl.map(b => b.start).sort()[0], tot: bl.map(b => b.eind).sort().at(-1) } : null;
+    if (JSON.stringify(g) === JSON.stringify(t.gepland || null)) continue;
+    if (g) t.gepland = g; else delete t.gepland;
+  }
 }
 
 // ---------- links naar agenda's ----------

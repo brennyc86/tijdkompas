@@ -300,3 +300,18 @@ details.meer .menu{position:absolute;right:0;top:calc(100% + 6px);z-index:15;dis
 .lid .avatar{width:22px;height:22px;font-size:11px}
 .lid.uitgenodigd{border-style:dashed;color:var(--meta)}
 .banner .knop+.knop{margin-left:0}
+
+/* ---- v5: groepen, wie, afhankelijkheden ---- */
+.ovgroep{display:inline-flex;gap:3px;align-items:center;border:1px dashed color-mix(in srgb,var(--k) 55%,var(--rand));border-radius:999px;padding:1px}
+.ovchip.sub{padding:4px 10px;font-size:.92em}
+.ovchip.nieuw{padding:5px 11px;font-weight:600}
+.ovchip.nieuw:hover{border-color:var(--accent);color:var(--accent)}
+.ovchips{-webkit-touch-callout:none;user-select:none}
+.ovrij.kind{margin-left:28px;border-left:3px solid var(--rand)}
+.tag.team{border-style:dashed}
+.tag.wacht{color:var(--oranje);border-color:var(--oranje)}
+.tag.hierop{color:var(--accent);border-color:var(--accent)}
+.item.geblokt .ititel{opacity:.7}
+.wiechips button[aria-pressed="true"]{background:var(--accent);color:var(--accentTekst);border-color:var(--accent)}
+.wiechips button.plus{border-style:dashed;color:var(--meta)}
+@media (max-width:640px){.ovrij.kind{margin-left:12px}}

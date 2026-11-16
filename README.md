@@ -10,6 +10,7 @@ Planner voor werk, privé en hobby's: projecten en taken, de Eisenhower-matrix (
 |---|---|
 | Projecten opdelen in taken (ook in één keer: één taak per regel) | ✅ |
 | Losse taken; later aan een project koppelen en er weer uithalen | ✅ |
+| Taken toewijzen (mij, collega's, hele groep) en afhankelijkheden („wacht op”) | ✅ |
 | Deadline én eigen streefdatum op taken en projecten | ✅ |
 | Geschatte tijd vooraf, werkelijke tijd achteraf (gevraagd bij afronden) | ✅ |
 | Urgent/belangrijk-matrix op projecten én taken, verslepen tussen kwadranten | ✅ |
@@ -20,6 +21,21 @@ Planner voor werk, privé en hobby's: projecten en taken, de Eisenhower-matrix (
 | Planning naar Google Agenda / Outlook | ✅ automatisch per lijst, of .ics / per blok |
 | Inzicht: schatfactor, tijd per kwadrant | ✅ |
 | Back-up downloaden/terugzetten | ✅ |
+
+## Lijsten kiezen en groeperen
+
+- Bovenin: **klik** = alleen die lijst (of groep met alles eronder), nog eens klikken = weer alles. **Ctrl/⌘+klik** (telefoon: lang indrukken) = lijst erbij of eraf — bv. *Alles* en dan Ctrl+klik op Werk = alles behalve werk.
+- **＋** bovenin maakt direct een nieuwe lijst.
+- **Groeperen**: een lijst kan *onderdeel van* een andere zijn (bv. Team en Werkgroep onder Werk). De groep aan/uit zet alles eronder mee; losse onderdelen blijven apart te kiezen. Groeperen is per persoon, ook bij gedeelde lijsten.
+
+## Samenwerken: wie doet wat, en wie wacht op wie
+
+- Per taak **wie het doet**: ik, een of meer leden, iemand zonder Tijdkompas (alleen een naam), of **de hele groep** (nog niet verdeeld). Snelinvoer: `@sanne`, `@team`.
+- De groep blijft verantwoordelijk: iedereen kan meedoen („🙋 Ik” erbij) of andermans taak afvinken. De planner plant alleen wat (ook) van jou is.
+- **Wacht op**: een taak kan wachten op andere taken (ook uit een andere lijst). Je ziet ⛓ *wacht op…* en ⏳ *Sanne wacht hierop*, plus 📅 wanneer het is ingepland.
+  - De planner zet een wachtende taak pas ná de taak waar hij op wacht, en geeft een blokkerende taak minstens de prioriteit van wie erop wacht.
+  - Filter *Waar anderen op mij wachten* / *Waar Sanne op wacht* / *Mijn taken* / *Nog niet verdeeld* in Taken en Matrix; Vandaag toont „Anderen wachten op jou”.
+- **Afronden**: tijdstip (standaard nu) en, als je wilt, de gewerkte tijd (`1,5` = anderhalf uur). Dat helpt de schatfactor.
 
 ## Lijsten, locaties en reistijd
 

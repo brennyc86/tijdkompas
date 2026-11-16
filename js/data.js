@@ -65,6 +65,18 @@ function normaliseer(d) {
     o.locatie ??= "";
     o.tijden ||= [];
     o.doelAgenda ??= null;
+    o.ouder ||= "";                      // groep: deze lijst valt onder een andere lijst (één niveau)
+    o.mensen ||= [];                     // mensen zonder Tijdkompas aan wie je taken kunt toewijzen (alleen namen)
+  }
+  // een groep mag geen groep in een groep worden, en niet naar zichzelf of een verdwenen lijst wijzen
+  for (const o of n.overzichten) {
+    const ouder = n.overzichten.find(x => x.id === o.ouder);
+    if (!ouder || ouder === o || ouder.ouder) o.ouder = "";
+  }
+  for (const t of n.taken) {
+    if (!Array.isArray(t.wie)) t.wie = t.toegewezen ? [t.toegewezen] : ["ik"];   // wie doet het (leeg = de hele groep)
+    delete t.toegewezen;
+    if (!Array.isArray(t.wachtOp)) t.wachtOp = [];
   }
   delete n.accounts;
   n.versie = 2;
@@ -135,7 +147,7 @@ function basis() { return { id: uid(), titel: "", notitie: "", urgent: false, be
 export function startData() { const d = leeg(); d.overzichten = basisOverzichten(); return d; }
 
 export function nieuweTaak(v = {}) {
-  const t = { ...basis(), project: null, overzicht: data.overzichten[0]?.id, toegewezen: sessie.ik || undefined, ...v, type: "taak" };
+  const t = { ...basis(), project: null, overzicht: data.overzichten[0]?.id, wie: [mijnId()], wachtOp: [], ...v, type: "taak" };
   if (t.project && !v.overzicht) t.overzicht = project(t.project)?.overzicht || t.overzicht;
   data.taken.push(t); bewaar(); return t;
 }
@@ -146,6 +158,7 @@ export function nieuwProject(v = {}) {
 export function werkBij(item, v) { Object.assign(item, v); bewaar(); }
 
 export function verwijder(item) {
+  data.taken.forEach(t => { if (t.wachtOp?.includes(item.id)) t.wachtOp = t.wachtOp.filter(x => x !== item.id); });
   if (item.type === "project") {
     data.taken.forEach(t => { if (t.project === item.id) t.project = null; }); // taken blijven los bestaan
     data.projecten = data.projecten.filter(p => p !== item);
@@ -163,13 +176,69 @@ export function koppel(t, pid) {
   bewaar();
 }
 
-export function rondAf(item, minuten) {
-  item.status = "klaar"; item.klaarOp = new Date().toISOString();
+export function rondAf(item, minuten, op = new Date()) {
+  item.status = "klaar"; item.klaarOp = new Date(op).toISOString(); item.klaarDoor = mijnId();
   if (minuten != null) item.werkelijk = minuten;
+  delete item.gepland;
   data.planning = data.planning.filter(b => !(b.item === item.id && new Date(b.start) > new Date()));
   bewaar();
 }
-export function heropen(item) { item.status = "open"; delete item.klaarOp; bewaar(); }
+export function heropen(item) { item.status = "open"; delete item.klaarOp; delete item.klaarDoor; bewaar(); }
+
+// ---------- groepen van lijsten ----------
+export const kinderen = id => data.overzichten.filter(o => o.ouder === id);
+/** Lijsten in weergavevolgorde: elke groep direct gevolgd door zijn onderdelen */
+export function lijstVolgorde() {
+  const uit = [];
+  for (const o of data.overzichten.filter(o => !o.ouder || !overzicht(o.ouder))) uit.push(o, ...kinderen(o.id));
+  return uit;
+}
+/** De lijst plus alles wat eronder valt */
+export const metKinderen = id => [id, ...kinderen(id).map(o => o.id)];
+
+// ---------- wie doet wat ----------
+// Persoon-id's: Firebase-uid (lid van een gedeelde lijst), "ik" (zonder inloggen) of "~Naam" (iemand zonder Tijdkompas)
+export const mijnId = () => sessie.ik || "ik";
+export const isIk = id => id === "ik" || (!!sessie.ik && id === sessie.ik);
+export function personen(o) {
+  if (!o) return [{ id: mijnId(), naam: "Ik", ik: true }];
+  const uit = [{ id: mijnId(), naam: "Ik", ik: true }];
+  for (const u of o.leden || []) if (!isIk(u)) uit.push({ id: u, naam: o.ledenInfo?.[u]?.naam || o.ledenInfo?.[u]?.email || "Lid", lid: true });
+  for (const n of o.mensen || []) uit.push({ id: "~" + n, naam: n });
+  return uit;
+}
+export function naamVanPersoon(id, o) {
+  if (isIk(id)) return "ik";
+  if (id?.startsWith("~")) return id.slice(1);
+  for (const x of o ? [o] : data.overzichten) { const l = x.ledenInfo?.[id]; if (l) return l.naam || l.email; }
+  return "iemand";
+}
+const wieVan = t => Array.isArray(t.wie) ? t.wie : (t.toegewezen ? [t.toegewezen] : [mijnId()]);
+/** Is dit (ook) mijn taak? Een lijst zonder anderen is altijd van jou. */
+export function isMijn(t) {
+  if (t.type === "project") return true;
+  const w = wieVan(t);
+  if (w.some(isIk)) return true;
+  return !w.length && personen(overzicht(t.overzicht)).length < 2;
+}
+export const isTeam = t => t.type !== "project" && !wieVan(t).length;
+export const wie = wieVan;
+
+// ---------- afhankelijkheden: taak A wacht op taak B ----------
+/** De open taken waar deze taak nog op wacht */
+export const wachtNogOp = t => (t.wachtOp || []).map(taak).filter(x => x && x.status !== "klaar");
+/** Open taken die op deze taak wachten */
+export const wachtenOp = t => data.taken.filter(x => x.status !== "klaar" && (x.wachtOp || []).includes(t.id));
+/** Zou "a wacht op b" een kringetje maken? */
+export function maaktKring(a, b) {
+  const gezien = new Set(), stapel = [b];
+  while (stapel.length) {
+    const x = stapel.pop(); if (x === a) return true;
+    if (gezien.has(x)) continue; gezien.add(x);
+    stapel.push(...(taak(x)?.wachtOp || []));
+  }
+  return false;
+}
 
 // ---------- links (mail e.d.) ----------
 export function linkInfo(url) {
@@ -215,9 +284,10 @@ function demoData() {
 
   const pres = P({ overzicht: "werk", titel: "Presentatie boordcomputer", urgent: true, belangrijk: true, deadline: dagPlus(6), streef: dagPlus(4), schatting: 480,
                    notitie: "Demo voor klant, inclusief testopstelling.", links: [{ url: "https://mail.google.com/mail/u/0/#inbox", label: "Uitnodiging klant" }] });
-  T({ overzicht: "werk", project: pres.id, titel: "Slides opzetten", urgent: true, belangrijk: true, schatting: 120, deadline: dagPlus(4) });
-  T({ overzicht: "werk", project: pres.id, titel: "Testopstelling controleren", urgent: true, belangrijk: true, schatting: 90, deadline: dagPlus(5), locatie: "kantoor" });
-  T({ overzicht: "werk", project: pres.id, titel: "Generale repetitie", urgent: false, belangrijk: true, schatting: 60, streef: dagPlus(5) });
+  d.overzichten[0].mensen = ["Sanne"];
+  const slides = T({ overzicht: "werk", project: pres.id, titel: "Slides opzetten", urgent: true, belangrijk: true, schatting: 120, deadline: dagPlus(4) });
+  const opst = T({ overzicht: "werk", project: pres.id, titel: "Testopstelling controleren", urgent: true, belangrijk: true, schatting: 90, deadline: dagPlus(5), locatie: "kantoor", wie: ["~Sanne"] });
+  T({ overzicht: "werk", project: pres.id, titel: "Generale repetitie", urgent: false, belangrijk: true, schatting: 60, streef: dagPlus(5), wie: ["ik", "~Sanne"], wachtOp: [slides.id, opst.id] });
   T({ overzicht: "werk", project: pres.id, titel: "Offerte-concept", urgent: false, belangrijk: true, schatting: 45, werkelijk: 70, status: "klaar", klaarOp: new Date().toISOString() });
 
   const site = P({ overzicht: "werk", titel: "Website vernieuwen", urgent: false, belangrijk: true, streef: dagPlus(30), schatting: 900 });
@@ -240,5 +310,5 @@ function demoData() {
   T({ overzicht: "prive", titel: "Verjaardagscadeau regelen", schatting: 30, urgent: true, belangrijk: true, deadline: dagPlus(3) });
   T({ overzicht: "prive", titel: "Oude kabels uitzoeken", schatting: 45, urgent: false, belangrijk: false });
   T({ overzicht: "prive", titel: "Belastingaangifte voorbereiden", schatting: 90, werkelijk: 150, status: "klaar", belangrijk: true });
-  return d;
+  return normaliseer(d);
 }

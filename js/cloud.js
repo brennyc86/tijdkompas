@@ -144,7 +144,8 @@ async function eersteKeer() {
   const kaart = {}; start.overzichten.forEach(o => kaart[o.id] = nieuwId() + nieuwId());
   start.overzichten.forEach(o => { o.id = kaart[o.id]; o.eigenaar = sessie.ik; o.leden = [sessie.ik]; o.ledenInfo = { [sessie.ik]: ikInfo() }; o.uitgenodigd = []; });
   for (const x of [...start.taken, ...start.projecten, ...start.planning]) if (kaart[x.overzicht]) x.overzicht = kaart[x.overzicht];
-  for (const x of start.taken) x.toegewezen ||= sessie.ik;
+  start.overzichten.forEach(o => { if (kaart[o.ouder]) o.ouder = kaart[o.ouder]; });
+  for (const x of start.taken) { x.wie = (x.wie || ["ik"]).map(w => w === "ik" ? sessie.ik : w); if (x.klaarDoor === "ik") x.klaarDoor = sessie.ik; }
   for (const a of Object.values(start.agendas || {})) if (kaart[a.lijst]) a.lijst = kaart[a.lijst];
   start.demo = false;
   await schrijf(naarDocs(start), new Map());
@@ -204,10 +205,10 @@ function bouw() {
     bezet: (u.bezet || []).map(e => ({ ...e, titel: titels.bezet?.[e.id]?.titel || e.titel || "Bezet", plaats: titels.bezet?.[e.id]?.plaats || e.plaats || "" })),
     overzichten: ids.map(id => {
       const l = lijstDocs.get(id);
-      if (!l) { const s = u.lijstInst[id]; return { id, naam: s.naam || "Lijst", kleur: s.kleur || "#8a978e", icoon: s.icoon || "🔒", opslag: s.opslag, slot: true,
+      if (!l) { const s = u.lijstInst[id]; return { id, naam: s.naam || "Lijst", kleur: s.kleur || "#8a978e", icoon: s.icoon || "🔒", opslag: s.opslag, slot: true, ouder: s.ouder || "", mensen: [],
                                                     eigenaar: sessie.ik, leden: [sessie.ik], ledenInfo: {}, uitgenodigd: [], modus: "vrij", locatie: "", tijden: [], doelAgenda: null }; }
       return { id, naam: l.naam, kleur: l.kleur, icoon: l.icoon, eigenaar: l.eigenaar, leden: l.leden || [], ledenInfo: l.ledenInfo || {},
-               uitgenodigd: l.uitgenodigd || [], modus: "vrij", locatie: "", tijden: [], doelAgenda: null, ...(u.lijstInst?.[id] || {}) };
+               uitgenodigd: l.uitgenodigd || [], mensen: l.mensen || [], modus: "vrij", locatie: "", tijden: [], doelAgenda: null, ...(u.lijstInst?.[id] || {}) };
     }),
     taken: items.filter(x => x.type === "taak"), projecten: items.filter(x => x.type === "project"), demo: false,
   }, { nieuweToevoegen: false });
@@ -219,7 +220,7 @@ function bouw() {
 }
 
 // ---------- van het geheugen naar Firestore ----------
-const PERSOONLIJK = ["modus", "locatie", "tijden", "doelAgenda"];
+const PERSOONLIJK = ["modus", "locatie", "tijden", "doelAgenda", "ouder"];   // per gebruiker, ook bij gedeelde lijsten
 function naarDocs(d) {
   const ik = sessie.ik, docs = new Map();
   const schijfLijst = new Set(d.overzichten.filter(o => o.opslag).map(o => o.id));
@@ -232,7 +233,7 @@ function naarDocs(d) {
     agendaSync: d.agendaSync || "", gewijzigd: d.gewijzigd || "",
     lijstVolgorde: d.overzichten.map(o => o.id),
     lijstInst: Object.fromEntries(d.overzichten.map(o => [o.id, o.opslag
-      ? { opslag: o.opslag, naam: o.naam || "", icoon: o.icoon || "", kleur: o.kleur || "" }
+      ? { opslag: o.opslag, naam: o.naam || "", icoon: o.icoon || "", kleur: o.kleur || "", ouder: o.ouder || "" }
       : Object.fromEntries(PERSOONLIJK.map(k => [k, o[k] ?? null]))])),
   }));
   for (const o of d.overzichten) {
@@ -240,7 +241,7 @@ function naarDocs(d) {
     docs.set("lijsten/" + o.id, schoon({
       naam: o.naam, kleur: o.kleur, icoon: o.icoon, eigenaar: o.eigenaar || ik,
       leden: o.leden?.length ? o.leden : [ik], ledenInfo: o.ledenInfo && Object.keys(o.ledenInfo).length ? o.ledenInfo : { [ik]: ikInfo() },
-      uitgenodigd: (o.uitgenodigd || []).map(e => e.toLowerCase()),
+      uitgenodigd: (o.uitgenodigd || []).map(e => e.toLowerCase()), mensen: o.mensen || [],
     }));
   }
   for (const x of [...d.taken, ...d.projecten]) {
