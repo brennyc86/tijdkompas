@@ -12,7 +12,7 @@ export const CONFIG = {
 
   // Optioneel: agenda's lezen en blokken wegschrijven
   googleClientId: "144197829489-mfos5cs0kvghs2et10i4evvsj4m1g8cs.apps.googleusercontent.com",      // Google Drive + Agenda (OAuth-webclient van het Firebase-project, SETUP.md stap C)
-  microsoftClientId: "",   // OneDrive + Outlook (SPA-platform op de Entra-registratie, SETUP.md stap C)
+  microsoftClientId: "73100eed-6815-4770-a11d-e522c91512c4",   // OneDrive + Outlook (SPA-platform op de Entra-registratie, SETUP.md stap C)
   // Doorgeefluik voor agenda-links (.ics), bv. een gepubliceerde Outlook-agenda (worker/agenda-doorgeef.js, SETUP.md stap D)
   icsProxy: "https://tijdkompas-agenda.brennycc86.workers.dev",
 };
