@@ -91,6 +91,9 @@ Eenmalige setup door de eigenaar: zie [SETUP.md](SETUP.md).
   De rest (matrix, duur, streefdatum, wie, wacht op…) staat in Tijdkompas zelf. Elke 10 minuten, of direct met 🔄.
 - Een veiligheidsstop voorkomt dat er massaal taken verdwijnen als er iets niet goed geladen is.
 
+- Synchroniseert **automatisch, twee kanten op**: wat je hier toevoegt, wijzigt of afvinkt staat binnen een paar seconden in Google Taken / To Do; wijzigingen daar komen binnen zodra je terug in het tabblad komt, en anders binnen 1,5 minuut.
+  Een lijst wordt gesynchroniseerd door het account dat hem gekoppeld heeft (op een apparaat waar dat account verbonden is).
+
 ## Starten
 - Je begint zonder lijsten: maak er zelf een (Werk, Thuis, je hobby…) of koppel een takenlijst van Google of Microsoft.
 

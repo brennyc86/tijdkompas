@@ -348,7 +348,7 @@ function render() {
     doeOphalen.bezig = true; doeOphalen(true).finally(() => { doeOphalen.bezig = false; });
   }
   if (takenVerbindingen().length && !doeTakenSync.bezig && Object.values(d().takenlijsten || {}).some(x => x.lijst)
-      && Date.now() - new Date(d().takenSync || 0) > 10 * 60e3) setTimeout(() => doeTakenSync(true), 50);
+      && Date.now() - new Date(d().takenSync || 0) > 2 * 60e3) setTimeout(() => doeTakenSync(true), 50);
   window.scrollTo(0, scroll);
   renderAccount();
   zetThema();
@@ -1549,9 +1549,34 @@ async function doeTakenSync(stil = true) {
     r.verlopen.forEach(v => verlopenSessies.set(v.id, v));
     if (r.fouten.length) toast(r.fouten[0]);
     else if (!stil || r.binnen || r.weg) toast(`Taken bijgewerkt: ${r.binnen} binnengehaald, ${r.naar + r.bij} gewijzigd, ${r.weg} weg`);
-  } finally { doeTakenSync.bezig = false; }
+  } finally { doeTakenSync.bezig = false; takenLaatst = takenAfdruk(); }
   render();
 }
+// ---------- Google Taken / Microsoft To Do automatisch bijhouden ----------
+// Wijzig je hier iets in een gekoppelde lijst (ook vanaf een gelinkt account of ander apparaat), dan gaat het binnen
+// een paar seconden naar Google/Microsoft. Zolang de app open staat, wordt elke 1,5 minuut opgehaald wat daar veranderde.
+function takenAfdruk() {
+  const l = new Set(Object.values(d().takenlijsten || {}).map(x => x.lijst).filter(Boolean));
+  if (!l.size) return "";
+  return JSON.stringify([...d().taken, ...d().projecten].filter(x => l.has(x.overzicht))
+    .map(x => [x.id, x.titel, x.status, x.notitie, x.deadline, x.streef, x.project, x.urgent, x.belangrijk, x.overzicht, x.wie, x.schatting]));
+}
+let takenLaatst = "", takenTimer = null;
+function takenStraks(ms = 2500) {
+  clearTimeout(takenTimer);
+  takenTimer = setTimeout(() => { if (doeTakenSync.bezig) takenStraks(3000); else doeTakenSync(true); }, ms);
+}
+const takenGekoppeld = () => takenVerbindingen().length && Object.values(d().takenlijsten || {}).some(x => x.lijst);
+opslag.luister(() => {
+  if (doeTakenSync.bezig || !takenGekoppeld()) return;
+  const a = takenAfdruk();
+  if (a !== takenLaatst) { takenLaatst = a; takenStraks(); }
+});
+takenLaatst = takenAfdruk();
+setInterval(() => { if (document.visibilityState !== "hidden" && takenGekoppeld()) doeTakenSync(true); }, 90e3);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && takenGekoppeld() && Date.now() - new Date(d().takenSync || 0) > 30e3) doeTakenSync(true);
+});
 async function doeNaarAgenda() {
   const r = await zetNaarAgendas();
   r.verlopen.forEach(v => verlopenSessies.set(v.id, v));
