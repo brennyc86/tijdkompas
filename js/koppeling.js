@@ -141,6 +141,13 @@ export async function vernieuw(v) {
 
 // ================= Microsoft =================
 let msal = null;
+// Een eerder Microsoft-venster dat gesloten of geblokkeerd werd, kan een "bezig"-vlag laten hangen; dan weigert
+// MSAL elke nieuwe poging (interaction_in_progress). Vlak voor een nieuwe, door een klik gestarte poging ruimen we die op.
+function msVrijmaken() {
+  for (const opslag of [sessionStorage, localStorage]) {
+    try { for (const k of Object.keys(opslag)) if (k.includes("interaction.status")) opslag.removeItem(k); } catch {}
+  }
+}
 async function msClient() {
   if (msal) return msal;
   await laadScript(MSAL_URL);
@@ -157,6 +164,7 @@ export async function koppelMs(doelen = ["agenda"], email = "") {
   if (!msal) { msClient(); throw new Error("Microsoft wordt nog geladen — klik nog een keer"); }
   const oudV = email ? verbindingen().find(x => x.id === "ms:" + email.toLowerCase()) : null;
   const alle = [...new Set([...(oudV ? doelenVan(oudV) : []), ...doelen])];
+  msVrijmaken();
   const r = await msal.loginPopup({ scopes: M_SCOPES.basis.concat(alle.flatMap(d => M_SCOPES[d])), ...(email ? { loginHint: email } : { prompt: "select_account" }) });
   const a = r.account, id = "ms:" + a.username.toLowerCase(), oud = verbindingen().find(x => x.id === id);
   return werkV({ ...(oud || {}), id, soort: "ms", email: a.username, naam: a.name || a.username, homeAccountId: a.homeAccountId, primair: false,
@@ -166,6 +174,7 @@ async function msToken(v, interactief = false) {
   const pca = await msClient();
   let account = pca.getAccountByHomeId(v.homeAccountId);
   if (!account && interactief) {          // gekoppeld op een ander apparaat of met een ander account: hier één keer aanmelden
+    msVrijmaken();
     const r = await pca.loginPopup({ scopes: scopesVoor(M_SCOPES, doelenVan(v)), loginHint: v.email, prompt: "select_account" });
     account = r.account; werkV({ ...v, homeAccountId: account.homeAccountId });
     return r.accessToken;
@@ -175,6 +184,7 @@ async function msToken(v, interactief = false) {
   try { return (await pca.acquireTokenSilent({ scopes, account })).accessToken; }
   catch (e) {
     if (!interactief) throw new VerlopenFout(v);
+    msVrijmaken();
     return (await pca.acquireTokenPopup({ scopes, account })).accessToken;
   }
 }
