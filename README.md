@@ -83,6 +83,12 @@ Eenmalige setup door de eigenaar: zie [SETUP.md](SETUP.md).
 - Het werkt twee kanten op: nieuwe taken, titel, notitie, deadline, afvinken en weggooien. Elke 10 minuten, of direct met 🔄.
 - Een veiligheidsstop voorkomt dat er massaal taken verdwijnen als er iets niet goed geladen is.
 
+## Petten en kleuren
+- Welke pet heb je op? Een pet (bijv. 🏡 Privé, 💼 Werk) bepaalt de kleuren en welke lijsten opvallen; de rest blijft zichtbaar maar gedimd.
+- Wissel met de knop naast het logo. Instellen bij ⚙️ Instellingen → Overig: kleuren (Bos, Perkament, Aubergine & cyaan, Aubergine licht, Nachtzee, Herfst, Grafiet, Lente),
+  wat opvalt (alles / alleen deze / alles behalve deze) en een e-mailadres waarmee de pet vanzelf opgaat bij inloggen.
+- Per account onthoudt elk apparaat welke pet je het laatst ophad.
+
 ## Snelinvoer
 
 `Offerte sturen ~45m !u ^vr #presentatie +werk`

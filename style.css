@@ -341,6 +341,71 @@ details.meer .menu{position:absolute;right:0;top:calc(100% + 6px);z-index:15;dis
 .rapport h1{font-size:20px;margin:0 0 4px}.rapport h2{font-size:16px;margin:18px 0 4px}.rapport h3{font-size:13px;margin:10px 0 2px;color:var(--meta)}
 .rapport ul{margin:4px 0 0;padding-left:18px}.rapport section{border-top:1px solid var(--rand);margin-top:10px}
 #afdruk{display:none}
+/* ---------- thema's (v10) ---------- */
+:root{--accent2:var(--accent)}
+:root[data-theme="aubergine"]{
+  color-scheme:dark;
+  --bg:#24122b;--bg2:#1b0d21;--paneel:#2d1735;--kaart:#351c3e;--kaart2:#41234b;
+  --tekst:#f3ebf5;--meta:#c5adcb;--zacht:#94799b;--rand:#53335c;--accent:#3fd0d8;--accentTekst:#1b0d21;--accent2:#c77dd8;
+  --rood:#f08a8a;--oranje:#f0c060;--groen:#7fd6a6;
+  --q-doen:#f08a8a;--q-plannen:#3fd0d8;--q-delegeren:#f0c060;--q-schrappen:#9a8aa0;
+  --schaduw:0 8px 30px rgba(10,0,15,.45);
+}
+:root[data-theme="aubergineLicht"]{
+  color-scheme:light;
+  --bg:#f6f1f7;--bg2:#ece2ef;--paneel:#fbf8fc;--kaart:#ffffff;--kaart2:#f3ebf5;
+  --tekst:#2a1530;--meta:#6b5472;--zacht:#9a87a0;--rand:#e0d0e5;--accent:#5b2a6e;--accentTekst:#ffffff;--accent2:#0e9aa7;
+  --rood:#b8462e;--oranje:#a87414;--groen:#2f7a4c;
+  --q-doen:#c4573f;--q-plannen:#0e9aa7;--q-delegeren:#b8861f;--q-schrappen:#8f8494;
+  --schaduw:0 8px 30px rgba(60,20,70,.15);
+}
+:root[data-theme="zee"]{
+  color-scheme:dark;
+  --bg:#0b1826;--bg2:#08121d;--paneel:#10202f;--kaart:#132738;--kaart2:#183146;
+  --tekst:#eaf0f4;--meta:#9fb3c2;--zacht:#748a9b;--rand:#25405a;--accent:#e8b04a;--accentTekst:#08121d;--accent2:#5fb3d9;
+  --rood:#e47f6c;--oranje:#e8b04a;--groen:#6fc79a;
+  --q-doen:#e47f6c;--q-plannen:#5fb3d9;--q-delegeren:#e8b04a;--q-schrappen:#7d8c97;
+}
+:root[data-theme="herfst"]{
+  color-scheme:dark;
+  --bg:#24170f;--bg2:#1b110b;--paneel:#2c1d13;--kaart:#342317;--kaart2:#3f2b1c;
+  --tekst:#f4e9dc;--meta:#c9b19a;--zacht:#987f69;--rand:#55402f;--accent:#e39b4a;--accentTekst:#1b110b;--accent2:#c9604a;
+  --rood:#e0745c;--oranje:#e3b04a;--groen:#9cbf6a;
+  --q-doen:#e0745c;--q-plannen:#9cbf6a;--q-delegeren:#e3b04a;--q-schrappen:#94877c;
+}
+:root[data-theme="grafiet"]{
+  color-scheme:dark;
+  --bg:#17191d;--bg2:#111316;--paneel:#1d2025;--kaart:#22262c;--kaart2:#2a2f36;
+  --tekst:#e6e8eb;--meta:#a3a9b2;--zacht:#767d87;--rand:#353a42;--accent:#7aa2f7;--accentTekst:#111316;--accent2:#9ece6a;
+  --rood:#f7768e;--oranje:#e0af68;--groen:#9ece6a;
+  --q-doen:#f7768e;--q-plannen:#9ece6a;--q-delegeren:#e0af68;--q-schrappen:#7c8390;
+}
+:root[data-theme="lente"]{
+  color-scheme:light;
+  --bg:#f3f7f0;--bg2:#e7efe2;--paneel:#fafcf8;--kaart:#ffffff;--kaart2:#eef4ea;
+  --tekst:#1f2b22;--meta:#5a6b5e;--zacht:#8a998d;--rand:#d6e2d0;--accent:#3f7d4f;--accentTekst:#ffffff;--accent2:#d9668a;
+  --rood:#c0503b;--oranje:#b07d1a;--groen:#3f7d4f;
+  --q-doen:#c0503b;--q-plannen:#3f7d4f;--q-delegeren:#b07d1a;--q-schrappen:#8a958d;
+  --schaduw:0 8px 30px rgba(30,50,30,.12);
+}
+.nav a.actief{box-shadow:inset 3px 0 0 var(--accent2)}
+.kompas{border-color:var(--accent2)}
+/* petten */
+.petknop{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--accent2);background:var(--kaart);color:var(--tekst);border-radius:999px;padding:4px 12px;cursor:pointer;flex:none;font-weight:600}
+.petknop:hover{background:var(--kaart2)}
+.elders{opacity:.5;filter:saturate(.35)}
+.elders:hover,.elders:focus-within{opacity:.9;filter:none}
+.ovchip.elders,.ovmap.elders{opacity:.55}
+.petrij{display:flex;flex-direction:column;gap:10px;margin-bottom:10px}
+.petrij.op{border-color:var(--accent2)}
+.petkop{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.petkop input{flex:1;min-width:120px}
+.themas{display:flex;flex-wrap:wrap;gap:6px}
+.themaknop{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--rand);background:var(--kaart);border-radius:999px;padding:4px 10px 4px 4px;cursor:pointer;font-size:13px}
+.themaknop[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.themaknop .staal{width:22px;height:22px;border-radius:50%;background:conic-gradient(var(--b) 0 33%,var(--c) 0 50%,var(--a) 0);border:1px solid rgba(128,128,128,.4)}
+@media (max-width:860px){.petnaam{display:none}}
+
 @media print{
   body.afdrukken > :not(#afdruk){display:none !important}
   body.afdrukken{display:block;background:#fff;color:#000}

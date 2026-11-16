@@ -24,6 +24,74 @@ const voorkeur = {
   zet(k, v) { try { localStorage.setItem("tk_" + k, JSON.stringify(v)); } catch {} },
 };
 let actief = voorkeur.lees("actief", null);
+
+// ---------- thema's en petten ("welke pet heb je op?") ----------
+// Een pet = kleuren + welke lijsten opvallen. Wissel bovenin; per account onthoudt dit apparaat welke pet je ophad.
+const THEMAS = {
+  donker:         { naam: "Bos",               bg: "#0f2419", accent: "#d8c48e", accent2: "#7cc495" },
+  licht:          { naam: "Perkament",         bg: "#f4efe2", accent: "#2f5e45", accent2: "#b8861f" },
+  aubergine:      { naam: "Aubergine & cyaan", bg: "#24122b", accent: "#3fd0d8", accent2: "#c77dd8" },
+  aubergineLicht: { naam: "Aubergine licht",   bg: "#f6f1f7", accent: "#5b2a6e", accent2: "#0e9aa7" },
+  zee:            { naam: "Nachtzee",          bg: "#0b1826", accent: "#e8b04a", accent2: "#5fb3d9" },
+  herfst:         { naam: "Herfst",            bg: "#24170f", accent: "#e39b4a", accent2: "#c9604a" },
+  grafiet:        { naam: "Grafiet",           bg: "#17191d", accent: "#7aa2f7", accent2: "#9ece6a" },
+  lente:          { naam: "Lente (licht)",     bg: "#f3f7f0", accent: "#3f7d4f", accent2: "#d9668a" },
+};
+const FOCUS = { alles: "Alles even opvallend", deze: "Alleen deze opvallend", behalve: "Alles behalve deze" };
+const WERKACHTIG = /werk|kantoor|team|baan|zakelijk|bedrijf|klant/i;
+function standaardPetten() {
+  const top = [...submappen("").map(m => ["m:" + m.id, m.naam]), ...lijstenIn("").map(o => [o.id, o.naam])];
+  const werk = top.filter(([, n]) => WERKACHTIG.test(n)).map(([k]) => k);
+  return [
+    { id: "prive", naam: "Privé", icoon: "🏡", thema: voorkeur.lees("thema", "donker"), focusSoort: werk.length ? "behalve" : "alles", focus: werk, account: "" },
+    { id: "werk",  naam: "Werk",  icoon: "💼", thema: "aubergine", focusSoort: werk.length ? "deze" : "alles", focus: werk, account: "" },
+  ];
+}
+function petten() {
+  const i = d().instellingen;
+  if (!Array.isArray(i.petten) || !i.petten.length) i.petten = standaardPetten();
+  return i.petten;
+}
+const pet = () => { const l = petten(); return l.find(p => p.id === voorkeur.lees("pet", "")) || l[0]; };
+function zetPet(id) {
+  voorkeur.zet("pet", id);
+  const em = cloud.gebruiker?.email?.toLowerCase();
+  if (em) { const m = voorkeur.lees("petPerAccount", {}); m[em] = id; voorkeur.zet("petPerAccount", m); }
+  zetThema(); render();
+}
+// Bij inloggen (of wisselen van account) vanzelf de bijbehorende pet opzetten
+let petEmail;
+function petBijAccount() {
+  const em = cloud.gebruiker?.email?.toLowerCase() || "";
+  if (em === petEmail) return; petEmail = em;
+  if (!em) return;
+  const p = petten().find(p => (p.account || "").toLowerCase() === em) || petten().find(p => p.id === voorkeur.lees("petPerAccount", {})[em]);
+  if (p && p.id !== voorkeur.lees("pet", "")) { voorkeur.zet("pet", p.id); zetThema(); }
+}
+/** Valt deze lijst op onder de huidige pet? */
+function inFocus(ovId) {
+  const p = pet();
+  if (!p || p.focusSoort === "alles" || !p.focus?.length) return true;
+  const ids = new Set(p.focus.flatMap(k => idsVan(k)));
+  return p.focusSoort === "deze" ? ids.has(ovId) : !ids.has(ovId);
+}
+function markeerFocus(root) {
+  for (const el of root.querySelectorAll("[data-id][data-type], [data-sub]")) {
+    const x = el.dataset.sub ? taak(el.dataset.sub) : el.dataset.type === "project" ? project(el.dataset.id) : taak(el.dataset.id);
+    if (x) el.classList.toggle("elders", !inFocus(x.overzicht));
+  }
+  for (const el of root.querySelectorAll("[data-blok]")) {
+    const b = d().planning.find(b => b.id === el.dataset.blok);
+    if (b) el.classList.toggle("elders", !inFocus(b.overzicht));
+  }
+}
+function renderPet() {
+  const k = $("#petKnop"); if (!k) return;
+  zetThema();
+  const l = petten(), p = pet(), volgende = l[(l.indexOf(p) + 1) % l.length];
+  k.innerHTML = `<span>${esc(p.icoon)}</span><span class="petnaam">${esc(p.naam)}</span>`;
+  k.title = l.length > 1 ? `Je hebt je ${p.naam}-pet op. Klik voor ${volgende.naam}.` : `Pet: ${p.naam}`;
+}
 let weekVerschuiving = 0;
 let laatsteWaarschuwingen = [];
 
@@ -188,10 +256,10 @@ function staat(ids) {
 }
 function renderChips() {
   const ids = actieveOverzichten(), alle = ids.length === d().overzichten.length;
-  const lijstChip = (o) => `<button class="ovchip" type="button" data-ov="${o.id}" style="--k:${o.kleur}" aria-pressed="${ids.includes(o.id)}"
+  const lijstChip = (o) => `<button class="ovchip${inFocus(o.id) ? "" : " elders"}" type="button" data-ov="${o.id}" style="--k:${o.kleur}" aria-pressed="${ids.includes(o.id)}"
       title="${esc(o.naam)} — ${CHIPTIP}"><span class="stip"></span>${o.icoon} ${esc(o.naam)}</button>`;
   const mapChip = (m) => { const l = lijstenOnder(m.id);
-    return `<span class="ovmap" style="--k:${m.kleur}"><button class="ovchip map" type="button" data-ov="m:${m.id}" aria-pressed="${staat(l)}"
+    return `<span class="ovmap${l.some(inFocus) ? "" : " elders"}" style="--k:${m.kleur}"><button class="ovchip map" type="button" data-ov="m:${m.id}" aria-pressed="${staat(l)}"
       title="Map ${esc(m.naam)} (${l.length} ${l.length === 1 ? "lijst" : "lijsten"}) — ${CHIPTIP}"><span class="stip"></span>${m.icoon} ${esc(m.naam)}</button><button class="ovchip pijl" type="button" data-menu="${m.id}"
       aria-label="Lijsten in ${esc(m.naam)} los kiezen" title="Lijsten in deze map los kiezen">▾</button></span>`; };
   const ks = keuzeSleutel(), kx = ks && (ks.startsWith("m:") ? map(ks.slice(2)) : overzicht(ks));
@@ -294,7 +362,9 @@ function render() {
   const v = huidige();
   $$("#nav a").forEach(a => a.classList.toggle("actief", a.dataset.v === v));
   const scroll = window.scrollY;
+  petBijAccount();
   main.innerHTML = sessieBanner() + weergaves[v]();
+  markeerFocus(main);
   if (v === "matrix") activeerSlepen();
   if (v === "agenda" && verbindingen().length && !doeOphalen.bezig && Date.now() - new Date(d().agendaSync || 0) > 15 * 60e3) {
     doeOphalen.bezig = true; doeOphalen(true).finally(() => { doeOphalen.bezig = false; });
@@ -303,6 +373,7 @@ function render() {
       && Date.now() - new Date(d().takenSync || 0) > 10 * 60e3) setTimeout(() => doeTakenSync(true), 50);
   window.scrollTo(0, scroll);
   renderAccount();
+  renderPet();
   if (dlg3.open && instOpen) tekenInst();
 }
 window.addEventListener("hashchange", () => { render(); window.scrollTo(0, 0); });
@@ -1094,8 +1165,28 @@ function takenBlok(id) {
     <span class="hint">${d().takenSync ? "Laatst: " + new Date(d().takenSync).toLocaleString("nl-NL", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}</span></div>` : ""}`;
 }
 
+function petRij(p) {
+  const top = [...submappen("").map(m => ["m:" + m.id, m.icoon, m.naam]), ...lijstenIn("").map(o => [o.id, o.icoon, o.naam])];
+  const op = pet().id === p.id;
+  return `<div class="paneel petrij ${op ? "op" : ""}" data-pet="${esc(p.id)}">
+    <div class="petkop">
+      <button type="button" class="emojiknop" data-emoji="pet" aria-label="Icoon kiezen">${esc(p.icoon)}</button>
+      <input type="text" value="${esc(p.naam)}" data-petveld="naam" aria-label="Naam" style="font-weight:600">
+      ${op ? `<span class="tag">opgezet</span>` : `<button type="button" class="knop klein prim" data-actie="petOp">Opzetten</button>`}
+      ${petten().length > 1 ? `<button type="button" class="knop klein gevaar" data-actie="petWeg">Weg</button>` : ""}
+    </div>
+    <div class="themas" role="group" aria-label="Kleuren">${Object.entries(THEMAS).map(([k, t]) =>
+      `<button type="button" class="themaknop" data-actie="petThema" data-w="${k}" aria-pressed="${p.thema === k}" title="${esc(t.naam)}"
+        style="--a:${t.bg};--b:${t.accent};--c:${t.accent2}"><span class="staal"></span>${esc(t.naam)}</button>`).join("")}</div>
+    <div class="segment" role="group" aria-label="Wat valt op">${Object.entries(FOCUS).map(([k, n]) =>
+      `<button type="button" data-actie="petFocusSoort" data-w="${k}" aria-pressed="${(p.focusSoort || "alles") === k}">${n}</button>`).join("")}</div>
+    ${(p.focusSoort || "alles") === "alles" ? "" : `<div class="chips">${top.map(([k, i, n]) =>
+      `<button type="button" data-actie="petFocus" data-w="${esc(k)}" aria-pressed="${(p.focus || []).includes(k)}">${esc(i)} ${esc(n)}</button>`).join("")}</div>`}
+    <label class="veld">Vanzelf opzetten bij inloggen met<input type="email" value="${esc(p.account || "")}" data-petveld="account" placeholder="e-mailadres (mag leeg)"></label>
+  </div>`;
+}
+
 function instOverig() {
-  const thema = voorkeur.lees("thema", "donker");
   const bm = `javascript:(()=>{let t=document.title.replace(/ - [^-]*(Gmail|Outlook)[^-]*$/,'').replace(/^(Mail|E-mail) - /,'');window.open('${location.origin + location.pathname}?nieuw=1&titel='+encodeURIComponent(t)+'&url='+encodeURIComponent(location.href),'tijdkompas','width=720,height=820')})()`;
   return `<h3 style="margin-top:0">Mails koppelen</h3>
   <div class="paneel" style="display:flex;flex-direction:column;gap:10px;font-size:14px">
@@ -1103,8 +1194,11 @@ function instOverig() {
     <div><a class="bookmarklet" href="${esc(bm)}" onclick="event.preventDefault();alert('Sleep deze knop naar je bladwijzerbalk.')">＋ Tijdkompas</a></div>
     <div class="hint">Op je telefoon: installeer Tijdkompas (menu → „Toevoegen aan startscherm”) en gebruik <b>Delen</b> vanuit je mail-app. Of plak gewoon de link van een mail in een taak.</div>
   </div>
-  <h3>Weergave</h3>
-  <div class="chips" data-actie="thema">${[["donker", "🌙 Donker"], ["licht", "☀️ Licht"]].map(([v, n]) => `<button type="button" data-w="${v}" style="${thema === v ? "border-color:var(--accent);color:var(--accent)" : ""}">${n}</button>`).join("")}</div>
+  <h3>Petten en kleuren</h3>
+  <p class="hint">Welke pet heb je op? Een pet bepaalt de kleuren en welke lijsten opvallen; de rest blijft zichtbaar maar valt minder op.
+    Wissel bovenin met de knop naast het logo. Ben je ingelogd, dan zet Tijdkompas vanzelf de pet op die bij dat account hoort.</p>
+  ${petten().map(petRij).join("")}
+  <button type="button" class="knop klein" data-actie="petBij">＋ Nog een pet</button>
   <h3>Gegevens</h3>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     <button class="knop" data-actie="exportJson">⬇ Back-up downloaden</button>
@@ -1140,6 +1234,7 @@ function renderAccount() {
   k.querySelector(".avatar").innerHTML = g?.foto ? `<img src="${esc(g.foto)}" alt="" referrerpolicy="no-referrer">` : g ? esc(g.naam[0].toUpperCase()) : "⌂";
   k.title = g ? `${g.email}${cloud.fout ? " · " + cloud.fout : ""}` : "Inloggen";
 }
+$("#petKnop").addEventListener("click", () => { const l = petten(); if (l.length > 1) { zetPet(l[(l.indexOf(pet()) + 1) % l.length].id); toast(`${pet().icoon} ${pet().naam}-pet op`); } else { voorkeur.zet("instTab", "overig"); location.hash = "#instellingen"; } });
 $("#accountKnop").addEventListener("click", () => {
   const g = cloud.gebruiker;
   dlg.innerHTML = `<form method="dialog"><div class="dkop"><h2>${g ? "Je account" : "Inloggen bij Tijdkompas"}</h2><button type="button" class="sluit" data-sluit aria-label="Sluiten">×</button></div>
@@ -1648,6 +1743,8 @@ function kiesBestand(accept) {
 async function hoofdKlik(e) {
   const ek = e.target.closest("[data-emoji]");
   if (ek) {
+    const prij = ek.closest("[data-pet]");
+    if (prij) { const p = petten().find(x => x.id === prij.dataset.pet); kiesEmoji(ek, { naam: p.naam, soort: "map", huidig: p.icoon }, (v) => { p.icoon = v; bewaar(); }); return; }
     const orij = ek.closest("[data-ov]"), mrij = ek.closest("[data-map]"), lrij = ek.closest("[data-loc]");
     const x = orij ? overzicht(orij.dataset.ov) : mrij ? map(mrij.dataset.map) : lrij ? locatie(lrij.dataset.loc) : null;
     if (x) kiesEmoji(ek, { naam: x.naam, soort: orij ? "lijst" : mrij ? "map" : "locatie", huidig: x.icoon }, (v) => { x.icoon = v; bewaar(); });
@@ -1683,6 +1780,16 @@ async function hoofdKlik(e) {
     else if (a === "koersRapport") koersRapport();
     else if (a === "matrixToon" && w) { voorkeur.zet("matrixToon", w); render(); }
     else if (a === "thema" && w) { voorkeur.zet("thema", w); zetThema(); render(); }
+    else if (a === "pet") { const l = petten(); zetPet(l[(l.indexOf(pet()) + 1) % l.length].id); }
+    else if (a === "petBij") { const p = { id: uid(), naam: "Nieuwe pet", icoon: "🎩", thema: "grafiet", focusSoort: "alles", focus: [], account: "" }; petten().push(p); bewaar(); }
+    else if (a?.startsWith("pet") && el.closest("[data-pet]")) {
+      const p = petten().find(x => x.id === el.closest("[data-pet]").dataset.pet);
+      if (a === "petOp") zetPet(p.id);
+      else if (a === "petWeg") { if (confirm(`Pet „${p.naam}” weghalen?`)) { d().instellingen.petten = petten().filter(x => x !== p); bewaar(); zetThema(); } }
+      else if (a === "petThema") { p.thema = w; bewaar(); if (pet() === p) zetThema(); }
+      else if (a === "petFocusSoort") { p.focusSoort = w; bewaar(); }
+      else if (a === "petFocus") { p.focus = (p.focus || []).includes(w) ? p.focus.filter(x => x !== w) : [...(p.focus || []), w]; bewaar(); }
+    }
     else if (a === "week") { weekVerschuiving = w === "0" ? 0 : weekVerschuiving + +w; render(); }
     else if (a === "plan") {
       const r = planAutomatisch(actieveOverzichten()); laatsteWaarschuwingen = r.waarschuwingen; bewaar();
@@ -1851,6 +1958,11 @@ main.addEventListener("submit", (e) => {
   }
 });
 function hoofdWijzig(e) {
+  if (e.target.dataset?.petveld) {
+    const p = petten().find(x => x.id === e.target.closest("[data-pet]").dataset.pet), k = e.target.dataset.petveld;
+    p[k] = k === "account" ? e.target.value.trim().toLowerCase() : e.target.value.trim() || p[k];
+    bewaar(); renderPet(); return;
+  }
   if (e.target.matches?.("[data-tlijst],[data-tlijstvan]")) {
     let k, lijstId;
     if (e.target.dataset.tlijstvan !== undefined) {           // vanuit de lijst: kies de takenlijst
@@ -1932,7 +2044,12 @@ document.addEventListener("keydown", (e) => {
 
 $$("dialog").forEach(dl => dl.addEventListener("click", (e) => { if (e.target.closest("[data-sluit]")) dl.close(); }));
 
-function zetThema() { document.documentElement.dataset.theme = voorkeur.lees("thema", "donker"); }
+function zetThema() {
+  let t = voorkeur.lees("thema", "donker");
+  try { t = pet()?.thema || t; } catch {}            // vóór het laden van de data is er nog geen pet
+  document.documentElement.dataset.theme = THEMAS[t] ? t : "donker";
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", THEMAS[t]?.bg || "#0f2419");
+}
 
 // ---------- start ----------
 zetThema();
