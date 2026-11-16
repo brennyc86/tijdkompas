@@ -143,7 +143,7 @@ Een **verified publisher** (geverifieerde uitgever) in Microsoft maakt dat makke
 ### Goed om te weten
 
 - **Takenlijsten koppelen (als gebruiker).** Na het koppelen zie je in **⚙️ Instellingen → Koppelingen** al je takenlijsten. Kies per takenlijst bij welke
-  Tijdkompas-lijst hij hoort, of maak er met „＋ nieuwe lijst” meteen een aan. Dat kan ook vanuit de lijst zelf (⚙️ → „Taken synchroniseren met”).
+  Tijdkompas-lijst hij hoort. Nieuwe takenlijsten verschijnen vanzelf als eigen lijst (met dezelfde naam, die je daarna vrij kunt wijzigen). Dat kan ook vanuit de lijst zelf (⚙️ → „Taken synchroniseren met”).
   - Wat je daar toevoegt komt hier binnen en wordt ingepland. Wat je hier toevoegt (en bij jou hoort) komt daar te staan.
   - Titel, notitie, deadline en afvinken gaan heen en weer. Weggooien ook.
   - Al afgeronde taken van vroeger worden niet binnengehaald.
@@ -154,8 +154,9 @@ Een **verified publisher** (geverifieerde uitgever) in Microsoft maakt dat makke
   Daarna verschijnt een balk „Opnieuw verbinden”; dat is één klik. Je wijzigingen blijven intussen veilig op het apparaat staan.
   OneDrive heeft dit niet: dat vernieuwt zichzelf op de achtergrond.
 - Lijsten in je eigen schijf zijn **persoonlijk**. Delen kan alleen met lijsten in de Tijdkompas-cloud.
-- Ben je ingelogd, dan kent de cloud van zo'n lijst alleen de naam, het icoon en de kleur.
-  De taken staan er niet in, en van agenda-afspraken ook de titels en plaatsen niet; alleen de tijden.
+- Ben je ingelogd, dan kent de cloud van zo'n lijst alleen de naam, het icoon en de kleur; de taken staan er niet in.
+- Agenda-afspraken (met titel) en welke koppelingen je hebt, staan wél in je Tijdkompas in de cloud. Zo zie je met elk van je
+  gekoppelde accounts en op elk apparaat dezelfde agenda's en takenlijsten. De toegangssleutels zelf blijven op het apparaat.
 
 ### Beveiligingsregels bijwerken
 

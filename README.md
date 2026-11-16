@@ -79,13 +79,17 @@ Eenmalige setup door de eigenaar: zie [SETUP.md](SETUP.md).
 
 ## Takenlijsten (Google Taken / Microsoft To Do)
 - Koppel in ⚙️ Instellingen → Koppelingen je Google Taken (ook de taken uit Gmail en Google Agenda) of Microsoft To Do (de taken uit Outlook).
-- Kies per takenlijst bij welke Tijdkompas-lijst hij hoort. Dat kan ook vanuit de lijst zelf (⚙️ → „Taken synchroniseren met”).
+- Elke takenlijst verschijnt na het koppelen vanzelf als eigen lijst; geef hem gerust een andere naam. Of kies zelf bij welke Tijdkompas-lijst hij hoort. Dat kan ook vanuit de lijst zelf (⚙️ → „Taken synchroniseren met”).
 - Het werkt twee kanten op: nieuwe taken, titel, notitie, deadline, afvinken en weggooien. Elke 10 minuten, of direct met 🔄.
 - Een veiligheidsstop voorkomt dat er massaal taken verdwijnen als er iets niet goed geladen is.
+
+## Starten
+- Je begint zonder lijsten: maak er zelf een (Werk, Thuis, je hobby…) of koppel een takenlijst van Google of Microsoft.
 
 ## Meerdere accounts, één Tijdkompas
 - Log in met je hoofdaccount en voeg bij Account → „Accounts in dit Tijdkompas” je andere Google- of Microsoft-accounts toe (werk, hobby…).
 - Daarna kom je met elk van die accounts in hetzelfde Tijdkompas, met de pet (kleuren en focus) die bij dat account hoort.
+- Koppelingen (agenda's, takenlijsten) gelden voor het hele Tijdkompas: koppel je iets vanuit het ene account, dan zie je het ook in de andere.
 - Wat het toegevoegde account al had, wordt samengevoegd (lege standaardlijsten worden opgeruimd). Loskoppelen kan altijd; de lijsten blijven staan.
 
 ## Petten en kleuren

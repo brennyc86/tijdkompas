@@ -302,7 +302,7 @@ function bouw() {
   const titels = leesTitels();
   const d = aanvullen({
     locaties: u.locaties, beschikbaar: u.beschikbaar, instellingen: u.instellingen, agendas: u.agendas || {}, extern: u.extern || {},
-    planning: u.planning || [], agendaSync: u.agendaSync, gewijzigd: u.gewijzigd, takenlijsten: u.takenlijsten || {}, takenSync: u.takenSync || "",
+    planning: u.planning || [], agendaSync: u.agendaSync, gewijzigd: u.gewijzigd, takenlijsten: u.takenlijsten || {}, takenSync: u.takenSync || "", koppelingen: u.koppelingen,
     bezet: (u.bezet || []).map(e => ({ ...e, titel: titels.bezet?.[e.id]?.titel || e.titel || "Bezet", plaats: titels.bezet?.[e.id]?.plaats || e.plaats || "" })),
     overzichten: ids.map(id => {
       const l = lijstDocs.get(id);
@@ -342,9 +342,11 @@ function naarDocs(d) {
     locaties: d.locaties, beschikbaar: d.beschikbaar, instellingen: d.instellingen, agendas: d.agendas || {},
     extern: Object.fromEntries(Object.entries(d.extern || {}).map(([k, x]) => { const { titel, ...r } = x; return [k, titel !== undefined && !r.th ? { ...r, th: vingerafdruk(titel) } : r]; })),
     planning: (d.planning || []).map(b => schijfLijst.has(b.overzicht) && b.soort !== "reis" ? { ...b, titel: "" } : b),
-    bezet: (d.bezet || []).map(e => ({ ...e, titel: "", plaats: "", loc: e.loc ?? (herkenLocatie(e.plaats) || "") })),
+    // afspraken mét titel: zo ziet elke inlog en elk apparaat van dit Tijdkompas dezelfde agenda
+    bezet: (d.bezet || []).map(e => ({ ...e, loc: e.loc ?? (herkenLocatie(e.plaats) || "") })),
     agendaSync: d.agendaSync || "", gewijzigd: d.gewijzigd || "",
     takenlijsten: d.takenlijsten || {}, takenSync: d.takenSync || "",
+    ...(Array.isArray(d.koppelingen) ? { koppelingen: d.koppelingen } : {}),
     // beheerd buiten naarDocs (meerdere inlogs): ongewijzigd laten staan
     ...(gebruikerDoc?.aliassen ? { aliassen: gebruikerDoc.aliassen, aliasInfo: gebruikerDoc.aliasInfo || {} } : {}),
     ...(gebruikerDoc?.profiel ? { profiel: gebruikerDoc.profiel } : {}),
@@ -453,3 +455,5 @@ export async function weiger(id) {
   for (const x of boomVan(id)) await F.updateDoc(F.doc(db, wachtend.get(x)?.soort || "lijsten", x), { uitgenodigd: F.arrayRemove(cloud.gebruiker.email) });
 }
 export const ingelogd = () => !!cloud.gebruiker;
+/** Zijn de gegevens van het ingelogde Tijdkompas binnen (en niet meer die van daarvoor)? */
+export const cloudGeladen = () => !!cloud.gebruiker && geladen.gebruiker && geladen.lijsten;

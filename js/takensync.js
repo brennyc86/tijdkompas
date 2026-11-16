@@ -29,6 +29,7 @@ export function koppelTakenlijst(k, lijstId) {
   for (const [k2, x] of Object.entries(D.takenlijsten)) if (lijstId && k2 !== k && x.lijst === lijstId) { x.lijst = ""; x.bekend = []; }
   const x = D.takenlijsten[k]; if (!x) return;
   if (x.lijst !== lijstId) { x.lijst = lijstId; x.bekend = []; }
+  x.uit = !lijstId;          // bewust losgekoppeld: niet vanzelf opnieuw een lijst maken
   // oude koppelingen loslaten: er wordt niets weggegooid, de taken staan dan gewoon aan beide kanten
   for (const t of D.taken) if (t.ext && !Object.entries(D.takenlijsten).some(([k2, y]) => k2 === t.ext.bron && y.lijst === t.overzicht)) delete t.ext;
   bewaar();
@@ -36,13 +37,18 @@ export function koppelTakenlijst(k, lijstId) {
 export const takenlijstVan = (lijstId) => Object.entries(d().takenlijsten || {}).find(([, x]) => x.lijst === lijstId)?.[0] || "";
 
 /** Haalt alle takenlijsten op en stemt de gekoppelde af. */
-export async function syncTaken() {
+/** maakLijst(naam, soort) → id: maakt een Tijdkompas-lijst voor een nieuw gevonden takenlijst (die verschijnt dan vanzelf) */
+export async function syncTaken({ maakLijst } = {}) {
   const D = d(); D.takenlijsten ||= {};
   const r = { binnen: 0, bij: 0, weg: 0, naar: 0, verlopen: [], fouten: [] };
   for (const v of takenVerbindingen()) {
     try {
       const lijsten = await takenlijsten(v);
-      for (const l of lijsten) { const k = takenSleutel(v, l.id); D.takenlijsten[k] = { lijst: "", bekend: [], ...D.takenlijsten[k], naam: l.naam, standaard: !!l.standaard, account: v.email, accountSoort: v.soort }; }
+      for (const l of lijsten) {
+        const k = takenSleutel(v, l.id), nieuw = !D.takenlijsten[k];
+        D.takenlijsten[k] = { lijst: "", bekend: [], ...D.takenlijsten[k], naam: l.naam, standaard: !!l.standaard, account: v.email, accountSoort: v.soort };
+        if (nieuw && maakLijst) D.takenlijsten[k].lijst = maakLijst(l.naam, v.soort) || "";
+      }
       for (const k of Object.keys(D.takenlijsten)) if (k.startsWith(v.id + "|") && !lijsten.some(l => takenSleutel(v, l.id) === k)) delete D.takenlijsten[k];
 
       for (const [k, info] of Object.entries(D.takenlijsten)) {

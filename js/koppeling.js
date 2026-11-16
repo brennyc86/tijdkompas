@@ -34,9 +34,36 @@ export function ids() {
 export function zetIds(v) { try { localStorage.setItem("tk_clientids", JSON.stringify(v)); } catch {} gClient = null; msal = null; }
 
 // ---------- verbindingen (per apparaat) ----------
-const VSLEUTEL = "tk_verbindingen";
+// Welke koppelingen er zijn (account, doelen) hoort bij het hele Tijdkompas en gaat via de app mee naar de cloud
+// (koppelHaak), zodat elke inlog en elk apparaat ze ziet. De toegangssleutels (tokens) blijven op het apparaat.
+const VSLEUTEL = "tk_verbindingen", VAN = "tk_verbindingenVan";
+export const koppelHaak = { wijzig: null };
 export function verbindingen() { try { return JSON.parse(localStorage.getItem(VSLEUTEL) || "[]"); } catch { return []; } }
-function bewaarV(lijst) { try { localStorage.setItem(VSLEUTEL, JSON.stringify(lijst)); } catch {} }
+const zonderSleutel = ({ token, verloopt, ...r }) => r;
+export const gedeeldeKoppelingen = () => verbindingen().map(zonderSleutel);
+function bewaarV(lijst, stil = false) {
+  try { localStorage.setItem(VSLEUTEL, JSON.stringify(lijst)); } catch {}
+  if (!stil) koppelHaak.wijzig?.(lijst.map(zonderSleutel));
+}
+/**
+ * Neemt de koppelingen uit de cloud over (gemaakt vanuit een ander account of apparaat van dit Tijdkompas).
+ * Sleutels die dit apparaat al had blijven bewaard. eigenaar = id van het Tijdkompas.
+ * Geeft de lijst terug die naar de cloud moet als er hier iets bij kwam (anders null).
+ */
+export function neemGedeeldeOver(metas, eigenaar) {
+  const lokaal = verbindingen();
+  let van = null; try { van = localStorage.getItem(VAN); } catch {}
+  let uit;
+  if (!Array.isArray(metas)) uit = van && van !== eigenaar ? [] : lokaal;                    // cloud kent nog niets: eigen koppelingen meenemen
+  else {
+    uit = metas.map(m => { const l = lokaal.find(x => x.id === m.id); return l ? { ...m, token: l.token, verloopt: l.verloopt } : { ...m }; });
+    if (!van) for (const l of lokaal) if (!uit.some(x => x.id === l.id)) uit.push(l);       // gemaakt zonder in te loggen: erbij
+  }
+  try { localStorage.setItem(VAN, eigenaar); } catch {}
+  if (JSON.stringify(uit) !== JSON.stringify(lokaal)) bewaarV(uit, true);
+  const naarCloud = uit.map(zonderSleutel);
+  return JSON.stringify(naarCloud) !== JSON.stringify(metas ?? null) ? naarCloud : null;
+}
 function werkV(v) { const l = verbindingen(); const i = l.findIndex(x => x.id === v.id); if (i >= 0) l[i] = v; else l.push(v); bewaarV(l); return v; }
 export const primair = () => verbindingen().find(v => v.primair && v.soort === "google") || null;
 export const isVerlopen = (v) => v.soort === "google" && (!v.token || Date.now() > v.verloopt);
@@ -123,7 +150,12 @@ export async function koppelMs(doelen = ["agenda"]) {
 }
 async function msToken(v, interactief = false) {
   const pca = await msClient();
-  const account = pca.getAccountByHomeId(v.homeAccountId);
+  let account = pca.getAccountByHomeId(v.homeAccountId);
+  if (!account && interactief) {          // gekoppeld op een ander apparaat of met een ander account: hier één keer aanmelden
+    const r = await pca.loginPopup({ scopes: scopesVoor(M_SCOPES, doelenVan(v)), loginHint: v.email, prompt: "select_account" });
+    account = r.account; werkV({ ...v, homeAccountId: account.homeAccountId });
+    return r.accessToken;
+  }
   if (!account) throw new VerlopenFout(v);
   const scopes = scopesVoor(M_SCOPES, doelenVan(v));
   try { return (await pca.acquireTokenSilent({ scopes, account })).accessToken; }

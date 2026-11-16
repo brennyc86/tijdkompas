@@ -131,7 +131,7 @@ export const opslag = {
   get d() { return data; },
   luister(f) { luisteraars.add(f); },
   vervang(nieuw, opties) { data = normaliseer(nieuw); bewaar(opties); },
-  wis() { const ik = sessie.ik; const oud = data; data = leeg(); data.overzichten = basisOverzichten().map(o => ik ? { ...o, id: uid() + uid() } : o);
+  wis() { const ik = sessie.ik; const oud = data; data = leeg(); data.overzichten = [];
           if (ik) { // gedeelde lijsten en mappen van anderen blijven gewoon staan
             const anders = oud.overzichten.filter(o => o.eigenaar && o.eigenaar !== ik), ids = new Set(anders.map(o => o.id));
             data.overzichten.push(...anders);
@@ -168,7 +168,8 @@ export function projectVoortgang(p) {
 function basis() { return { id: uid(), titel: "", notitie: "", urgent: false, belangrijk: true, deadline: "", streef: "",
                        schatting: 0, werkelijk: 0, status: "open", links: [], gedeeldMet: [], gemaakt: new Date().toISOString() }; }
 
-export function startData() { const d = leeg(); d.overzichten = basisOverzichten(); return d; }
+// Nieuw begin: zonder lijsten — je maakt ze zelf (of ze ontstaan door een takenlijst te koppelen)
+export function startData() { return leeg(); }
 
 export function nieuweTaak(v = {}) {
   const t = { ...basis(), project: null, overzicht: data.overzichten[0]?.id, wie: [mijnId()], wachtOp: [], ...v, type: "taak" };
