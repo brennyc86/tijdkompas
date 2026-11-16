@@ -1,6 +1,17 @@
 # Eenmalige setup: inloggen met Google en Microsoft
 
-Dit doet alleen de eigenaar van de site, en maar één keer. Gebruikers merken er niets van: zij zien gewoon „Inloggen met Google / Microsoft”.
+Dit doet alleen de **sitebeheerder**, en maar één keer, met het account waarmee het Firebase-project is gemaakt (`brennycc86`).
+Gebruikers merken er niets van. Zij klikken alleen in de app op „Inloggen met Google / Microsoft” en, als ze willen, in **⚙️ Instellingen → Koppelingen** op
+„Google Agenda koppelen”, „Google Taken koppelen” enzovoort. Google en Microsoft openen dan zelf een venster om toestemming te vragen.
+
+### Overzicht voor de beheerder
+
+| Stap | Waarvoor | Status |
+|---|---|---|
+| **A** Firebase | inloggen met Google, online opslag, delen | ✅ gedaan |
+| **B** Microsoft-app | inloggen met Microsoft | nog doen (optioneel) |
+| **C-Google** | Google Agenda, Google Taken en Google Drive koppelen | nog doen; stuur daarna de **Google Client ID** |
+| **C-Microsoft** | Outlook-agenda, Microsoft To Do (Outlook-taken) en OneDrive koppelen | nog doen; stuur daarna de **Microsoft client-ID** |
 
 **Over de knoppen in deze handleiding:** de Firebase-console is altijd Engels. Google Cloud en Microsoft tonen soms Nederlands, afhankelijk van je instellingen.
 Daarom staat elke knop er zo: **English label** (Nederlandse vertaling). Kijk dus naar wat jouw scherm toont.
@@ -68,9 +79,13 @@ Klaar: vanaf nu kan iedereen inloggen met Google. Google hoeft daar niets voor g
 
 ---
 
-## C. Drive, OneDrive en agenda's koppelen (± 15 minuten)
+## C. Agenda's, takenlijsten, Drive en OneDrive koppelen (± 15 minuten)
 
-Hiermee kan iedereen per lijst kiezen of hij in de eigen Google Drive of OneDrive komt te staan, en kun je agenda's koppelen.
+Hiermee kan iedere gebruiker zelf koppelen:
+- **agenda's**: Tijdkompas plant om je afspraken heen en zet ingeplande blokken in je agenda;
+- **takenlijsten**: Google Taken (ook de taken uit Gmail en Google Agenda) en Microsoft To Do (de taken uit Outlook) gaan twee kanten op met een lijst in Tijdkompas;
+- **opslag**: per lijst kiezen of hij in de eigen Google Drive of OneDrive staat.
+
 Je gebruikt dezelfde projecten als bij A en B; er komen alleen een paar instellingen bij.
 Stuur daarna de twee **client-ID's** naar Claude, of zet ze zelf in `js/config.js` bij `googleClientId` en `microsoftClientId`. Geheime sleutels zijn hiervoor níet nodig.
 
@@ -78,22 +93,29 @@ Stuur daarna de twee **client-ID's** naar Claude, of zet ze zelf in `js/config.j
 
 Ga naar https://console.cloud.google.com en kies bovenin het Firebase-project uit stap A.
 
-1. **API's aanzetten**
-   - Ga naar **APIs & Services** (API's en services) → **Library** (Bibliotheek).
-   - Zet **Google Drive API** aan met **Enable** (Inschakelen). Voor agenda's zet je ook **Google Calendar API** aan.
+1. **API's aanzetten.** Open deze drie links en klik telkens op **Enable** (Inschakelen):
+   - Google Calendar API: https://console.cloud.google.com/apis/library/calendar-json.googleapis.com?project=brennycc86-apps
+   - Google Tasks API: https://console.cloud.google.com/apis/library/tasks.googleapis.com?project=brennycc86-apps
+   - Google Drive API: https://console.cloud.google.com/apis/library/drive.googleapis.com?project=brennycc86-apps
 2. **De website toestaan**
-   - Ga naar **APIs & Services** → **Credentials** (Inloggegevens) en open **Web client (auto created by Google Service)**.
+   - Ga naar https://console.cloud.google.com/apis/credentials?project=brennycc86-apps en open **Web client (auto created by Google Service)**.
    - Voeg bij **Authorized JavaScript origins** (Geautoriseerde JavaScript-bronnen) `https://brennyc86.github.io` toe en klik op **Save** (Opslaan).
    - Kopieer de **Client ID** (Client-ID). Die eindigt op `.apps.googleusercontent.com`.
 3. **Toestemmingen kiezen**
-   - Ga naar **Google Auth Platform** → **Data Access** (Gegevenstoegang) en klik op **Add or remove scopes** (Bereiken toevoegen of verwijderen).
-   - Vink `.../auth/drive.appdata` aan. Voor agenda's vink je ook `calendar.readonly` en `calendar.events` aan.
+   - Ga naar https://console.cloud.google.com/auth/scopes?project=brennycc86-apps (**Google Auth Platform** → **Data Access** (Gegevenstoegang))
+     en klik op **Add or remove scopes** (Bereiken toevoegen of verwijderen).
+   - Vink deze vier aan (typ in het filterveld bijvoorbeeld `calendar` of `tasks` om ze te vinden):
+     - `.../auth/calendar.readonly`: agenda's lezen
+     - `.../auth/calendar.events`: ingeplande blokken in je agenda zetten
+     - `.../auth/tasks`: takenlijsten lezen en bijwerken
+     - `.../auth/drive.appdata`: een eigen verborgen map in Drive
    - Klik op **Update** (Bijwerken) en daarna op **Save** (Opslaan).
 4. **App publiceren**
-   - Ga naar **Google Auth Platform** → **Audience** (Doelgroep) en klik op **Publish app** (App publiceren), zodat de status **In production** (In productie) wordt.
+   - Ga naar https://console.cloud.google.com/auth/audience?project=brennycc86-apps (**Google Auth Platform** → **Audience** (Doelgroep))
+     en klik op **Publish app** (App publiceren), zodat de status **In production** (In productie) wordt.
      Doe je dit niet, dan kunnen alleen testgebruikers koppelen en vervalt de koppeling elke 7 dagen.
    - Voor Drive-opslag (`drive.appdata`) is geen verificatie nodig: het is een *niet-gevoelige* toestemming.
-   - Agenda-rechten zijn wel *gevoelig*. Tot Google de app heeft geverifieerd, zien gebruikers een waarschuwing („niet geverifieerd”) en kunnen er maximaal 100 gebruikers koppelen.
+   - Agenda- en takenrechten zijn wel *gevoelig*. Tot Google de app heeft geverifieerd, zien gebruikers een waarschuwing („niet geverifieerd”) en kunnen er maximaal 100 gebruikers koppelen.
      Jij kunt het wel meteen gebruiken.
 
 ### Microsoft
@@ -106,7 +128,7 @@ Open in https://portal.azure.com de app-registratie `Tijdkompas` uit stap B.
    - Het Web-platform uit stap B blijft gewoon staan.
 2. **Machtigingen toevoegen**
    - Ga naar **API permissions** (API-machtigingen) → **Add a permission** (Een machtiging toevoegen) → **Microsoft Graph** → **Delegated permissions** (Gedelegeerde machtigingen).
-   - Vink `Files.ReadWrite.AppFolder` en `Calendars.ReadWrite` aan. `User.Read` staat er meestal al.
+   - Vink `Files.ReadWrite.AppFolder`, `Calendars.ReadWrite` en `Tasks.ReadWrite` aan. `User.Read` staat er meestal al.
    - Klik op **Add permissions** (Machtigingen toevoegen).
 3. **ID kopiëren:** kopieer op **Overview** (Overzicht) de **Application (client) ID** (Toepassings-id (client)).
 
@@ -118,6 +140,14 @@ Ze zien precies welke rechten de app vraagt: alleen een eigen app-map en je agen
 Een **verified publisher** (geverifieerde uitgever) in Microsoft maakt dat makkelijker, maar daarvoor heb je een Microsoft-partneraccount nodig. Dat kan later nog.
 
 ### Goed om te weten
+
+- **Takenlijsten koppelen (als gebruiker).** Na het koppelen zie je in **⚙️ Instellingen → Koppelingen** al je takenlijsten. Kies per takenlijst bij welke
+  Tijdkompas-lijst hij hoort, of maak er met „＋ nieuwe lijst” meteen een aan. Dat kan ook vanuit de lijst zelf (⚙️ → „Taken synchroniseren met”).
+  - Wat je daar toevoegt komt hier binnen en wordt ingepland. Wat je hier toevoegt (en bij jou hoort) komt daar te staan.
+  - Titel, notitie, deadline en afvinken gaan heen en weer. Weggooien ook.
+  - Al afgeronde taken van vroeger worden niet binnengehaald.
+  - Verdwijnt in één keer meer dan de helft van de taken, dan gooit Tijdkompas voor de zekerheid niets weg en meldt het dat.
+  - Bijwerken gebeurt vanzelf elke 10 minuten zolang de app openstaat, of direct met „🔄 Taken synchroniseren”.
 
 - **Google Drive vraagt elk uur even opnieuw te verbinden.** Zonder eigen server geeft Google een browser maar een uur toegang.
   Daarna verschijnt een balk „Opnieuw verbinden”; dat is één klik. Je wijzigingen blijven intussen veilig op het apparaat staan.

@@ -156,6 +156,7 @@ async function eersteKeer() {
   (start.koers || []).forEach(a => { if (a.doel?.id && kaart[a.doel.id]) a.doel.id = kaart[a.doel.id]; });
   for (const x of start.taken) { x.wie = (x.wie || ["ik"]).map(w => w === "ik" ? sessie.ik : w); if (x.klaarDoor === "ik") x.klaarDoor = sessie.ik; }
   for (const a of Object.values(start.agendas || {})) if (kaart[a.lijst]) a.lijst = kaart[a.lijst];
+  for (const a of Object.values(start.takenlijsten || {})) if (kaart[a.lijst]) a.lijst = kaart[a.lijst];
   start.demo = false;
   await schrijf(naarDocs(start), new Map());
 }
@@ -221,7 +222,7 @@ function bouw() {
   const titels = leesTitels();
   const d = aanvullen({
     locaties: u.locaties, beschikbaar: u.beschikbaar, instellingen: u.instellingen, agendas: u.agendas || {}, extern: u.extern || {},
-    planning: u.planning || [], agendaSync: u.agendaSync, gewijzigd: u.gewijzigd,
+    planning: u.planning || [], agendaSync: u.agendaSync, gewijzigd: u.gewijzigd, takenlijsten: u.takenlijsten || {}, takenSync: u.takenSync || "",
     bezet: (u.bezet || []).map(e => ({ ...e, titel: titels.bezet?.[e.id]?.titel || e.titel || "Bezet", plaats: titels.bezet?.[e.id]?.plaats || e.plaats || "" })),
     overzichten: ids.map(id => {
       const l = lijstDocs.get(id);
@@ -255,6 +256,7 @@ function naarDocs(d) {
     planning: (d.planning || []).map(b => schijfLijst.has(b.overzicht) && b.soort !== "reis" ? { ...b, titel: "" } : b),
     bezet: (d.bezet || []).map(e => ({ ...e, titel: "", plaats: "", loc: e.loc ?? (herkenLocatie(e.plaats) || "") })),
     agendaSync: d.agendaSync || "", gewijzigd: d.gewijzigd || "",
+    takenlijsten: d.takenlijsten || {}, takenSync: d.takenSync || "",
     lijstVolgorde: d.overzichten.map(o => o.id), mapVolgorde: (d.mappen || []).map(m => m.id),
     mapInst: Object.fromEntries((d.mappen || []).map(m => [m.id, { ouder: m.ouder || "" }])),
     koers: d.koers || [],

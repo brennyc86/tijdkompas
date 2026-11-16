@@ -11,8 +11,10 @@ const G_SCOPES = {
   agenda: ["https://www.googleapis.com/auth/calendar.readonly",    // agenda's + afspraken lezen
            "https://www.googleapis.com/auth/calendar.events"],     // ingeplande blokken wegschrijven
   schijf: ["https://www.googleapis.com/auth/drive.appdata"],       // alleen de eigen verborgen app-map, niet je andere bestanden
+  taken:  ["https://www.googleapis.com/auth/tasks"],               // Google Taken lezen en bijwerken
 };
-const M_SCOPES = { basis: ["User.Read"], agenda: ["Calendars.ReadWrite"], schijf: ["Files.ReadWrite.AppFolder"] };
+const M_SCOPES = { basis: ["User.Read"], agenda: ["Calendars.ReadWrite"], schijf: ["Files.ReadWrite.AppFolder"], taken: ["Tasks.ReadWrite"] };
+const DOELNAAM = { agenda: "je agenda", schijf: "de Tijdkompas-map in je Drive", taken: "je takenlijsten" };
 const scopesVoor = (tabel, doelen) => [...new Set([...tabel.basis, ...doelen.flatMap(d => tabel[d] || [])])];
 /** Waarvoor is deze koppeling? Oudere koppelingen waren alleen voor de agenda. */
 export const doelenVan = (v) => v.doelen || ["agenda"];
@@ -89,7 +91,7 @@ export async function koppelGoogle(doelen = ["agenda"]) {
   bewaarToken(v, r);
   werkV(v);
   const geweigerd = doelen.filter(d => !nu.includes(d));
-  if (geweigerd.length) throw new Error(`Je hebt geen toestemming gegeven voor ${geweigerd.map(d => d === "agenda" ? "je agenda" : "de Tijdkompas-map in je Drive").join(" en ")}. Probeer opnieuw en vink het aan.`);
+  if (geweigerd.length) throw new Error(`Je hebt geen toestemming gegeven voor ${geweigerd.map(d => DOELNAAM[d] || d).join(" en ")}. Probeer opnieuw en vink het aan.`);
   return v;
 }
 export async function vernieuw(v) {
@@ -235,4 +237,65 @@ export async function zetAfspraak(v, agendaId, ev, bestaandId) {
 export async function verwijderAfspraak(v, agendaId, id) {
   if (v.soort === "google") await api(v, `${G}/calendars/${enc(agendaId)}/events/${enc(id)}`, { method: "DELETE", weg: true });
   else await api(v, `${M}/me/events/${enc(id)}`, { method: "DELETE", weg: true });
+}
+
+// ================= Takenlijsten: Google Taken en Microsoft To Do (Outlook-taken) =================
+const GT = "https://tasks.googleapis.com/tasks/v1";
+const datum = (x) => (x ? String(x).slice(0, 10) : "");
+const zonderHtml = (s) => String(s || "").replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").trim();
+
+/** Takenlijsten van een account: [{id, naam, standaard}] */
+export async function takenlijsten(v) {
+  if (v.soort === "google") {
+    const r = await api(v, `${GT}/users/@me/lists?maxResults=100`);
+    return (r.items || []).map((l, i) => ({ id: l.id, naam: l.title, standaard: i === 0 }));
+  }
+  const uit = [];
+  let url = `${M}/me/todo/lists?$top=100`;
+  while (url) { const r = await api(v, url); for (const l of r.value || []) uit.push({ id: l.id, naam: l.displayName, standaard: l.wellknownListName === "defaultList" }); url = r["@odata.nextLink"] || ""; }
+  return uit;
+}
+
+/** Taken in een lijst: [{id, titel, notitie, deadline "JJJJ-MM-DD", klaar, klaarOp}] */
+export async function haalTaken(v, lijstId) {
+  const uit = [];
+  if (v.soort === "google") {
+    let pagina = "";
+    do {
+      const r = await api(v, `${GT}/lists/${enc(lijstId)}/tasks?showCompleted=true&showHidden=true&maxResults=100` + (pagina ? `&pageToken=${enc(pagina)}` : ""));
+      for (const t of r.items || []) {
+        if (t.deleted) continue;
+        uit.push({ id: t.id, titel: t.title || "", notitie: t.notes || "", deadline: datum(t.due), klaar: t.status === "completed", klaarOp: t.completed || "" });
+      }
+      pagina = r.nextPageToken;
+    } while (pagina);
+    return uit;
+  }
+  let url = `${M}/me/todo/lists/${enc(lijstId)}/tasks?$top=100`;
+  while (url) {
+    const r = await api(v, url);
+    for (const t of r.value || []) uit.push({ id: t.id, titel: t.title || "", notitie: t.body?.contentType === "html" ? zonderHtml(t.body.content) : (t.body?.content || "").trim(),
+      deadline: datum(t.dueDateTime?.dateTime), klaar: t.status === "completed",
+      klaarOp: t.completedDateTime?.dateTime ? new Date(t.completedDateTime.dateTime.replace(/Z?$/, "Z")).toISOString() : "" });
+    url = r["@odata.nextLink"] || "";
+  }
+  return uit;
+}
+
+/** Taak aanmaken of bijwerken ({titel, notitie, deadline, klaar}); geeft het externe id terug */
+export async function zetTaak(v, lijstId, t, bestaandId) {
+  if (v.soort === "google") {
+    const body = JSON.stringify({ title: t.titel, notes: t.notitie || "", due: t.deadline ? t.deadline + "T00:00:00.000Z" : null,
+      status: t.klaar ? "completed" : "needsAction", ...(t.klaar ? {} : { completed: null }) });
+    if (bestaandId) { const r = await api(v, `${GT}/lists/${enc(lijstId)}/tasks/${enc(bestaandId)}`, { method: "PATCH", body, weg: true }); if (r) return r.id; }
+    return (await api(v, `${GT}/lists/${enc(lijstId)}/tasks`, { method: "POST", body })).id;
+  }
+  const body = JSON.stringify({ title: t.titel, body: { content: t.notitie || "", contentType: "text" },
+    dueDateTime: t.deadline ? { dateTime: t.deadline + "T00:00:00", timeZone: "UTC" } : null, status: t.klaar ? "completed" : "notStarted" });
+  if (bestaandId) { const r = await api(v, `${M}/me/todo/lists/${enc(lijstId)}/tasks/${enc(bestaandId)}`, { method: "PATCH", body, weg: true }); if (r) return r.id; }
+  return (await api(v, `${M}/me/todo/lists/${enc(lijstId)}/tasks`, { method: "POST", body })).id;
+}
+export async function verwijderTaak(v, lijstId, id) {
+  if (v.soort === "google") await api(v, `${GT}/lists/${enc(lijstId)}/tasks/${enc(id)}`, { method: "DELETE", weg: true });
+  else await api(v, `${M}/me/todo/lists/${enc(lijstId)}/tasks/${enc(id)}`, { method: "DELETE", weg: true });
 }

@@ -7,6 +7,7 @@ import { planAutomatisch, werkGeplandBij, doelDatum, harde, prioriteit, googleLi
 import { ids, verbindingen as alleVerbindingen, heeft, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, zonderDoel } from "./koppeling.js";
 import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroniseerAlles, naamVan, lijstWeg } from "./schijf.js";
 import { verversAgendas, zetNaarAgendas } from "./sync.js";
+import { syncTaken, takenVerbindingen, koppelTakenlijst, takenlijstVan, takenVerbindingVan } from "./takensync.js";
 import { kiesEmoji, voorstellen } from "./emoji.js";
 import { cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd } from "./cloud.js";
 
@@ -298,6 +299,8 @@ function render() {
   if (v === "agenda" && verbindingen().length && !doeOphalen.bezig && Date.now() - new Date(d().agendaSync || 0) > 15 * 60e3) {
     doeOphalen.bezig = true; doeOphalen(true).finally(() => { doeOphalen.bezig = false; });
   }
+  if (takenVerbindingen().length && !doeTakenSync.bezig && Object.values(d().takenlijsten || {}).some(x => x.lijst)
+      && Date.now() - new Date(d().takenSync || 0) > 10 * 60e3) setTimeout(() => doeTakenSync(true), 50);
   window.scrollTo(0, scroll);
   renderAccount();
   if (dlg3.open && instOpen) tekenInst();
@@ -934,6 +937,7 @@ function instRij(r) {
       <label class="veld">In map${mapKeuze(o.map, new Set(), `data-veld="map"`)}</label>
       <label class="veld">Standaardlocatie<select data-veld="locatie">${locOpties(o.locatie, "Geen vaste plek")}</select></label>
       <label class="veld">Ingeplande blokken naar agenda<select data-veld="doelAgenda">${doelAgendaOpties(o.doelAgenda)}</select></label>
+      ${takenVerbindingen().length ? `<label class="veld">Taken synchroniseren met<select data-tlijstvan="${o.id}">${takenlijstOpties(takenlijstVan(o.id))}</select></label>` : ""}
       ${opslagKeuze(o)}
       <div class="segment" role="group" aria-label="Verdeling">${Object.entries(VERDELING).map(([k, [n, uitleg]]) =>
         `<button type="button" data-actie="verdeling" data-w="${k}" aria-pressed="${(o.verdeling || "samen") === k}" title="${esc(uitleg)}">${n}</button>`).join("")}</div>
@@ -1035,6 +1039,8 @@ function instKoppelingen() {
     ${id.microsoft ? `<button class="knop" data-actie="koppelMs">${msLogo} Outlook-agenda koppelen</button>` : ""}
   </div>` : `<div class="leeg">Rechtstreeks koppelen met Google Agenda en Outlook komt eraan. Tot die tijd: importeer je agenda als .ics-bestand via Agenda → ⋯.</div>`}
 
+  ${kanAgenda ? takenBlok(id) : ""}
+
   ${kanAgenda ? `<h3>Opslag in je eigen Drive of OneDrive</h3>
   <p class="hint">Je kunt per lijst kiezen om hem in je eigen Google Drive of OneDrive te bewaren (Instellingen → Lijsten → Opslag), bijvoorbeeld je werklijst in je zakelijke OneDrive.
     Tijdkompas krijgt dan alleen toegang tot een eigen verborgen map, niet tot je andere bestanden. Zulke lijsten zijn persoonlijk: delen kan alleen vanuit de Tijdkompas-cloud.
@@ -1052,6 +1058,40 @@ function instKoppelingen() {
   ${icsBronnen.length ? `<div class="paneel agendagroep"><div class="hint" style="margin-bottom:6px">Geïmporteerde .ics-bestanden</div>${icsBronnen.map(b => agendaRij([b, d().agendas[b]])).join("")}</div>` : ""}
   ${lijst.length ? `<div style="margin-top:8px"><button class="knop" data-actie="ophalen">🔄 Agenda's ophalen</button>
     <span class="hint">${d().agendaSync ? "Laatst: " + new Date(d().agendaSync).toLocaleString("nl-NL", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}</span></div>` : ""}` : ""}`;
+}
+
+// ---------- takenlijsten (Google Taken / Microsoft To Do) ----------
+function takenlijstOpties(gekozen) {
+  return `<option value="">— niet koppelen —</option>` + Object.entries(d().takenlijsten || {}).filter(([k]) => takenVerbindingVan(k))
+    .map(([k, x]) => `<option value="${esc(k)}" ${k === gekozen ? "selected" : ""}>${x.accountSoort === "ms" ? "To Do" : "Google Taken"} · ${esc(x.naam)} (${esc(x.account)})</option>`).join("");
+}
+function takenBlok(id) {
+  const lijst = takenVerbindingen();
+  const tl = Object.entries(d().takenlijsten || {}).filter(([k]) => takenVerbindingVan(k));
+  const rij = ([k, x]) => `<div class="agendarij" data-tl="${esc(k)}">
+    <span class="anaam">${esc(x.naam)}${x.standaard ? ` <small class="hint">standaardlijst</small>` : ""}</span>
+    <select data-tlijst aria-label="Koppelen aan lijst"><option value="">— niet koppelen —</option>
+      ${d().overzichten.filter(o => !o.slot).map(o => `<option value="${o.id}" ${x.lijst === o.id ? "selected" : ""}>↔ ${o.icoon} ${esc(o.naam)}</option>`).join("")}
+      <option value="+nieuw">＋ nieuwe lijst „${esc(x.naam)}”</option></select>
+    <span class="hint">${x.lijst ? d().taken.filter(t => t.ext?.bron === k).length || "" : ""}</span>
+  </div>`;
+  return `<h3>Takenlijsten koppelen</h3>
+  <p class="hint">Koppel Google Taken (ook de taken uit Gmail en Google Agenda) of Microsoft To Do (de taken uit Outlook) aan een lijst in Tijdkompas.
+    Taken gaan dan twee kanten op: wat je daar toevoegt komt hier binnen en wordt ingepland, en wat je hier toevoegt of afvinkt zie je daar ook.</p>
+  ${lijst.length ? `<div class="lijst">${lijst.map(v => `<div class="accrij" data-verb="${esc(v.id)}">
+    ${v.foto ? `<img class="avatar" src="${esc(v.foto)}" alt="" referrerpolicy="no-referrer">` : `<span class="avatar">${esc((v.naam || v.email)[0].toUpperCase())}</span>`}
+    <div class="ibody"><div class="ititel">${esc(v.naam)} <span class="tag">${v.soort === "ms" ? "Microsoft To Do" : "Google Taken"}</span></div>
+      <div class="imeta">${esc(v.email)}${isVerlopen(v) ? ` · <span style="color:var(--oranje)">sessie verlopen</span>` : ""}</div></div>
+    ${isVerlopen(v) ? `<button class="knop klein" data-actie="vernieuw">Opnieuw verbinden</button>` : ""}
+    <button class="knop klein gevaar" data-actie="takenWeg">Ontkoppelen</button>
+  </div>`).join("")}</div>` : ""}
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+    ${id.google ? `<button class="knop" data-actie="koppelGoogle" data-w="taken">${googleLogo} Google Taken koppelen</button>` : ""}
+    ${id.microsoft ? `<button class="knop" data-actie="koppelMs" data-w="taken">${msLogo} Microsoft To Do koppelen</button>` : ""}
+  </div>
+  ${tl.length ? `<div class="paneel agendagroep" style="margin-top:10px"><div class="hint" style="margin-bottom:6px">Welke takenlijst hoort bij welke lijst?</div>${tl.map(rij).join("")}</div>
+  <div style="margin-top:8px"><button class="knop" data-actie="takenOphalen">🔄 Taken synchroniseren</button>
+    <span class="hint">${d().takenSync ? "Laatst: " + new Date(d().takenSync).toLocaleString("nl-NL", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}</span></div>` : ""}`;
 }
 
 function instOverig() {
@@ -1148,7 +1188,7 @@ const verlopenSessies = new Map();
 function sessieBanner() {
   const lijst = [...verlopenSessies.values()].filter(v => verbindingen().some(x => x.id === v.id));
   const schijfVerl = [...schijf.verlopen.values()].filter(v => !lijst.some(x => x.id === v.id));
-  return uitnodigingBanner() + lijst.map(v => `<div class="banner">🔑 De agenda-koppeling met <b>${esc(v.email)}</b> is verlopen.<button class="knop klein" data-actie="vernieuw" data-verbid="${esc(v.id)}">Opnieuw verbinden</button></div>`).join("")
+  return uitnodigingBanner() + lijst.map(v => `<div class="banner">🔑 De koppeling met <b>${esc(v.email)}</b> is verlopen.<button class="knop klein" data-actie="vernieuw" data-verbid="${esc(v.id)}">Opnieuw verbinden</button></div>`).join("")
     + schijfVerl.map(v => `<div class="banner">🔑 De verbinding met je ${esc(naamVan(v.id))} is verlopen — wijzigingen staan veilig op dit apparaat en gaan mee zodra je opnieuw verbindt.<button class="knop klein" data-actie="vernieuw" data-verbid="${esc(v.id)}">Opnieuw verbinden</button></div>`).join("");
 }
 // doel: "agenda" of "schijf"; lijstId: na het koppelen van een schijf deze lijst er meteen naartoe verplaatsen
@@ -1156,6 +1196,7 @@ async function doeKoppel(soort, doel = "agenda", lijstId = null) {
   try {
     const v = await (soort === "ms" ? koppelMs([doel]) : koppelGoogle([doel]));
     if (doel === "agenda") { toast(`Agenda van ${v.email} gekoppeld`); await doeOphalen(true); }
+    else if (doel === "taken") { await doeTakenSync(true); toast(`Takenlijsten van ${v.email} gekoppeld. Kies hieronder welke lijst waarbij hoort.`); }
     else {
       toast(`${soort === "ms" ? "OneDrive" : "Google Drive"} van ${v.email} gekoppeld`);
       startSchijf(); await synchroniseerAlles();
@@ -1178,6 +1219,7 @@ async function doeVernieuw(v) {
     await vernieuw(v); verlopenSessies.delete(v.id); schijf.verlopen.delete(v.id); toast("Opnieuw verbonden");
     if (heeft(v, "agenda")) await doeOphalen(true);
     if (heeft(v, "schijf")) await synchroniseerAlles();
+    if (heeft(v, "taken")) await doeTakenSync(true);
   } catch (e) { toast(e.message); }
   render();
 }
@@ -1187,6 +1229,17 @@ async function doeOphalen(stil = false) {
   r.verlopen.forEach(v => verlopenSessies.set(v.id, v));
   if (r.fouten.length) toast(r.fouten[0]);
   else if (!stil) toast(`Agenda's opgehaald (${d().bezet.filter(b => verbindingVanBron(b.bron)).length} afspraken)`);
+}
+async function doeTakenSync(stil = true) {
+  if (!takenVerbindingen().length || doeTakenSync.bezig) return;
+  doeTakenSync.bezig = true;
+  try {
+    const r = await syncTaken();
+    r.verlopen.forEach(v => verlopenSessies.set(v.id, v));
+    if (r.fouten.length) toast(r.fouten[0]);
+    else if (!stil || r.binnen || r.weg) toast(`Taken bijgewerkt: ${r.binnen} binnengehaald, ${r.naar + r.bij} gewijzigd, ${r.weg} weg`);
+  } finally { doeTakenSync.bezig = false; }
+  render();
 }
 async function doeNaarAgenda() {
   const r = await zetNaarAgendas();
@@ -1726,6 +1779,14 @@ async function hoofdKlik(e) {
       if (confirm(`${naamVan(v.id)} ontkoppelen?`)) { await zonderDoel(v, "schijf"); toast("Ontkoppeld"); render(); }
     }
     else if (a === "ophalen") { el.disabled = true; await doeOphalen(); render(); }
+    else if (a === "takenOphalen") { el.disabled = true; await doeTakenSync(false); }
+    else if (a === "takenWeg") {
+      const v = takenVerbindingen().find(x => x.id === el.closest("[data-verb]").dataset.verb);
+      if (confirm(`Takenlijsten van ${v.email} ontkoppelen?\nDe taken blijven aan beide kanten staan, ze worden alleen niet meer bijgewerkt.`)) {
+        for (const k of Object.keys(d().takenlijsten || {})) if (k.startsWith(v.id + "|")) { koppelTakenlijst(k, ""); delete d().takenlijsten[k]; }
+        await zonderDoel(v, "taken"); bewaar(); toast("Ontkoppeld"); render();
+      }
+    }
     else if (a === "naarAgenda") { el.disabled = true; await doeNaarAgenda(); }
     else if (a === "ovWeg") {
       const o = overzicht(el.closest("[data-ov]").dataset.ov);
@@ -1790,6 +1851,26 @@ main.addEventListener("submit", (e) => {
   }
 });
 function hoofdWijzig(e) {
+  if (e.target.matches?.("[data-tlijst],[data-tlijstvan]")) {
+    let k, lijstId;
+    if (e.target.dataset.tlijstvan !== undefined) {           // vanuit de lijst: kies de takenlijst
+      lijstId = e.target.dataset.tlijstvan; k = e.target.value;
+      if (!k) { const oud = takenlijstVan(lijstId); if (oud) koppelTakenlijst(oud, ""); render(); return; }
+    } else {                                                  // vanuit de takenlijst: kies de lijst
+      k = e.target.closest("[data-tl]").dataset.tl; lijstId = e.target.value;
+      if (lijstId === "+nieuw") {
+        const x = d().takenlijsten[k];
+        const o = { id: uid() + (sessie.ik ? uid() : ""), naam: x.naam, kleur: "#6f9fd8", icoon: x.accountSoort === "ms" ? "☑️" : "✅", map: "", mensen: [],
+                    verdeling: "samen", modus: "vrij", locatie: "", doelAgenda: null, tijden: [] };
+        d().overzichten.push(o);
+        if (actief) { actief = [...actief, o.id]; voorkeur.zet("actief", actief); }
+        lijstId = o.id;
+      }
+    }
+    koppelTakenlijst(k, lijstId);
+    if (lijstId) doeTakenSync(false); else render();
+    return;
+  }
   const bes = e.target.closest("[data-besch]"), loc = e.target.closest("[data-loc]"), ag = e.target.closest("[data-agenda]");
   if (bes && e.target.dataset.veld) { d().beschikbaar[+bes.dataset.besch][e.target.dataset.veld] = e.target.value; bewaar(); return; }
   if (loc && e.target.dataset.locveld) {

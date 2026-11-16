@@ -77,6 +77,12 @@ Eenmalige setup door de eigenaar: zie [SETUP.md](SETUP.md).
 - Per agenda: *Bezet* (er wordt omheen gepland), *Rooster van lijst* (de afspraken zijn de vaste tijden van bijv. werk) of *Niet meetellen*.
 - Per lijst een doelagenda; „In mijn agenda zetten” maakt, verschuift en verwijdert de blokken daar.
 
+## Takenlijsten (Google Taken / Microsoft To Do)
+- Koppel in ⚙️ Instellingen → Koppelingen je Google Taken (ook de taken uit Gmail en Google Agenda) of Microsoft To Do (de taken uit Outlook).
+- Kies per takenlijst bij welke Tijdkompas-lijst hij hoort. Dat kan ook vanuit de lijst zelf (⚙️ → „Taken synchroniseren met”).
+- Het werkt twee kanten op: nieuwe taken, titel, notitie, deadline, afvinken en weggooien. Elke 10 minuten, of direct met 🔄.
+- Een veiligheidsstop voorkomt dat er massaal taken verdwijnen als er iets niet goed geladen is.
+
 ## Snelinvoer
 
 `Offerte sturen ~45m !u ^vr #presentatie +werk`
