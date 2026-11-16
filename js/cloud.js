@@ -32,7 +32,7 @@ const B = "https://www.gstatic.com/firebasejs/10.14.1/";
 let A = null, F = null, auth = null, db = null;
 let tweede = null;   // { auth, db }: een tweede Firebase-app om een extra account toe te voegen zonder jezelf uit te loggen
 
-export const cloud = { geladen: false, gebruiker: null, uitnodigingen: [], bezig: false, fout: "",
+export const cloud = { geladen: false, gebruiker: null, uitnodigingen: [], bezig: false, fout: "", melding: "",
                        familie: [], aliasInfo: {}, hoofdInfo: null };   // familie: alle uid's van dit Tijdkompas
 const familie = () => (cloud.familie.length ? cloud.familie : [sessie.ik]);
 const authUid = () => cloud.gebruiker?.uid || sessie.ik;
@@ -138,6 +138,7 @@ const schoon = (x) => JSON.parse(JSON.stringify(x));
 const ikInfo = () => ({ naam: cloud.gebruiker.naam, email: cloud.gebruiker.email, foto: cloud.gebruiker.foto || "" });
 
 async function aangemeld(u) {
+  cloud.melding = "";
   cloud.gebruiker = {
     uid: u.uid, naam: u.displayName || u.email || "Gebruiker", email: (u.email || u.providerData.find(p => p.email)?.email || "").toLowerCase(),
     foto: u.photoURL || "", aanbieders: u.providerData.map(p => ({ soort: p.providerId === "google.com" ? "google" : "microsoft", email: p.email || "" })),
@@ -156,14 +157,19 @@ async function aangemeld(u) {
         sessie.ik = hoofd; sessie.familie = [hoofd, ...h.data().aliassen]; cloud.familie = [...sessie.familie];
         if (!eigen.data().samengevoegd) teMergen = { uid: u.uid, data: eigen.data() };   // wat dit account zelf al had: zo meteen erbij
       }
-    } catch {}   // niet (meer) toegevoegd: gewoon het eigen Tijdkompas
+    } catch (e) {
+      // mag het hoofd-Tijdkompas niet lezen: meestal staan de nieuwste beveiligingsregels nog niet in Firebase
+      cloud.melding = "Dit account is toegevoegd aan een ander Tijdkompas, maar Firebase laat dat nog niet toe. " +
+        "Waarschijnlijk staan de nieuwste beveiligingsregels er nog niet in (SETUP.md → Beveiligingsregels bijwerken). Je ziet nu het eigen Tijdkompas van dit account.";
+      console.warn("Hoofd-Tijdkompas niet leesbaar", e);
+    }
   }
   if (!eigen.exists() && sessie.ik === u.uid) await eersteKeer();
   abonneer();
 }
 function afgemeld() {
   const wasIn = !!cloud.gebruiker;
-  stop(); cloud.gebruiker = null; cloud.uitnodigingen = []; sessie.ik = null; sessie.familie = []; cloud.familie = []; cloud.aliasInfo = {}; cloud.hoofdInfo = null;
+  stop(); cloud.gebruiker = null; cloud.uitnodigingen = []; sessie.ik = null; cloud.melding = ""; sessie.familie = []; cloud.familie = []; cloud.aliasInfo = {}; cloud.hoofdInfo = null;
   if (wasIn) { vergeet(); try { localStorage.removeItem(TITELS); } catch {} opslag.demo(); }   // gegevens van het account niet op dit apparaat laten staan
   meld();
   return Promise.resolve();
@@ -243,6 +249,18 @@ function fout(e) { cloud.fout = e.message; meld(); }
 // Agenda's (en hun afspraken), takenlijsten en koppelingen van het andere account horen daarna bij dit Tijdkompas,
 // zodat je ze niet opnieuw hoeft te koppelen. (Lijsten en mappen gaan al mee bij het toevoegen.)
 let teMergen = null;
+// Als toegevoegd account: eigen lijsten en mappen naar het gezamenlijke Tijdkompas (hele familie lid, hoofd eigenaar)
+async function eigenLijstenErbij(wie) {
+  const fam = familie();
+  for (const soort of ["mappen", "lijsten"]) {
+    const sn = await F.getDocs(F.query(F.collection(db, soort), F.where("leden", "array-contains", wie)));
+    for (const x of sn.docs) {
+      const l = x.data();
+      if (l.eigenaar !== wie && fam.every(u => (l.leden || []).includes(u))) continue;
+      await F.updateDoc(x.ref, { leden: F.arrayUnion(...fam), ...(l.eigenaar === wie ? { eigenaar: sessie.ik } : {}) });
+    }
+  }
+}
 function voegSamen(z) {
   const D = opslag.d; if (!z) return 0;
   let n = 0;
@@ -349,7 +367,8 @@ function bouw() {
   if (teMergen && geladen.lijsten && geladen.mappen) {          // ingelogd met een toegevoegd account dat nog eigen koppelingen had
     const m = teMergen; teMergen = null;
     voegSamen(m.data);
-    F.setDoc(F.doc(db, "gebruikers", m.uid), { samengevoegd: true }, { merge: true }).catch(() => {});
+    eigenLijstenErbij(m.uid).then(() => F.setDoc(F.doc(db, "gebruikers", m.uid), { samengevoegd: true }, { merge: true }))
+      .catch(e => { cloud.fout = "Samenvoegen lukte niet helemaal: " + e.message; meld(); });
   }
   inGeheugen = new Set([...d.overzichten.map(o => "lijsten/" + o.id), ...(d.mappen || []).map(m => "mappen/" + m.id),
                         ...[...d.taken, ...d.projecten].map(x => `lijsten/${x.overzicht}/items/${x.id}`)]);
@@ -391,7 +410,7 @@ function naarDocs(d) {
   for (const o of d.overzichten) {
     if (o.opslag) continue;
     docs.set("lijsten/" + o.id, schoon({
-      naam: o.naam, kleur: o.kleur, icoon: o.icoon, eigenaar: o.eigenaar || ik,
+      naam: o.naam, kleur: o.kleur, icoon: o.icoon, eigenaar: lijstDocs.get(o.id)?.eigenaar || o.eigenaar || ik,   // eigenaar verandert alleen op de server
       leden: metFamilie(o.leden), ledenInfo: o.ledenInfo && Object.keys(o.ledenInfo).length ? o.ledenInfo : { [ik]: ikInfo() },
       uitgenodigd: (o.uitgenodigd || []).map(e => e.toLowerCase()), mensen: o.mensen || [], verdeling: o.verdeling || "samen",
       map: isIk(o.eigenaar || ik) ? o.map || "" : lijstDocs.get(o.id)?.map ?? "",        // indeling van de eigenaar
@@ -399,7 +418,7 @@ function naarDocs(d) {
   }
   for (const m of d.mappen || []) {
     docs.set("mappen/" + m.id, schoon({
-      naam: m.naam, icoon: m.icoon, kleur: m.kleur, eigenaar: m.eigenaar || ik,
+      naam: m.naam, icoon: m.icoon, kleur: m.kleur, eigenaar: mapDocs.get(m.id)?.eigenaar || m.eigenaar || ik,
       ouder: isIk(m.eigenaar || ik) ? m.ouder || "" : mapDocs.get(m.id)?.ouder ?? "",
       leden: metFamilie(m.leden), ledenInfo: m.ledenInfo && Object.keys(m.ledenInfo).length ? m.ledenInfo : { [ik]: ikInfo() },
       uitgenodigd: (m.uitgenodigd || []).map(e => e.toLowerCase()),

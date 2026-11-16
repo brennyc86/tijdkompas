@@ -1349,7 +1349,7 @@ const verlopenSessies = new Map();
 function sessieBanner() {
   const lijst = [...verlopenSessies.values()].filter(v => verbindingen().some(x => x.id === v.id));
   const schijfVerl = [...schijf.verlopen.values()].filter(v => !lijst.some(x => x.id === v.id));
-  return uitnodigingBanner() + lijst.map(v => `<div class="banner">🔑 ${v.token ? `De koppeling met <b>${esc(v.email)}</b> is verlopen.` : `<span>De koppeling met <b>${esc(v.email)}</b> is op dit apparaat (nog) niet verbonden.</span>`}<button class="knop klein" data-actie="vernieuw" data-verbid="${esc(v.id)}">${v.token ? "Opnieuw verbinden" : "Verbinden"}</button></div>`).join("")
+  return (cloud.melding ? `<div class="banner">⚠️ <span>${esc(cloud.melding)}</span></div>` : "") + uitnodigingBanner() + lijst.map(v => `<div class="banner">🔑 ${v.token ? `De koppeling met <b>${esc(v.email)}</b> is verlopen.` : `<span>De koppeling met <b>${esc(v.email)}</b> is op dit apparaat (nog) niet verbonden.</span>`}<button class="knop klein" data-actie="vernieuw" data-verbid="${esc(v.id)}">${v.token ? "Opnieuw verbinden" : "Verbinden"}</button></div>`).join("")
     + schijfVerl.map(v => `<div class="banner">🔑 De verbinding met je ${esc(naamVan(v.id))} is verlopen — wijzigingen staan veilig op dit apparaat en gaan mee zodra je opnieuw verbindt.<button class="knop klein" data-actie="vernieuw" data-verbid="${esc(v.id)}">Opnieuw verbinden</button></div>`).join("");
 }
 // doel: "agenda" of "schijf"; lijstId: na het koppelen van een schijf deze lijst er meteen naartoe verplaatsen
