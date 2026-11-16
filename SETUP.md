@@ -8,7 +8,7 @@ Gebruikers merken er niets van. Zij klikken alleen in de app op „Inloggen met 
 
 | Stap | Waarvoor | Status |
 |---|---|---|
-| **A** Firebase | inloggen met Google, online opslag, delen | ✅ gedaan |
+| **A** Firebase | inloggen met Google, online opslag, delen | ✅ gedaan — **let op:** plak de nieuwste `firestore.rules` opnieuw bij Regels (nodig voor meerdere accounts per Tijdkompas, sinds 16-11-2026) |
 | **B** Microsoft-app | inloggen met Microsoft | nog doen (optioneel) |
 | **C-Google** | Google Agenda, Google Taken en Google Drive koppelen | Client ID ✅ ingevuld; controleer de rest van stap C-Google |
 | **C-Microsoft** | Outlook-agenda, Microsoft To Do (Outlook-taken) en OneDrive koppelen | nog doen; stuur daarna de **Microsoft client-ID** |
@@ -156,3 +156,9 @@ Een **verified publisher** (geverifieerde uitgever) in Microsoft maakt dat makke
 - Lijsten in je eigen schijf zijn **persoonlijk**. Delen kan alleen met lijsten in de Tijdkompas-cloud.
 - Ben je ingelogd, dan kent de cloud van zo'n lijst alleen de naam, het icoon en de kleur.
   De taken staan er niet in, en van agenda-afspraken ook de titels en plaatsen niet; alleen de tijden.
+
+### Beveiligingsregels bijwerken
+
+Als Claude `firestore.rules` heeft aangepast (staat in de tabel bovenaan), plak je ze opnieuw:
+https://console.firebase.google.com/project/brennycc86-apps/firestore/rules → alles vervangen door de inhoud van
+[`firestore.rules`](firestore.rules) → **Publish** (Publiceren).

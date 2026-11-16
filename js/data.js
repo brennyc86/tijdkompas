@@ -4,8 +4,10 @@
 
 const SLEUTEL = "tijdkompas_v1";
 
-// Wie is er ingelogd (Firebase-uid), of null in lokale modus
-export const sessie = { ik: null };
+// Wie is er ingelogd (Firebase-uid), of null in lokale modus.
+// ik = het Tijdkompas (hoofdaccount) waarvan je de gegevens ziet; familie = alle inlogs die daarbij horen
+// (bijv. je privé-, werk- en hobby-account), zodat taken van elk van die inlogs als "van mij" tellen.
+export const sessie = { ik: null, familie: [] };
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
@@ -237,7 +239,9 @@ export const idsVan = (sleutel) => sleutel.startsWith("m:") ? lijstenOnder(sleut
 // ---------- wie doet wat ----------
 // Persoon-id's: Firebase-uid (lid van een gedeelde lijst), "ik" (zonder inloggen) of "~Naam" (iemand zonder Tijdkompas)
 export const mijnId = () => sessie.ik || "ik";
-export const isIk = id => id === "ik" || (!!sessie.ik && id === sessie.ik);
+export const isIk = id => id === "ik" || (!!sessie.ik && id === sessie.ik) || (!!id && (sessie.familie || []).includes(id));
+/** Leden van een lijst of map behalve jij (en je eigen andere inlogs) */
+export const anderen = x => (x?.leden || []).filter(u => !isIk(u));
 export function personen(o) {
   if (!o) return [{ id: mijnId(), naam: "Ik", ik: true }];
   const uit = [{ id: mijnId(), naam: "Ik", ik: true }];

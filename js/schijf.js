@@ -8,7 +8,7 @@
 //   { app, versie, gewijzigd, lijsten: { id: {...} }, items: { id: {...taak/project, overzicht} } }
 // Elk object krijgt een tijdstempel _t. Samenvoegen gaat per taak via een 3-wegsvergelijking
 // (laatst gesynchroniseerd ↔ dit apparaat ↔ bestand), zodat twee apparaten elkaars werk niet overschrijven.
-import { opslag, bewaar } from "./data.js";
+import { opslag, bewaar, isIk } from "./data.js";
 import { verbindingen, heeft, api, VerlopenFout } from "./koppeling.js";
 
 const BESTAND = "tijdkompas.json";
@@ -241,7 +241,7 @@ export async function verplaats(lijstId, vId) {
   if (vId) {
     const v = schijfVerbindingen().find(x => x.id === vId);
     if (!v) throw new Error("Dat account is op dit apparaat niet gekoppeld");
-    if ((o.leden || []).length > 1 || (o.uitgenodigd || []).length) throw new Error("Een gedeelde lijst kan niet in je eigen schijf; haal eerst de andere leden eruit");
+    if ((o.leden || []).filter(u => !isIk(u)).length || (o.uitgenodigd || []).length) throw new Error("Een gedeelde lijst kan niet in je eigen schijf; haal eerst de andere leden eruit");
     const oud = o.opslag;
     o.opslag = vId; o.slot = false;
     try { await synchroniseer(v); }

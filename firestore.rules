@@ -1,31 +1,43 @@
 rules_version = '2';
 // Tijdkompas — wie mag wat
-//   gebruikers/{uid}               alleen jijzelf
+//   gebruikers/{uid}               jijzelf, en de andere accounts die je aan je Tijdkompas hebt toegevoegd (aliassen)
 //   lijsten/{id}                   leden lezen en schrijven; wie uitgenodigd is mag de lijst zien en zichzelf toevoegen
 //   lijsten/{id}/items/{item}      alle leden van de lijst
 //   mappen/{id}                    net als lijsten (een gedeelde map nodigt ook uit voor alles erin)
+// Meerdere inlogs, één Tijdkompas: het hoofdaccount zet andere accounts in gebruikers/{hoofd}.aliassen.
+// Alleen het hoofd zelf mag die lijst wijzigen. De app zet alle inlogs als lid in elke lijst en map.
 service cloud.firestore {
   match /databases/{db}/documents {
     function ingelogd() { return request.auth != null; }
     function mijnMail() { return request.auth.token.email.lower(); }
+    // Ben ik een toegevoegd account van gebruiker e?
+    function aliasVan(e) { return request.auth.uid in get(/databases/$(db)/documents/gebruikers/$(e)).data.get('aliassen', []); }
+    function zelfOfAlias(e) { return e == request.auth.uid || aliasVan(e); }
 
     match /gebruikers/{uid} {
-      allow read, write: if ingelogd() && request.auth.uid == uid;
+      function familie() { return resource != null && request.auth.uid in resource.data.get('aliassen', []); }
+      allow read: if ingelogd() && (request.auth.uid == uid || familie());
+      allow create, delete: if ingelogd() && request.auth.uid == uid;
+      allow update: if ingelogd() && (request.auth.uid == uid
+                    || (familie() && request.resource.data.get('aliassen', []) == resource.data.get('aliassen', [])));
     }
 
     match /lijsten/{lijst} {
       function lid() { return ingelogd() && request.auth.uid in resource.data.leden; }
       function uitgenodigd() { return ingelogd() && request.auth.token.email != null && mijnMail() in resource.data.uitgenodigd; }
+      // eigenaar blijft gelijk, of: de eigenaar draagt zijn lijst over aan het hoofdaccount waar hij bij hoort
+      function eigenaarOk() { return request.resource.data.eigenaar == resource.data.eigenaar
+                                  || (resource.data.eigenaar == request.auth.uid && aliasVan(request.resource.data.eigenaar)); }
 
       allow read: if lid() || uitgenodigd();
-      allow create: if ingelogd() && request.resource.data.eigenaar == request.auth.uid
+      allow create: if ingelogd() && zelfOfAlias(request.resource.data.eigenaar)
                     && request.auth.uid in request.resource.data.leden;
-      allow update: if (lid() && request.resource.data.eigenaar == resource.data.eigenaar)
+      allow update: if (lid() && eigenaarOk())
                     || (uitgenodigd()
                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['leden', 'uitgenodigd', 'ledenInfo'])
                         && request.resource.data.leden.removeAll(resource.data.leden).hasOnly([request.auth.uid])
                         && resource.data.leden.removeAll(request.resource.data.leden).size() == 0);
-      allow delete: if ingelogd() && resource.data.eigenaar == request.auth.uid;
+      allow delete: if ingelogd() && zelfOfAlias(resource.data.eigenaar);
 
       match /items/{item} {
         function lidVan(pad) { return ingelogd() && request.auth.uid in pad.data.leden; }
@@ -38,15 +50,17 @@ service cloud.firestore {
     match /mappen/{m} {
       function mlid() { return ingelogd() && request.auth.uid in resource.data.leden; }
       function muitgenodigd() { return ingelogd() && request.auth.token.email != null && mijnMail() in resource.data.uitgenodigd; }
+      function meigenaarOk() { return request.resource.data.eigenaar == resource.data.eigenaar
+                                   || (resource.data.eigenaar == request.auth.uid && aliasVan(request.resource.data.eigenaar)); }
       allow read: if mlid() || muitgenodigd();
-      allow create: if ingelogd() && request.resource.data.eigenaar == request.auth.uid
+      allow create: if ingelogd() && zelfOfAlias(request.resource.data.eigenaar)
                     && request.auth.uid in request.resource.data.leden;
-      allow update: if (mlid() && request.resource.data.eigenaar == resource.data.eigenaar)
+      allow update: if (mlid() && meigenaarOk())
                     || (muitgenodigd()
                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['leden', 'uitgenodigd', 'ledenInfo'])
                         && request.resource.data.leden.removeAll(resource.data.leden).hasOnly([request.auth.uid])
                         && resource.data.leden.removeAll(request.resource.data.leden).size() == 0);
-      allow delete: if ingelogd() && resource.data.eigenaar == request.auth.uid;
+      allow delete: if ingelogd() && zelfOfAlias(resource.data.eigenaar);
     }
   }
 }

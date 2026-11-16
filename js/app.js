@@ -2,14 +2,14 @@
 import { opslag, bewaar, KWADRANTEN, kwadrant, overzicht, project, taak, takenVan, projectVoortgang,
          nieuweTaak, nieuwProject, werkBij, verwijder, koppel, rondAf, heropen, linkInfo, kalibratie, uid, locatie, effectieveLocatie, sessie,
          map, submappen, lijstenIn, lijstenOnder, mappenOnder, mapPad, boom, lijstVolgorde, idsVan,
-         afspraak, koersVan, binnenDoel, koersScore, koersSuggesties, koppelKoers, mijnId, isIk, personen, naamVanPersoon, isMijn, isTeam, wie, wachtNogOp, wachtenOp, maaktKring } from "./data.js";
+         afspraak, koersVan, binnenDoel, koersScore, koersSuggesties, koppelKoers, mijnId, isIk, personen, naamVanPersoon, isMijn, isTeam, wie, wachtNogOp, wachtenOp, maaktKring, anderen as andereLeden } from "./data.js";
 import { planAutomatisch, werkGeplandBij, doelDatum, harde, prioriteit, googleLink, outlookLink, maakIcs, leesIcs, dagStr, dagIndeling, eventSoort, SOORTEN } from "./plan.js";
 import { ids, verbindingen as alleVerbindingen, heeft, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, zonderDoel } from "./koppeling.js";
 import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroniseerAlles, naamVan, lijstWeg } from "./schijf.js";
 import { verversAgendas, zetNaarAgendas } from "./sync.js";
 import { syncTaken, takenVerbindingen, koppelTakenlijst, takenlijstVan, takenVerbindingVan } from "./takensync.js";
 import { kiesEmoji, voorstellen } from "./emoji.js";
-import { cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd } from "./cloud.js";
+import { cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog } from "./cloud.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -545,7 +545,7 @@ function projecten() {
     const open = takenVan(p.id).filter(t => t.status !== "klaar").sort((a, b) => prioriteit(b) - prioriteit(a));
     const schat = p.schatting || v.schatTaken;
     return `<article class="pkaart" data-id="${p.id}" data-type="project" style="--ok:${ovKleur(p.overzicht)}">
-      <div class="imeta">${qTag(p)}${datumTags(p)}<span>${ov ? ov.icoon + " " + esc(ov.naam) : ""}</span>${(ov?.leden || []).length > 1 ? `<span title="Gedeelde lijst">👥 ${ov.leden.length}</span>` : ""}</div>
+      <div class="imeta">${qTag(p)}${datumTags(p)}<span>${ov ? ov.icoon + " " + esc(ov.naam) : ""}</span>${andereLeden(ov).length ? `<span title="Gedeelde lijst">👥 ${andereLeden(ov).length + 1}</span>` : ""}</div>
       <h2>${esc(p.titel)}</h2>
       <div class="balk"><i style="width:${v.pct}%"></i></div>
       <div class="cijfers"><span>${v.klaar}/${v.totaal} taken klaar</span><span title="Bestede tijd / geschatte tijd">${fmtDuur(v.werkelijk) || "0"} / ${fmtDuur(schat) || "?"}</span></div>
@@ -920,9 +920,12 @@ function mensenBlok(o) {
 }
 function ledenBlok(o, isMap = false) {
   if (o.opslag) return `<div class="hint">📁 Persoonlijke lijst in je ${esc(naamVan(o.opslag))}. Delen kan alleen met lijsten in de Tijdkompas-cloud.</div>` + mensenBlok(o);
-  const leden = Object.entries(o.ledenInfo || {}).filter(([u]) => (o.leden || []).includes(u));
+  // jij (met al je inlogs) één keer, daarna de anderen
+  const alle = Object.entries(o.ledenInfo || {}).filter(([u]) => (o.leden || []).includes(u));
+  const zelf = alle.find(([u]) => u === sessie.ik) || alle.find(([u]) => isIk(u));
+  const leden = [...(zelf ? [zelf] : []), ...alle.filter(([u]) => !isIk(u))];
   return `<div class="leden">
-    ${leden.length > 1 || (o.uitgenodigd || []).length ? leden.map(([u, l]) => `<span class="lid" title="${esc(l.email)}">${l.foto ? `<img class="avatar" src="${esc(l.foto)}" alt="" referrerpolicy="no-referrer">` : `<span class="avatar">${esc((l.naam || "?")[0].toUpperCase())}</span>`}${esc(u === sessie.ik ? "jij" : l.naam)}${u === o.eigenaar ? " <small class='hint'>eigenaar</small>" : ""}${u !== sessie.ik && u !== o.eigenaar && o.eigenaar === sessie.ik ? ` <button type="button" class="x" data-actie="lidWeg" data-w="${esc(u)}" title="Eruit halen">✕</button>` : ""}</span>`).join("") : ""}
+    ${andereLeden(o).length || (o.uitgenodigd || []).length ? leden.map(([u, l]) => `<span class="lid" title="${esc(l.email)}">${l.foto ? `<img class="avatar" src="${esc(l.foto)}" alt="" referrerpolicy="no-referrer">` : `<span class="avatar">${esc((l.naam || "?")[0].toUpperCase())}</span>`}${esc(isIk(u) ? "jij" : l.naam)}${u === o.eigenaar || (isIk(u) && isIk(o.eigenaar)) ? " <small class='hint'>eigenaar</small>" : ""}${!isIk(u) && u !== o.eigenaar && isIk(o.eigenaar) ? ` <button type="button" class="x" data-actie="lidWeg" data-w="${esc(u)}" title="Eruit halen">✕</button>` : ""}</span>`).join("") : ""}
     ${(o.uitgenodigd || []).map(m => `<span class="lid uitgenodigd" title="Uitgenodigd, nog niet geaccepteerd"><span class="avatar">✉</span>${esc(m)} <button type="button" class="x" data-actie="uitnodigingWeg" data-w="${esc(m)}" title="Uitnodiging intrekken">✕</button></span>`).join("")}
     <button type="button" class="knop klein" data-actie="ovDelen">👥 ${isMap ? "Map delen…" : "Delen…"}</button></div>` + (isMap ? "" : mensenBlok(o));
 }
@@ -941,7 +944,7 @@ function mapKeuze(gekozen, zonder = new Set(), attr = "") {
 }
 // Dichtstbijzijnde gedeelde map (deze of erboven): wie zitten daarin?
 function deelVan(mapId) {
-  for (const m of [...mapPad(mapId)].reverse()) if ((m.leden || []).length > 1 || (m.uitgenodigd || []).length) return m;
+  for (const m of [...mapPad(mapId)].reverse()) if (andereLeden(m).length || (m.uitgenodigd || []).length) return m;
   return null;
 }
 function erfDelen(x, m) {
@@ -957,7 +960,7 @@ const VERDELING = {
 // Waar staat deze lijst? Tijdkompas-cloud (of alleen deze browser) of je eigen Drive/OneDrive
 function opslagKeuze(o) {
   if (!ids().google && !ids().microsoft) return "";
-  const gedeeld = (o.leden || []).length > 1 || (o.uitgenodigd || []).length;
+  const gedeeld = andereLeden(o).length || (o.uitgenodigd || []).length;
   const basis = ingelogd() ? "☁️ Tijdkompas-cloud (deelbaar)" : "💻 Alleen deze browser";
   return `<label class="veld">Opslag<select data-veld="opslag" ${gedeeld ? "disabled title='Gedeelde lijsten staan altijd in de Tijdkompas-cloud'" : ""}>
     <option value="">${basis}</option>
@@ -978,7 +981,7 @@ function instRij(r) {
     <button type="button" class="emojiknop" data-emoji="map" aria-label="Icoon kiezen" title="Icoon kiezen">${esc(m.icoon)}</button>
     <input type="color" value="${esc(m.kleur)}" data-mveld="kleur" aria-label="Kleur">
     <input type="text" value="${esc(m.naam)}" data-mveld="naam" aria-label="Naam van de map" style="font-weight:600">
-    <button class="knop klein gevaar" data-actie="mapWeg">${m.eigenaar && ik && m.eigenaar !== ik ? "Verlaten" : "Verwijderen"}</button>
+    <button class="knop klein gevaar" data-actie="mapWeg">${m.eigenaar && ik && !isIk(m.eigenaar) ? "Verlaten" : "Verwijderen"}</button>
     <div class="lijstopties">
       <span class="hint" style="align-self:center">📁 Map · ${n} ${n === 1 ? "lijst" : "lijsten"}</span>
       <label class="veld">In map${mapKeuze(m.ouder, new Set([m.id, ...mappenOnder(m.id)]), `data-mveld="ouder"`)}</label>
@@ -999,7 +1002,7 @@ function instRij(r) {
     <button type="button" class="emojiknop" data-emoji="lijst" aria-label="Icoon kiezen" title="Icoon kiezen">${esc(o.icoon)}</button>
     <input type="color" value="${esc(o.kleur)}" data-veld="kleur" aria-label="Kleur">
     <input type="text" value="${esc(o.naam)}" data-veld="naam" aria-label="Naam" style="font-weight:600">
-    <button class="knop klein gevaar" data-actie="ovWeg">${o.eigenaar && ik && o.eigenaar !== ik ? "Verlaten" : "Verwijderen"}</button>
+    <button class="knop klein gevaar" data-actie="ovWeg">${o.eigenaar && ik && !isIk(o.eigenaar) ? "Verlaten" : "Verwijderen"}</button>
     <div class="lijstopties">
       <div class="segment" role="group" aria-label="Soort lijst">
         <button type="button" data-actie="modus" data-w="vast" aria-pressed="${o.modus === "vast"}">🕘 Vaste tijden</button>
@@ -1182,7 +1185,9 @@ function petRij(p) {
       `<button type="button" data-actie="petFocusSoort" data-w="${k}" aria-pressed="${(p.focusSoort || "alles") === k}">${n}</button>`).join("")}</div>
     ${(p.focusSoort || "alles") === "alles" ? "" : `<div class="chips">${top.map(([k, i, n]) =>
       `<button type="button" data-actie="petFocus" data-w="${esc(k)}" aria-pressed="${(p.focus || []).includes(k)}">${esc(i)} ${esc(n)}</button>`).join("")}</div>`}
-    <label class="veld">Vanzelf opzetten bij inloggen met<input type="email" value="${esc(p.account || "")}" data-petveld="account" placeholder="e-mailadres (mag leeg)"></label>
+    <label class="veld">Vanzelf opzetten bij inloggen met${familieEmails().length
+      ? `<select data-petveld="account"><option value="">— geen vast account —</option>${[...new Set([...familieEmails(), p.account].filter(Boolean))].map(e => `<option value="${esc(e)}" ${p.account === e ? "selected" : ""}>${esc(e)}</option>`).join("")}</select>`
+      : `<input type="email" value="${esc(p.account || "")}" data-petveld="account" placeholder="e-mailadres (mag leeg)">`}</label>
   </div>`;
 }
 
@@ -1224,9 +1229,28 @@ function accountBlok() {
   return `<div class="accrij">${g.foto ? `<img class="avatar" src="${esc(g.foto)}" alt="" referrerpolicy="no-referrer">` : `<span class="avatar">${esc(g.naam[0].toUpperCase())}</span>`}
       <div class="ibody"><div class="ititel">${esc(g.naam)}</div><div class="imeta">${esc(g.email)} · ${cloud.fout ? `<span style="color:var(--rood)">${esc(cloud.fout)}</span>` : cloud.bezig ? "opslaan…" : "☁️ alles opgeslagen"}</div></div>
       <button type="button" class="knop klein" data-actie="uitloggen">Uitloggen</button></div>
-    <div class="hint" style="margin:8px 0 4px">Inloggen kan met: ${g.aanbieders.map(a => `${a.soort === "google" ? googleLogo + " Google" : msLogo + " Microsoft"}${a.email ? " (" + esc(a.email) + ")" : ""}`).join(" · ")}</div>
-    ${!heeft("microsoft") ? `<button type="button" class="knop klein" data-actie="koppelAccount" data-w="microsoft">${msLogo} Ook met Microsoft-account kunnen inloggen</button>` : ""}
-    ${!heeft("google") ? `<button type="button" class="knop klein" data-actie="koppelAccount" data-w="google">${googleLogo} Ook met Google-account kunnen inloggen</button>` : ""}`;
+    ${familieBlok()}`;
+}
+// Alle accounts waarmee je in dit Tijdkompas komt (privé, werk, hobby…)
+function familieEmails() {
+  const hoofd = isHoofd() ? cloud.gebruiker?.email : cloud.hoofdInfo?.email;
+  return [...new Set([hoofd, ...Object.values(cloud.aliasInfo || {}).map(x => x.email)].filter(Boolean))];
+}
+function familieBlok() {
+  const g = cloud.gebruiker; if (!g) return "";
+  const hoofd = isHoofd() ? { email: g.email, naam: g.naam, foto: g.foto } : (cloud.hoofdInfo || { email: "hoofdaccount", naam: "Hoofdaccount" });
+  const rij = (x, uid, isH) => { const p = petten().find(p => p.account && p.account === x.email);
+    return `<div class="accrij">${x.foto ? `<img class="avatar" src="${esc(x.foto)}" alt="" referrerpolicy="no-referrer">` : `<span class="avatar">${esc((x.naam || x.email || "?")[0].toUpperCase())}</span>`}
+    <div class="ibody"><div class="ititel">${esc(x.email)}${x.email === g.email ? ` <span class="tag">nu ingelogd</span>` : ""}</div>
+      <div class="imeta">${isH ? "hoofdaccount" : "toegevoegd account"}${p ? ` · ${esc(p.icoon)} ${esc(p.naam)}-pet` : ""}</div></div>
+    ${!isH && isHoofd() ? `<button type="button" class="knop klein gevaar" data-actie="inlogWeg" data-w="${esc(uid)}">Loskoppelen</button>` : ""}</div>`; };
+  return `<h3>Accounts in dit Tijdkompas</h3>
+    <p class="hint">Log in met welk account je wilt: je komt steeds in hetzelfde Tijdkompas, met de pet (kleuren en focus) die bij dat account hoort.</p>
+    <div class="lijst">${rij(hoofd, sessie.ik, true)}${Object.entries(cloud.aliasInfo || {}).map(([u, x]) => rij(x, u, false)).join("")}</div>
+    ${isHoofd() ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <button type="button" class="knop klein" data-actie="inlogBij" data-w="google">${googleLogo} ＋ Google-account toevoegen</button>
+      <button type="button" class="knop klein" data-actie="inlogBij" data-w="microsoft">${msLogo} ＋ Microsoft-account toevoegen</button></div>`
+    : `<p class="hint">Accounts toevoegen of loskoppelen doe je als je inlogt met het hoofdaccount (${esc(hoofd.email)}).</p>`}`;
 }
 function renderAccount() {
   const k = $("#accountKnop"), g = cloud.gebruiker;
@@ -1264,6 +1288,15 @@ $("#accountKnop").addEventListener("click", () => {
 function accountActie(a, w, klaar) {
   if (a === "login") {
     login(w).then(() => { klaar?.(); toast("Ingelogd"); }).catch(e => toast(foutTekst(e)));
+  } else if (a === "inlogBij") {
+    voegInlogToe(w).then(r => {
+      toast(`${r.email} hoort nu bij dit Tijdkompas${r.lijsten ? ` (${r.lijsten} lijsten samengevoegd)` : ""}. Kies bij Petten welke pet daarbij hoort.`);
+      render(); if (dlg.open) $("#accountKnop").click();
+    }).catch(e => toast(foutTekst(e)));
+  } else if (a === "inlogWeg") {
+    const x = cloud.aliasInfo?.[w];
+    if (confirm(`${x?.email || "Dit account"} loskoppelen?\nInloggen met dat account geeft dan weer een eigen, apart Tijdkompas. Alle lijsten blijven gewoon hier staan.`))
+      verwijderInlog(w).then(() => { toast("Losgekoppeld"); render(); if (dlg.open) $("#accountKnop").click(); }).catch(e => toast(foutTekst(e)));
   } else if (a === "koppelAccount") {
     koppelAccount(w).then(() => { toast("Gekoppeld — je kunt nu met beide accounts inloggen"); location.reload(); }).catch(e => toast(foutTekst(e)));
   } else if (a === "uitloggen") {
@@ -1405,7 +1438,7 @@ function openEditor(item, standaard = {}) {
           ${losse.length ? `<div class="linkrij"><span>⤵</span><select id="subKoppel"><option value="">Bestaande losse taak toevoegen…</option>${losse.map(t => `<option value="${t.id}">${esc(t.titel)}</option>`).join("")}</select><button type="button" class="knop klein" data-actie="subKoppel">Koppel</button></div>` : ""}
           </div></div>`) : ""}
 
-      ${(() => { const o = overzicht(c.overzicht), n = (o?.leden || []).length;
+      ${(() => { const o = overzicht(c.overzicht), n = andereLeden(o).length + 1;
         return `<div class="hint">👥 ${n > 1 ? `Gedeeld via de lijst „${esc(o.naam)}” met ${n - 1} ${n === 2 ? "ander" : "anderen"}.` : `Samenwerken? Deel de lijst „${esc(o?.naam || "")}” via Instellingen → Lijsten, of zet dit in een gedeelde lijst.`}</div>`; })()}
     </div>
     <div class="dvoet">
@@ -1848,7 +1881,7 @@ async function hoofdKlik(e) {
       }
     }
     else if (a === "beschBij") { d().beschikbaar.push({ dagen: [6, 0], van: "09:00", tot: "22:00" }); bewaar(); }
-    else if (["login", "koppelAccount", "uitloggen"].includes(a)) accountActie(a, w);
+    else if (["login", "koppelAccount", "uitloggen", "inlogBij", "inlogWeg"].includes(a)) accountActie(a, w);
     else if (a === "accepteer") { accepteer(w).then(() => toast("Je doet nu mee met deze lijst")).catch(e => toast(e.message)); }
     else if (a === "weiger") { weiger(w).catch(e => toast(e.message)); }
     else if (a === "lidWeg") {
@@ -1864,7 +1897,7 @@ async function hoofdKlik(e) {
     else if (a === "mapWeg") {
       const m = map(el.closest("[data-map]").dataset.map), ouder = m.ouder || "", n = lijstenIn(m.id).length + submappen(m.id).length;
       const waar = ouder ? `de map „${map(ouder).naam}”` : "de hoofdmap";
-      const anders = m.eigenaar && sessie.ik && m.eigenaar !== sessie.ik;
+      const anders = m.eigenaar && sessie.ik && !isIk(m.eigenaar);
       if (!confirm(`${anders ? "Gedeelde map" : "Map"} „${m.naam}” ${anders ? "verlaten" : "verwijderen"}?${n ? `\nWat erin staat (${n}) gaat naar ${waar}; er gaat niets verloren.` : ""}`)) return;
       lijstenIn(m.id).forEach(o => o.map = ouder); submappen(m.id).forEach(x => x.ouder = ouder);
       d().koers.forEach(k => { if (k.doel?.soort === "map" && k.doel.id === m.id) k.doel = ouder ? { soort: "map", id: ouder } : { soort: "", id: "" }; });
@@ -1897,7 +1930,7 @@ async function hoofdKlik(e) {
     else if (a === "naarAgenda") { el.disabled = true; await doeNaarAgenda(); }
     else if (a === "ovWeg") {
       const o = overzicht(el.closest("[data-ov]").dataset.ov);
-      if (o.eigenaar && sessie.ik && o.eigenaar !== sessie.ik) {      // andermans lijst: verlaten (taken blijven voor de anderen)
+      if (o.eigenaar && sessie.ik && !isIk(o.eigenaar)) {      // andermans lijst: verlaten (taken blijven voor de anderen)
         if (confirm(`De gedeelde lijst „${o.naam}” verlaten? De taken blijven bestaan voor de andere leden.`)) {
           d().overzichten = d().overzichten.filter(x => x !== o);
           d().taken = d().taken.filter(t => t.overzicht !== o.id); d().projecten = d().projecten.filter(p => p.overzicht !== o.id);
@@ -1961,6 +1994,7 @@ function hoofdWijzig(e) {
   if (e.target.dataset?.petveld) {
     const p = petten().find(x => x.id === e.target.closest("[data-pet]").dataset.pet), k = e.target.dataset.petveld;
     p[k] = k === "account" ? e.target.value.trim().toLowerCase() : e.target.value.trim() || p[k];
+    if (k === "account" && p[k]) for (const q of petten()) if (q !== p && q.account === p[k]) q.account = "";   // één pet per account
     bewaar(); renderPet(); return;
   }
   if (e.target.matches?.("[data-tlijst],[data-tlijstvan]")) {

@@ -10,6 +10,12 @@
 //   geldt de indeling van de eigenaar, zodat een gedeelde map bij de ander met dezelfde inhoud verschijnt.
 //   Koers-afspraken (POP/PAP) zijn persoonlijk: gebruikers/{uid}.koers
 //
+// Meerdere inlogs, één Tijdkompas: een hoofdaccount kan andere accounts (bijv. werk, hobby) toevoegen.
+//   gebruikers/{hoofd}.aliassen = [uid…]   (alleen het hoofd mag dit wijzigen)
+//   gebruikers/{alias}.hoofd    = hoofd-uid (geschreven door het andere account zelf, bij het koppelen)
+// Log je in met zo'n ander account, dan zie en bewerk je het Tijdkompas van het hoofd. Alle inlogs staan in
+// leden[] van elke lijst en map (dat regelt de app), zodat de bestaande regels per lijst gewoon werken.
+//
 // Lijsten die in je eigen Drive/OneDrive staan (schijf.js) staan hier alleen als verwijzing in lijstInst
 // (naam, icoon, kleur, welk account). Titels en plaatsen van agenda-afspraken, en titels van ingeplande blokken
 // uit zulke lijsten, gaan niet naar de cloud: alleen tijden. Dit apparaat onthoudt de titels zelf.
@@ -17,15 +23,19 @@
 // De app blijft werken met één object in het geheugen (opslag.d). Deze module vertaalt dat heen en weer:
 // wijzigingen worden als verschil naar Firestore geschreven, en wijzigingen van anderen komen live binnen.
 import { CONFIG } from "./config.js";
-import { opslag, sessie, uid as nieuwId, startData } from "./data.js";
+import { opslag, sessie, uid as nieuwId, startData, isIk } from "./data.js";
 import { aanvullen, haak, laadOntbrekende, vergeet } from "./schijf.js";
 import { herkenLocatie } from "./plan.js";
 import { vingerafdruk } from "./sync.js";
 
 const B = "https://www.gstatic.com/firebasejs/10.14.1/";
 let A = null, F = null, auth = null, db = null;
+let tweede = null;   // { auth, db }: een tweede Firebase-app om een extra account toe te voegen zonder jezelf uit te loggen
 
-export const cloud = { geladen: false, gebruiker: null, uitnodigingen: [], bezig: false, fout: "" };
+export const cloud = { geladen: false, gebruiker: null, uitnodigingen: [], bezig: false, fout: "",
+                       familie: [], aliasInfo: {}, hoofdInfo: null };   // familie: alle uid's van dit Tijdkompas
+const familie = () => (cloud.familie.length ? cloud.familie : [sessie.ik]);
+const authUid = () => cloud.gebruiker?.uid || sessie.ik;
 const luisteraars = new Set();
 export const opCloud = (f) => luisteraars.add(f);
 const meld = () => luisteraars.forEach(f => { try { f(); } catch {} });
@@ -48,7 +58,7 @@ function onthoudTitels(d) {
 
 // ---------- opstarten ----------
 export async function cloudStart(test) {
-  if (test) { A = test.A; F = test.F; auth = test.auth; db = test.db; A.onAuthStateChanged(auth, (u) => (u ? aangemeld(u) : afgemeld())); cloud.geladen = true; return; }
+  if (test) { A = test.A; F = test.F; auth = test.auth; db = test.db; tweede = test.tweede || null; A.onAuthStateChanged(auth, (u) => (u ? aangemeld(u) : afgemeld())); cloud.geladen = true; return; }
   if (!cloudIngesteld() || auth) return;
   try {
     const [app, a, f] = await Promise.all([import(B + "firebase-app.js"), import(B + "firebase-auth.js"), import(B + "firebase-firestore.js")]);
@@ -58,6 +68,11 @@ export async function cloudStart(test) {
     try { db = f.initializeFirestore(fb, { localCache: f.persistentLocalCache({ tabManager: f.persistentMultipleTabManager() }) }); }
     catch { db = f.getFirestore(fb); }
     a.onAuthStateChanged(auth, (u) => (u ? aangemeld(u) : afgemeld()).catch(e => { cloud.fout = e.message; meld(); }));
+    // vooraf klaarzetten: de inlog-popup moet direct bij de klik openen
+    try {
+      const fb2 = app.initializeApp(CONFIG.firebase, "toevoegen");
+      tweede = { auth: a.initializeAuth(fb2, { persistence: a.inMemoryPersistence, popupRedirectResolver: a.browserPopupRedirectResolver }), db: f.getFirestore(fb2) };
+    } catch {}
   } catch (e) { cloud.fout = "Kon inlogdienst niet laden: " + e.message; }
   cloud.geladen = true; meld();
 }
@@ -100,12 +115,15 @@ const mapDocs = new Map();      // mapId → data
 let wachtend = new Map();       // id → {soort, data}: uitnodigingen (lijsten en mappen) waar ik nog niet in zit
 let gebruikerDoc = null;
 const bekend = new Map();       // pad → stabiele JSON zoals laatst gezien/geschreven
+// Paden die ook in het geheugen (opslag.d) zitten. Alleen die mogen bij opruimen weg: iets wat net binnenkwam
+// en nog niet in het geheugen staat, is niet "door jou verwijderd" maar gewoon nieuw.
+let inGeheugen = new Set();
 let geladen = { gebruiker: false, lijsten: false, mappen: false };
 
 function stop() {
   subs.forEach(f => f()); subs = [];
   itemSubs.forEach(f => f()); itemSubs.clear();
-  lijstDocs.clear(); itemDocs.clear(); mapDocs.clear(); wachtend = new Map(); bekend.clear(); gebruikerDoc = null;
+  lijstDocs.clear(); itemDocs.clear(); mapDocs.clear(); wachtend = new Map(); bekend.clear(); gebruikerDoc = null; inGeheugen = new Set();
   geladen = { gebruiker: false, lijsten: false, mappen: false };
   clearTimeout(schrijfTimer); schrijfTimer = null;
 }
@@ -124,17 +142,25 @@ async function aangemeld(u) {
     uid: u.uid, naam: u.displayName || u.email || "Gebruiker", email: (u.email || u.providerData.find(p => p.email)?.email || "").toLowerCase(),
     foto: u.photoURL || "", aanbieders: u.providerData.map(p => ({ soort: p.providerId === "google.com" ? "google" : "microsoft", email: p.email || "" })),
   };
-  sessie.ik = u.uid;
+  sessie.ik = u.uid; sessie.familie = [u.uid]; cloud.familie = [u.uid];
   meld();
   const ref = F.doc(db, "gebruikers", u.uid);
-  let bestaat;
-  try { bestaat = (await F.getDocFromServer(ref)).exists(); } catch { bestaat = (await F.getDoc(ref)).exists(); }
-  if (!bestaat) await eersteKeer();
+  let eigen;
+  try { eigen = await F.getDocFromServer(ref); } catch { eigen = await F.getDoc(ref); }
+  // Hoort deze inlog bij het Tijdkompas van een ander (hoofd)account? Alleen als dat hoofd hem ook echt heeft toegevoegd.
+  const hoofd = eigen.exists() ? eigen.data().hoofd : null;
+  if (hoofd && hoofd !== u.uid) {
+    try {
+      const h = await F.getDoc(F.doc(db, "gebruikers", hoofd));
+      if (h.exists() && (h.data().aliassen || []).includes(u.uid)) { sessie.ik = hoofd; sessie.familie = [hoofd, ...h.data().aliassen]; cloud.familie = [...sessie.familie]; }
+    } catch {}   // niet (meer) toegevoegd: gewoon het eigen Tijdkompas
+  }
+  if (!eigen.exists() && sessie.ik === u.uid) await eersteKeer();
   abonneer();
 }
 function afgemeld() {
   const wasIn = !!cloud.gebruiker;
-  stop(); cloud.gebruiker = null; cloud.uitnodigingen = []; sessie.ik = null;
+  stop(); cloud.gebruiker = null; cloud.uitnodigingen = []; sessie.ik = null; sessie.familie = []; cloud.familie = []; cloud.aliasInfo = {}; cloud.hoofdInfo = null;
   if (wasIn) { vergeet(); try { localStorage.removeItem(TITELS); } catch {} opslag.demo(); }   // gegevens van het account niet op dit apparaat laten staan
   meld();
   return Promise.resolve();
@@ -163,12 +189,18 @@ async function eersteKeer() {
 
 function abonneer() {
   stop();
-  const ik = sessie.ik, email = cloud.gebruiker.email;
+  const ik = sessie.ik, email = cloud.gebruiker.email, wie = authUid();
   subs.push(F.onSnapshot(F.doc(db, "gebruikers", ik), (s) => {
     gebruikerDoc = s.data() || {}; bekend.set("gebruikers/" + ik, stabiel(gebruikerDoc));
-    geladen.gebruiker = true; bouwStraks();
-  }, fout));
-  subs.push(F.onSnapshot(F.query(F.collection(db, "lijsten"), F.where("leden", "array-contains", ik)), (s) => {
+    cloud.familie = [ik, ...(gebruikerDoc.aliassen || [])]; sessie.familie = [...cloud.familie];
+    cloud.aliasInfo = gebruikerDoc.aliasInfo || {}; cloud.hoofdInfo = gebruikerDoc.profiel || null;
+    // als hoofd: eigen naam/e-mail bewaren, zodat andere inlogs kunnen laten zien bij wie ze horen
+    if (ik === wie && (!gebruikerDoc.profiel || gebruikerDoc.profiel.email !== cloud.gebruiker.email))
+      F.setDoc(F.doc(db, "gebruikers", ik), { profiel: ikInfo() }, { merge: true }).catch(() => {});
+    if (ik !== wie && !cloud.familie.includes(wie)) { opnieuw(); return; }   // losgekoppeld terwijl ingelogd
+    geladen.gebruiker = true; bouwStraks(); meld();
+  }, (e) => (ik !== wie ? opnieuw() : fout(e))));
+  subs.push(F.onSnapshot(F.query(F.collection(db, "lijsten"), F.where("leden", "array-contains", wie)), (s) => {
     const nu = new Set();
     s.forEach(doc => {
       nu.add(doc.id); lijstDocs.set(doc.id, doc.data()); bekend.set("lijsten/" + doc.id, stabiel(doc.data()));
@@ -184,7 +216,7 @@ function abonneer() {
     }
     geladen.lijsten = true; bouwStraks();
   }, fout));
-  subs.push(F.onSnapshot(F.query(F.collection(db, "mappen"), F.where("leden", "array-contains", ik)), (s) => {
+  subs.push(F.onSnapshot(F.query(F.collection(db, "mappen"), F.where("leden", "array-contains", wie)), (s) => {
     const nu = new Set();
     s.forEach(doc => { nu.add(doc.id); mapDocs.set(doc.id, doc.data()); bekend.set("mappen/" + doc.id, stabiel(doc.data())); });
     for (const id of [...mapDocs.keys()]) if (!nu.has(id)) { mapDocs.delete(id); bekend.delete("mappen/" + id); }
@@ -193,7 +225,7 @@ function abonneer() {
   // Uitnodigingen: per lijst en per map. Een gedeelde map nodigt ook uit voor alles erin; toon alleen de bovenste.
   if (email) for (const soort of ["lijsten", "mappen"]) subs.push(F.onSnapshot(F.query(F.collection(db, soort), F.where("uitgenodigd", "array-contains", email)), (s) => {
     for (const [id, x] of [...wachtend]) if (x.soort === soort) wachtend.delete(id);
-    s.docs.filter(x => !(x.data().leden || []).includes(ik)).forEach(x => wachtend.set(x.id, { soort, data: x.data() }));
+    s.docs.filter(x => !(x.data().leden || []).includes(wie)).forEach(x => wachtend.set(x.id, { soort, data: x.data() }));
     const ouderVan = (x) => x.soort === "lijsten" ? x.data.map : x.data.ouder;
     cloud.uitnodigingen = [...wachtend].filter(([, x]) => !wachtend.has(ouderVan(x))).map(([id, x]) => ({
       id, map: x.soort === "mappen", naam: x.data.naam, icoon: x.data.icoon, van: x.data.ledenInfo?.[x.data.eigenaar]?.naam || "iemand",
@@ -203,6 +235,54 @@ function abonneer() {
   }, () => {}));
 }
 function fout(e) { cloud.fout = e.message; meld(); }
+function opnieuw() { stop(); if (auth.currentUser) aangemeld(auth.currentUser).catch(fout); }
+
+// ---------- meerdere inlogs, één Tijdkompas ----------
+export const isHoofd = () => !!cloud.gebruiker && cloud.gebruiker.uid === sessie.ik;
+/** Voegt een ander Google-/Microsoft-account toe aan dit Tijdkompas. Moet direct binnen een klik aangeroepen worden (popup). */
+export async function voegInlogToe(soort) {
+  if (!tweede) throw new Error("Even geduld, inloggen wordt nog geladen…");
+  if (!isHoofd()) throw new Error("Accounts toevoegen kan alleen als je inlogt met het hoofdaccount.");
+  const r = await A.signInWithPopup(tweede.auth, aanbieder(soort));
+  const b = r.user, ik = sessie.ik;
+  try {
+    if (b.uid === ik || cloud.familie.includes(b.uid)) throw new Error("Dit account hoort al bij dit Tijdkompas.");
+    const email = (b.email || b.providerData.find(p => p.email)?.email || "").toLowerCase();
+    const zijn = await F.getDoc(F.doc(tweede.db, "gebruikers", b.uid));
+    if ((zijn.data()?.aliassen || []).length) throw new Error(`${email} heeft zelf al andere accounts gekoppeld. Haal die daar eerst weg, of voeg dit account juist daar toe.`);
+    // 1. het hoofd keurt goed  2. het andere account wijst naar het hoofd
+    await F.updateDoc(F.doc(db, "gebruikers", ik), { aliassen: F.arrayUnion(b.uid), [`aliasInfo.${b.uid}`]: { email, naam: b.displayName || email, foto: b.photoURL || "" } });
+    await F.setDoc(F.doc(tweede.db, "gebruikers", b.uid), { hoofd: ik }, { merge: true });
+    // 3. wat het andere account al had (lijsten en mappen) samenvoegen: hele familie erbij, eigen lijsten op naam van het hoofd
+    const fam = [...new Set([...familie(), ik, b.uid])];
+    let n = 0;
+    for (const soortC of ["mappen", "lijsten"]) {
+      const sn = await F.getDocs(F.query(F.collection(tweede.db, soortC), F.where("leden", "array-contains", b.uid)));
+      for (const x of sn.docs) {
+        const vanHem = x.data().eigenaar === b.uid && (x.data().leden || []).length === 1;
+        // lege lijsten die alleen van dat account waren (zoals de standaard Werk/Privé) niet dubbel meenemen
+        if (soortC === "lijsten" && vanHem && (await F.getDocs(F.collection(tweede.db, "lijsten", x.id, "items"))).docs.length === 0) {
+          await F.deleteDoc(x.ref); continue;
+        }
+        await F.updateDoc(x.ref, { leden: F.arrayUnion(...fam), ...(x.data().eigenaar === b.uid ? { eigenaar: ik } : {}) });
+        if (soortC === "lijsten") n++;
+      }
+    }
+    exFamilie.delete(b.uid);   // 4. alles van dit Tijdkompas krijgt het nieuwe account als lid: gebeurt bij de volgende herbouw (metFamilie)
+    return { email, lijsten: n };
+  } finally { try { await A.signOut(tweede.auth); } catch {} }
+}
+/** Haalt een toegevoegd account weer los. Zijn eigen (oude) gegevens blijven bestaan; het ziet dit Tijdkompas niet meer. */
+export async function verwijderInlog(uid) {
+  if (!isHoofd()) throw new Error("Dit kan alleen vanuit het hoofdaccount.");
+  exFamilie.add(uid);
+  await F.updateDoc(F.doc(db, "gebruikers", sessie.ik), { aliassen: F.arrayRemove(uid), [`aliasInfo.${uid}`]: F.deleteField() });
+  for (const [soort, docs] of [["lijsten", lijstDocs], ["mappen", mapDocs]])
+    for (const [id, x] of docs) if ((x.leden || []).includes(uid))
+      await F.updateDoc(F.doc(db, soort, id), { leden: F.arrayRemove(uid), [`ledenInfo.${uid}`]: F.deleteField() }).catch(() => {});
+  const d = opslag.d;
+  for (const x of [...d.overzichten, ...(d.mappen || [])]) if (x.leden) x.leden = x.leden.filter(u => u !== uid);
+}
 
 // ---------- van Firestore naar het geheugen ----------
 let bouwTimer = null;
@@ -241,11 +321,19 @@ function bouw() {
   const itemTitel = new Map([...d.taken, ...d.projecten].map(x => [x.id, x.titel]));
   d.planning = d.planning.map(b => b.titel ? b : { ...b, titel: itemTitel.get(b.item) || titels.blok?.[b.id] || "🔒 Niet geladen" });
   opslag.vervang(d, { stil: true });
+  inGeheugen = new Set([...d.overzichten.map(o => "lijsten/" + o.id), ...(d.mappen || []).map(m => "mappen/" + m.id),
+                        ...[...d.taken, ...d.projecten].map(x => `lijsten/${x.overzicht}/items/${x.id}`)]);
+  // nieuw toegevoegd account nog niet overal lid? (bijv. net gekoppeld) → bijwerken
+  const fam = familie().filter(u => !exFamilie.has(u));
+  if (fam.length > 1 && [...lijstDocs.values(), ...mapDocs.values()].some(x => fam.some(u => !(x.leden || []).includes(u)))) planSchrijven();
   laadOntbrekende(d);
 }
 
 // ---------- van het geheugen naar Firestore ----------
-const PERSOONLIJK = ["modus", "locatie", "tijden", "doelAgenda", "map"];   // per gebruiker, ook bij gedeelde lijsten
+const PERSOONLIJK = ["modus", "locatie", "tijden", "doelAgenda", "map"];
+// Alle inlogs van dit Tijdkompas horen in elke lijst/map (zonder losgekoppelde: die staan niet meer in familie)
+const exFamilie = new Set();
+const metFamilie = (leden) => [...new Set([...(leden?.length ? leden : [sessie.ik]), ...familie()])].filter(u => !exFamilie.has(u));   // per gebruiker, ook bij gedeelde lijsten
 function naarDocs(d) {
   const ik = sessie.ik, docs = new Map();
   const schijfLijst = new Set(d.overzichten.filter(o => o.opslag).map(o => o.id));
@@ -257,6 +345,10 @@ function naarDocs(d) {
     bezet: (d.bezet || []).map(e => ({ ...e, titel: "", plaats: "", loc: e.loc ?? (herkenLocatie(e.plaats) || "") })),
     agendaSync: d.agendaSync || "", gewijzigd: d.gewijzigd || "",
     takenlijsten: d.takenlijsten || {}, takenSync: d.takenSync || "",
+    // beheerd buiten naarDocs (meerdere inlogs): ongewijzigd laten staan
+    ...(gebruikerDoc?.aliassen ? { aliassen: gebruikerDoc.aliassen, aliasInfo: gebruikerDoc.aliasInfo || {} } : {}),
+    ...(gebruikerDoc?.profiel ? { profiel: gebruikerDoc.profiel } : {}),
+    ...(gebruikerDoc?.hoofd ? { hoofd: gebruikerDoc.hoofd } : {}),
     lijstVolgorde: d.overzichten.map(o => o.id), mapVolgorde: (d.mappen || []).map(m => m.id),
     mapInst: Object.fromEntries((d.mappen || []).map(m => [m.id, { ouder: m.ouder || "" }])),
     koers: d.koers || [],
@@ -268,16 +360,16 @@ function naarDocs(d) {
     if (o.opslag) continue;
     docs.set("lijsten/" + o.id, schoon({
       naam: o.naam, kleur: o.kleur, icoon: o.icoon, eigenaar: o.eigenaar || ik,
-      leden: o.leden?.length ? o.leden : [ik], ledenInfo: o.ledenInfo && Object.keys(o.ledenInfo).length ? o.ledenInfo : { [ik]: ikInfo() },
+      leden: metFamilie(o.leden), ledenInfo: o.ledenInfo && Object.keys(o.ledenInfo).length ? o.ledenInfo : { [ik]: ikInfo() },
       uitgenodigd: (o.uitgenodigd || []).map(e => e.toLowerCase()), mensen: o.mensen || [], verdeling: o.verdeling || "samen",
-      map: (o.eigenaar || ik) === ik ? o.map || "" : lijstDocs.get(o.id)?.map ?? "",        // indeling van de eigenaar
+      map: isIk(o.eigenaar || ik) ? o.map || "" : lijstDocs.get(o.id)?.map ?? "",        // indeling van de eigenaar
     }));
   }
   for (const m of d.mappen || []) {
     docs.set("mappen/" + m.id, schoon({
       naam: m.naam, icoon: m.icoon, kleur: m.kleur, eigenaar: m.eigenaar || ik,
-      ouder: (m.eigenaar || ik) === ik ? m.ouder || "" : mapDocs.get(m.id)?.ouder ?? "",
-      leden: m.leden?.length ? m.leden : [ik], ledenInfo: m.ledenInfo && Object.keys(m.ledenInfo).length ? m.ledenInfo : { [ik]: ikInfo() },
+      ouder: isIk(m.eigenaar || ik) ? m.ouder || "" : mapDocs.get(m.id)?.ouder ?? "",
+      leden: metFamilie(m.leden), ledenInfo: m.ledenInfo && Object.keys(m.ledenInfo).length ? m.ledenInfo : { [ik]: ikInfo() },
       uitgenodigd: (m.uitgenodigd || []).map(e => e.toLowerCase()),
     }));
   }
@@ -305,17 +397,19 @@ function schrijf(gewenst, oud, opruimen = false) {
   for (const [pad, obj] of gewenst) {
     const s = stabiel(obj);
     if (oud.get(pad) !== s) { ops.push(["set", pad, obj]); if (oud === bekend) bekend.set(pad, s); }
+    inGeheugen.add(pad);
   }
   if (opruimen) for (const pad of [...bekend.keys()]) {
-    if (gewenst.has(pad)) continue;
+    if (gewenst.has(pad) || !inGeheugen.has(pad)) continue;
+    inGeheugen.delete(pad);
     const delen = pad.split("/");
     if ((delen[0] === "lijsten" || delen[0] === "mappen") && delen.length === 2) {
       const l = (delen[0] === "lijsten" ? lijstDocs : mapDocs).get(delen[1]);
-      if (!l || l.eigenaar === ik) ops.push(["del", pad]);
+      if (!l || isIk(l.eigenaar)) ops.push(["del", pad]);
       else ops.push(["verlaat", pad]);                                   // andermans lijst: alleen jezelf eruit halen
     } else if (delen[0] === "lijsten" && delen.length === 4) {
       const l = lijstDocs.get(delen[1]);
-      if (gewenst.has("lijsten/" + delen[1]) || l?.eigenaar === ik) ops.push(["del", pad]);
+      if (gewenst.has("lijsten/" + delen[1]) || isIk(l?.eigenaar)) ops.push(["del", pad]);
     }
     bekend.delete(pad);
   }
@@ -328,7 +422,7 @@ function schrijf(gewenst, oud, opruimen = false) {
       const ref = F.doc(db, pad);
       if (soort === "set") b.set(ref, obj);
       else if (soort === "del") b.delete(ref);
-      else b.update(ref, { leden: F.arrayRemove(ik), [`ledenInfo.${ik}`]: F.deleteField() });
+      else b.update(ref, { leden: F.arrayRemove(...familie()), ...Object.fromEntries(familie().map(u => [`ledenInfo.${u}`, F.deleteField()])) });
     }
     klaar.push(b.commit());
   }
@@ -350,7 +444,9 @@ export async function accepteer(id) {
   const ik = sessie.ik;
   for (const x of boomVan(id)) {
     const soort = wachtend.get(x)?.soort || "lijsten";
-    await F.updateDoc(F.doc(db, soort, x), { leden: F.arrayUnion(ik), uitgenodigd: F.arrayRemove(cloud.gebruiker.email), [`ledenInfo.${ik}`]: ikInfo() });
+    const wie = authUid();   // alleen jezelf mag je toevoegen; daarna (als lid) de rest van je inlogs
+    await F.updateDoc(F.doc(db, soort, x), { leden: F.arrayUnion(wie), uitgenodigd: F.arrayRemove(cloud.gebruiker.email), [`ledenInfo.${wie}`]: ikInfo() });
+    if (familie().length > 1) await F.updateDoc(F.doc(db, soort, x), { leden: F.arrayUnion(...familie()) });
   }
 }
 export async function weiger(id) {

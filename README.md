@@ -83,6 +83,11 @@ Eenmalige setup door de eigenaar: zie [SETUP.md](SETUP.md).
 - Het werkt twee kanten op: nieuwe taken, titel, notitie, deadline, afvinken en weggooien. Elke 10 minuten, of direct met 🔄.
 - Een veiligheidsstop voorkomt dat er massaal taken verdwijnen als er iets niet goed geladen is.
 
+## Meerdere accounts, één Tijdkompas
+- Log in met je hoofdaccount en voeg bij Account → „Accounts in dit Tijdkompas” je andere Google- of Microsoft-accounts toe (werk, hobby…).
+- Daarna kom je met elk van die accounts in hetzelfde Tijdkompas, met de pet (kleuren en focus) die bij dat account hoort.
+- Wat het toegevoegde account al had, wordt samengevoegd (lege standaardlijsten worden opgeruimd). Loskoppelen kan altijd; de lijsten blijven staan.
+
 ## Petten en kleuren
 - Welke pet heb je op? Een pet (bijv. 🏡 Privé, 💼 Werk) bepaalt de kleuren en welke lijsten opvallen; de rest blijft zichtbaar maar gedimd.
 - Wissel met de knop naast het logo. Instellen bij ⚙️ Instellingen → Overig: kleuren (Bos, Perkament, Aubergine & cyaan, Aubergine licht, Nachtzee, Herfst, Grafiet, Lente),
