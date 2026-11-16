@@ -275,6 +275,16 @@ export function emailVan(uid) {
   if (uid === (cloud.hoofdUid || sessie.ik)) return (cloud.hoofdInfo?.email || "").toLowerCase();
   return (cloud.aliasInfo?.[uid]?.email || familieDocs.get(uid)?.profiel?.email || "").toLowerCase();
 }
+/** Is deze lijst of map van een gelinkt account? Dan wat dat account heeft ingesteld (alleen om te tonen). */
+export function gelinkteInfo(x) {
+  if (!x?.eigenaar || x.eigenaar === sessie.ik || !cloud.familie.includes(x.eigenaar)) return null;
+  const X = familieDocs.get(x.eigenaar) || {}, inst = X.lijstInst?.[x.id] || {};
+  const tl = Object.values(X.takenlijsten || {}).find(t => t.lijst === x.id);
+  return { email: emailVan(x.eigenaar) || "je gelinkte account", inst, takenlijst: tl || null,
+           agenda: inst.doelAgenda ? (X.agendas?.[inst.doelAgenda]?.naam || "een agenda") : "",
+           locatie: (X.locaties || []).find(l => l.id === inst.locatie)?.naam || "",
+           locNaam: (id) => (X.locaties || []).find(l => l.id === id)?.naam || "" };
+}
 /** Agenda en planning van gelinkte accounts (alleen om te tonen en om omheen te plannen) */
 export function familieAgenda() {
   const bezet = [], planning = [];
@@ -447,13 +457,13 @@ function naarDocs(d) {
       naam: o.naam, kleur: o.kleur, icoon: o.icoon, eigenaar: lijstDocs.get(o.id)?.eigenaar || o.eigenaar || ik,   // eigenaar verandert alleen op de server
       leden: metFamilie(o.leden), ledenInfo: o.ledenInfo && Object.keys(o.ledenInfo).length ? o.ledenInfo : { [ik]: ikInfo() },
       uitgenodigd: (o.uitgenodigd || []).map(e => e.toLowerCase()), mensen: o.mensen || [], verdeling: o.verdeling || "samen",
-      map: isIk(o.eigenaar || ik) ? o.map || "" : lijstDocs.get(o.id)?.map ?? "",        // indeling van de eigenaar
+      map: (o.eigenaar || ik) === ik ? o.map || "" : lijstDocs.get(o.id)?.map ?? "",        // indeling van de eigenaar (alleen die zet hem)
     }));
   }
   for (const m of d.mappen || []) {
     docs.set("mappen/" + m.id, schoon({
       naam: m.naam, icoon: m.icoon, kleur: m.kleur, eigenaar: mapDocs.get(m.id)?.eigenaar || m.eigenaar || ik,
-      ouder: isIk(m.eigenaar || ik) ? m.ouder || "" : mapDocs.get(m.id)?.ouder ?? "",
+      ouder: (m.eigenaar || ik) === ik ? m.ouder || "" : mapDocs.get(m.id)?.ouder ?? "",
       leden: metFamilie(m.leden), ledenInfo: m.ledenInfo && Object.keys(m.ledenInfo).length ? m.ledenInfo : { [ik]: ikInfo() },
       uitgenodigd: (m.uitgenodigd || []).map(e => e.toLowerCase()),
     }));

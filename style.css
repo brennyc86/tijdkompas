@@ -415,6 +415,12 @@ dialog #toast{position:fixed}
 .wblok.famblok{opacity:.55;background:color-mix(in srgb,var(--zacht) 16%,var(--paneel));border-color:var(--zacht);border-left:2px dashed var(--zacht);color:var(--meta);cursor:default;z-index:1}
 .wblok.famblok:hover{opacity:1}
 
+/* lijst/map van een gelinkt account: alleen-lezen */
+.ovrij.gelinkt .kleurstip{width:14px;height:14px;border-radius:50%;justify-self:center;align-self:center;border:1px solid var(--rand)}
+.ovrij.gelinkt .tag{justify-self:end}
+.alleenlezen{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;font-size:14px;margin-top:6px}
+.alleenlezen .ar{display:contents}
+
 @media print{
   body.afdrukken > :not(#afdruk){display:none !important}
   body.afdrukken{display:block;background:#fff;color:#000}

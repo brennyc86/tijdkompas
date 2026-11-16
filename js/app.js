@@ -9,7 +9,7 @@ import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroni
 import { verversAgendas, zetNaarAgendas } from "./sync.js";
 import { syncTaken, takenVerbindingen, koppelTakenlijst, takenlijstVan, takenVerbindingVan } from "./takensync.js";
 import { kiesEmoji, voorstellen } from "./emoji.js";
-import { cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda } from "./cloud.js";
+import { cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda, gelinkteInfo } from "./cloud.js";
 familieHaak.agenda = familieAgenda;
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -970,7 +970,15 @@ function instRij(r) {
   const ik = sessie.ik;
     const inspring = `style="margin-left:${Math.min(r.diepte, 6) * 22}px"`;
     if (r.soort === "map") {
-      const m = r.x, n = lijstenOnder(m.id).length;
+      const m = r.x, n = lijstenOnder(m.id).length, glm = ingelogd() ? gelinkteInfo(m) : null;
+      if (glm) return `<div class="ovrij maprij gelinkt" data-map="${m.id}" ${inspring}>
+    <span style="text-align:center;font-size:20px">${esc(m.icoon)}</span><span class="kleurstip" style="background:${esc(m.kleur)}"></span>
+    <b>${esc(m.naam)}</b><span class="tag" title="Deze map hoort bij je gelinkte account">🔗 ${esc(glm.email)}</span>
+    <div class="lijstopties">
+      <span class="hint" style="align-self:center">📁 Map · ${n} ${n === 1 ? "lijst" : "lijsten"}</span>
+      <label class="veld">In map (jouw eigen indeling)${mapKeuze(m.ouder, new Set([m.id, ...mappenOnder(m.id)]), `data-mveld="ouder"`)}</label>
+    </div>
+    <div class="tijden"><div class="hint">🔒 Deze map hoort bij <b>${esc(glm.email)}</b>. Naam, kleur en delen pas je aan als je met dat account inlogt.</div></div></div>`;
       return `<div class="ovrij maprij" data-map="${m.id}" ${inspring}>
     <button type="button" class="emojiknop" data-emoji="map" aria-label="Icoon kiezen" title="Icoon kiezen">${esc(m.icoon)}</button>
     <input type="color" value="${esc(m.kleur)}" data-mveld="kleur" aria-label="Kleur">
@@ -983,7 +991,8 @@ function instRij(r) {
     </div>
     <div class="tijden">${ledenBlok(m, true)}</div></div>`;
     }
-    const o = r.x, l = locatie(o.locatie);
+    const o = r.x, l = locatie(o.locatie), gl = ingelogd() ? gelinkteInfo(o) : null;
+    if (gl) return alleenLezenRij(o, gl, inspring);
     if (o.slot) return `<div class="ovrij" data-ov="${o.id}" ${inspring}>
     <span style="text-align:center;font-size:20px">${esc(o.icoon)}</span><span></span>
     <b>${esc(o.naam)}</b>
@@ -1021,6 +1030,34 @@ function instRij(r) {
     </div>
   </div>`;
   }
+
+// Lijst van een gelinkt account: alles zien, alleen je eigen indeling (map) kiezen. Taken kun je gewoon bewerken.
+const KORT = ["zo", "ma", "di", "wo", "do", "vr", "za"];
+function alleenLezenRij(o, gl, inspring) {
+  const i = gl.inst, modus = i.modus || "vrij", tl = gl.takenlijst;
+  const tijden = (i.tijden || []).map(t => `${[...(t.dagen || [])].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map(x => KORT[x]).join(" ")} ${t.van}–${t.tot}${t.locatie && gl.locNaam(t.locatie) ? " · " + esc(gl.locNaam(t.locatie)) : ""}`);
+  const anderen = Object.entries(o.ledenInfo || {}).filter(([u]) => (o.leden || []).includes(u) && !isIk(u)).map(([, x]) => x.naam || x.email);
+  const rij = (k, v) => `<div class="ar"><span class="hint">${k}</span><span>${v}</span></div>`;
+  return `<div class="ovrij gelinkt" data-ov="${o.id}" ${inspring}>
+    <span style="text-align:center;font-size:20px">${esc(o.icoon)}</span><span class="kleurstip" style="background:${esc(o.kleur)}"></span>
+    <b>${esc(o.naam)}</b><span class="tag" title="Deze lijst hoort bij je gelinkte account">🔗 ${esc(gl.email)}</span>
+    <div class="lijstopties"><label class="veld">In map (jouw eigen indeling)${mapKeuze(o.map, new Set(), `data-veld="map"`)}</label></div>
+    <div class="tijden">
+      <div class="hint">🔒 Deze lijst hoort bij <b>${esc(gl.email)}</b>. Taken toevoegen, wijzigen en afvinken kan gewoon; de instellingen pas je aan als je met dat account inlogt.</div>
+      <div class="alleenlezen">
+        ${rij("Soort", modus === "vast" ? "🕘 Vaste tijden" : "🌿 Vrije tijd")}
+        ${modus === "vast" ? rij("Tijden", tijden.join("<br>") || "nog geen") : ""}
+        ${rij("Verdeling", VERDELING[o.verdeling || "samen"][0])}
+        ${rij("Standaardlocatie", esc(gl.locatie) || "geen vaste plek")}
+        ${rij("Blokken naar agenda", esc(gl.agenda) || "niet")}
+        ${rij("Takenlijst", tl ? `${tl.accountSoort === "ms" ? "Microsoft To Do" : "Google Taken"} · „${esc(tl.naam)}”${tl.account ? ` (${esc(tl.account)})` : ""}` : "niet gekoppeld")}
+        ${rij("Opslag", o.opslag ? "eigen schijf" : "☁️ Tijdkompas-cloud")}
+        ${anderen.length ? rij("Gedeeld met", esc(anderen.join(", "))) : ""}
+        ${(o.mensen || []).length ? rij("Zonder Tijdkompas", esc(o.mensen.join(", "))) : ""}
+      </div>
+    </div>
+  </div>`;
+}
 
 function instLijsten() {
   const rij = instRij;
@@ -1156,7 +1193,7 @@ function takenBlok(id) {
   const rij = ([k, x]) => `<div class="agendarij" data-tl="${esc(k)}">
     <span class="anaam">${esc(x.naam)}${x.standaard ? ` <small class="hint">standaardlijst</small>` : ""}</span>
     <select data-tlijst aria-label="Koppelen aan lijst"><option value="">— niet koppelen —</option>
-      ${d().overzichten.filter(o => !o.slot).map(o => `<option value="${o.id}" ${x.lijst === o.id ? "selected" : ""}>↔ ${o.icoon} ${esc(o.naam)}</option>`).join("")}
+      ${d().overzichten.filter(o => !o.slot && !(ingelogd() && gelinkteInfo(o))).map(o => `<option value="${o.id}" ${x.lijst === o.id ? "selected" : ""}>↔ ${o.icoon} ${esc(o.naam)}</option>`).join("")}
       <option value="+nieuw">＋ nieuwe lijst „${esc(x.naam)}”</option></select>
     <span class="hint">${x.lijst ? d().taken.filter(t => t.ext?.bron === k).length || "" : ""}</span>
   </div>`;
@@ -1609,7 +1646,7 @@ function verhuisd(x, naar, van) {
     if (actief && lijstenOnder(naar).some(i => i !== x.id && actief.includes(i)) && !actief.includes(x.id)) { actief.push(x.id); voorkeur.zet("actief", actief); }
   }
   const deel = deelVan(naar);
-  if (deel && ingelogd() && !x.opslag) {
+  if (deel && ingelogd() && !x.opslag && !gelinkteInfo(x)) {          // delen van andermans (gelinkte) lijst: alleen vanuit dat account
     const nieuw = [...(deel.leden || []), ...(deel.uitgenodigd || [])].filter(u => !(x.leden || []).includes(u) && !(x.uitgenodigd || []).includes(u));
     if (nieuw.length && confirm(`Map „${deel.naam}” is gedeeld. „${x.naam}” ook delen met de mensen in die map?`))
       for (const y of isLijst ? [x] : [x, ...mappenOnder(x.id).map(map), ...lijstenOnder(x.id).map(overzicht)]) if (!y.opslag) erfDelen(y, deel);
