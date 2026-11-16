@@ -14,11 +14,12 @@ const opDag = (dag, hhmm) => { const [h, m] = hhmm.split(":").map(Number); retur
 const minuten = (a, b) => (b - a) / MIN;
 export const dagStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-// Doeldatum: de vroegste van eigen streefdatum en harde deadline (taak of bijbehorend project)
+// Doeldatum: waar het inplannen op mikt.
+//   - Je eigen streefdatum gaat voor: eerder dan de deadline (marge), of juist later als de deadline niet haalbaar is.
+//   - Zonder streefdatum: de deadline (van de taak of van het project, de vroegste).
 export function doelDatum(item) {
   const p = item.project ? project(item.project) : null;
-  const kand = [item.streef, item.deadline, p?.streef, p?.deadline].filter(Boolean).sort();
-  return kand[0] || null;
+  return item.streef || p?.streef || [item.deadline, p?.deadline].filter(Boolean).sort()[0] || null;
 }
 export function harde(item) {
   const p = item.project ? project(item.project) : null;
@@ -276,7 +277,9 @@ export function planAutomatisch(actieveOverzichten) {
     }
     eindVan[it.id] = rest > 0 ? null : laatste ? new Date(laatste.eind) : (d.planning.filter(b => b.item === it.id && b.soort !== "reis").map(b => new Date(b.eind)).sort((a, b) => b - a)[0] || start);
     if (rest > 0) waarschuwingen.push(`„${it.titel}”: nog ${rest} min die niet binnen ${inst.horizon} dagen past${ov.modus === "vast" ? ` in de vaste tijden van ${ov.naam}` : ""}.`);
-    else if (deadline && laatste && dagStr(new Date(laatste.eind)) > deadline) waarschuwingen.push(`„${it.titel}”: past pas na de deadline (${deadline}).`);
+    else if (deadline && laatste && dagStr(new Date(laatste.eind)) > deadline)
+      waarschuwingen.push(it.streef && it.streef > deadline ? `„${it.titel}”: gepland na de deadline (${deadline}), zoals je streefdatum (${it.streef}) aangeeft.`
+                                                            : `„${it.titel}”: past pas na de deadline (${deadline}).`);
   }
   werkGeplandBij(actieveOverzichten);
   return { blokken, waarschuwingen };

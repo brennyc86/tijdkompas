@@ -313,7 +313,7 @@ export async function haalTaken(v, lijstId) {
       const r = await api(v, `${GT}/lists/${enc(lijstId)}/tasks?showCompleted=true&showHidden=true&maxResults=100` + (pagina ? `&pageToken=${enc(pagina)}` : ""));
       for (const t of r.items || []) {
         if (t.deleted) continue;
-        uit.push({ id: t.id, titel: t.title || "", notitie: t.notes || "", deadline: datum(t.due), klaar: t.status === "completed", klaarOp: t.completed || "" });
+        uit.push({ id: t.id, titel: t.title || "", notitie: t.notes || "", deadline: datum(t.due), klaar: t.status === "completed", klaarOp: t.completed || "", parent: t.parent || "" });
       }
       pagina = r.nextPageToken;
     } while (pagina);
@@ -323,25 +323,34 @@ export async function haalTaken(v, lijstId) {
   while (url) {
     const r = await api(v, url);
     for (const t of r.value || []) uit.push({ id: t.id, titel: t.title || "", notitie: t.body?.contentType === "html" ? zonderHtml(t.body.content) : (t.body?.content || "").trim(),
-      deadline: datum(t.dueDateTime?.dateTime), klaar: t.status === "completed",
+      deadline: datum(t.dueDateTime?.dateTime), klaar: t.status === "completed", ster: t.importance === "high",
       klaarOp: t.completedDateTime?.dateTime ? new Date(t.completedDateTime.dateTime.replace(/Z?$/, "Z")).toISOString() : "" });
     url = r["@odata.nextLink"] || "";
   }
   return uit;
 }
 
-/** Taak aanmaken of bijwerken ({titel, notitie, deadline, klaar}); geeft het externe id terug */
+/**
+ * Taak aanmaken of bijwerken; geeft het externe id terug.
+ * t = {titel, notitie, deadline, klaar, parent?} (Google: parent = bovenliggende taak, zo worden projecten taken met subtaken)
+ *   of {…, ster} (Microsoft: ster = "belangrijk" in To Do).
+ */
 export async function zetTaak(v, lijstId, t, bestaandId) {
   if (v.soort === "google") {
     const body = JSON.stringify({ title: t.titel, notes: t.notitie || "", due: t.deadline ? t.deadline + "T00:00:00.000Z" : null,
       status: t.klaar ? "completed" : "needsAction", ...(t.klaar ? {} : { completed: null }) });
     if (bestaandId) { const r = await api(v, `${GT}/lists/${enc(lijstId)}/tasks/${enc(bestaandId)}`, { method: "PATCH", body, weg: true }); if (r) return r.id; }
-    return (await api(v, `${GT}/lists/${enc(lijstId)}/tasks`, { method: "POST", body })).id;
+    return (await api(v, `${GT}/lists/${enc(lijstId)}/tasks` + (t.parent ? `?parent=${enc(t.parent)}` : ""), { method: "POST", body })).id;
   }
-  const body = JSON.stringify({ title: t.titel, body: { content: t.notitie || "", contentType: "text" },
+  const body = JSON.stringify({ title: t.titel, body: { content: t.notitie || "", contentType: "text" }, importance: t.ster ? "high" : "normal",
     dueDateTime: t.deadline ? { dateTime: t.deadline + "T00:00:00", timeZone: "UTC" } : null, status: t.klaar ? "completed" : "notStarted" });
   if (bestaandId) { const r = await api(v, `${M}/me/todo/lists/${enc(lijstId)}/tasks/${enc(bestaandId)}`, { method: "PATCH", body, weg: true }); if (r) return r.id; }
   return (await api(v, `${M}/me/todo/lists/${enc(lijstId)}/tasks`, { method: "POST", body })).id;
+}
+/** Google: taak onder een andere taak hangen (parent "" = bovenste niveau) */
+export async function verplaatsTaak(v, lijstId, id, parent) {
+  if (v.soort !== "google") return;
+  await api(v, `${GT}/lists/${enc(lijstId)}/tasks/${enc(id)}/move` + (parent ? `?parent=${enc(parent)}` : ""), { method: "POST" });
 }
 export async function verwijderTaak(v, lijstId, id) {
   if (v.soort === "google") await api(v, `${GT}/lists/${enc(lijstId)}/tasks/${enc(id)}`, { method: "DELETE", weg: true });

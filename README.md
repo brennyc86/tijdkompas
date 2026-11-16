@@ -80,7 +80,11 @@ Eenmalige setup door de eigenaar: zie [SETUP.md](SETUP.md).
 ## Takenlijsten (Google Taken / Microsoft To Do)
 - Koppel in ⚙️ Instellingen → Koppelingen je Google Taken (ook de taken uit Gmail en Google Agenda) of Microsoft To Do (de taken uit Outlook).
 - Elke takenlijst verschijnt na het koppelen vanzelf als eigen lijst; geef hem gerust een andere naam. Of kies zelf bij welke Tijdkompas-lijst hij hoort. Dat kan ook vanuit de lijst zelf (⚙️ → „Taken synchroniseren met”).
-- Het werkt twee kanten op: nieuwe taken, titel, notitie, deadline, afvinken en weggooien. Elke 10 minuten, of direct met 🔄.
+- Zo'n lijst is een gewone Tijdkompas-lijst: projecten, losse taken, matrix, duur, deadline (moet echt af) en streefdatum (wanneer jij het af wilt).
+- Wat Google/Microsoft zelf kunnen, gaat twee kanten op mee: titel, notitie, deadline (als vervaldatum), afvinken en weggooien.
+  Google: projecten worden taken met subtaken (en een taak die in Google subtaken krijgt, wordt hier een project).
+  Microsoft To Do: ⭐ belangrijk = matrix „Nu doen”; projecten staan daar als gewone taak (To Do kent geen subtaken).
+  De rest (matrix, duur, streefdatum, wie, wacht op…) staat in Tijdkompas zelf. Elke 10 minuten, of direct met 🔄.
 - Een veiligheidsstop voorkomt dat er massaal taken verdwijnen als er iets niet goed geladen is.
 
 ## Starten

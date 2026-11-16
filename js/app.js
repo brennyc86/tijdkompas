@@ -176,8 +176,8 @@ function datumTags(it) {
     uit.push(`<span class="tag ${cls}" title="Deadline">⏰ ${fmtDatum(dl)}</span>`);
   }
   if (st && st !== dl) {
-    const n = dagenTot(st), cls = it.status === "klaar" ? "" : n < 0 ? "bijna" : "";
-    uit.push(`<span class="tag ${cls}" title="Eigen streefdatum">🎯 ${fmtDatum(st)}</span>`);
+    const n = dagenTot(st), na = dl && st > dl, cls = it.status === "klaar" ? "" : na ? "laat" : n < 0 ? "bijna" : "";
+    uit.push(`<span class="tag ${cls}" title="${na ? "Eigen streefdatum ligt ná de deadline: je verwacht later klaar te zijn" : "Eigen streefdatum"}">🎯 ${fmtDatum(st)}${na ? " (na deadline)" : ""}</span>`);
   }
   return uit.join("");
 }
@@ -1450,8 +1450,8 @@ function openEditor(item, standaard = {}) {
       <div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">Urgent / belangrijk</div>
         <div class="minimatrix">${["doen", "plannen", "delegeren", "schrappen"].map(k => `<button type="button" data-q="${k}" style="--qk:${qKleur(k)}" aria-pressed="${k === q}"><b style="color:${qKleur(k)}">${KWADRANTEN[k].naam}</b><small>${KWADRANTEN[k].sub}</small></button>`).join("")}</div></div>
       <div class="rij">
-        <label class="veld">⏰ Deadline<input type="date" name="deadline" value="${c.deadline || ""}"></label>
-        <label class="veld">🎯 Eigen streefdatum<input type="date" name="streef" value="${c.streef || ""}"></label>
+        <label class="veld" title="Wanneer het absoluut af moet zijn">⏰ Deadline (moet echt af)<input type="date" name="deadline" value="${c.deadline || ""}"></label>
+        <label class="veld" title="Wanneer jij het af wilt hebben: eerder voor marge, of later als de deadline niet haalbaar is. Het inplannen mikt hierop.">🎯 Streefdatum (wanneer jij het af wilt)<input type="date" name="streef" value="${c.streef || ""}"></label>
         <label class="veld">Geschatte tijd<input type="text" name="schatting" value="${fmtDuur(c.schatting)}" placeholder="bv. 1u30"></label>
         <label class="veld">Werkelijke tijd<input type="text" name="werkelijk" value="${fmtDuur(c.werkelijk)}" placeholder="achteraf"></label>
       </div>
