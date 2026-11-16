@@ -9,7 +9,7 @@ Gebruikers merken er niets van. Zij klikken alleen in de app op „Inloggen met 
 | Stap | Waarvoor | Status |
 |---|---|---|
 | **A** Firebase | inloggen met Google, online opslag, delen | ✅ gedaan — **let op:** plak de nieuwste `firestore.rules` opnieuw bij Regels (nodig voor meerdere accounts per Tijdkompas, sinds 16-11-2026) |
-| **B** Microsoft-app | inloggen met Microsoft | nog doen (optioneel) |
+| **B** Microsoft-omgeving + app | inloggen met Microsoft (B0: eenmalig een gratis eigen omgeving) | nog doen |
 | **C-Google** | Google Agenda, Google Taken en Google Drive koppelen | Client ID ✅ ingevuld; controleer de rest van stap C-Google |
 | **C-Microsoft** | Outlook-agenda, Microsoft To Do (Outlook-taken) en OneDrive koppelen | nog doen; stuur daarna de **Microsoft client-ID** |
 
@@ -57,25 +57,55 @@ Klaar: vanaf nu kan iedereen inloggen met Google. Google hoeft daar niets voor g
 
 ---
 
-## B. Microsoft-inlog (optioneel, ± 10 minuten)
+## B. Microsoft: eigen omgeving, app-registratie en inloggen (± 25 minuten)
 
-1. **App registreren bij Microsoft**
-   - Ga naar https://portal.azure.com, zoek bovenin **App registrations** (App-registraties) en klik op **New registration** (Nieuwe registratie).
-     Dit werkt met elk Microsoft-account. Met een persoonlijk account krijg je automatisch een eigen **Default Directory** (Standaardmap).
-     https://entra.microsoft.com kan ook, maar toont bij persoonlijke accounts soms „geen toegang”.
-   - **Name** (Naam): `Tijdkompas`.
-   - **Supported account types** (Ondersteunde accounttypen): kies **Accounts in any organizational directory and personal Microsoft accounts** (Accounts in een organisatiemap en persoonlijke Microsoft-accounts).
+Firebase doet het inloggen, maar Microsoft wil dat de app ook bij Microsoft geregistreerd is. Dat is één registratie die je
+voor alles gebruikt: inloggen (deze stap B) én Outlook-agenda, To Do en OneDrive (stap C-Microsoft). Je doet B en C-Microsoft
+dus achter elkaar, in dezelfde registratie.
+
+### B0. Een eigen Microsoft-omgeving (eenmalig)
+
+Een app registreren kan alleen in een eigen Microsoft-omgeving (een *tenant*). Met een gewoon persoonlijk Microsoft-account
+heb je die nog niet; je krijgt hem gratis door een gratis Azure-account aan te maken. App-registraties kosten niets.
+
+1. **Microsoft-account.** Heb je er nog geen met het adres dat je wilt gebruiken (bijv. `brennycc86@gmail.com`)?
+   Ga naar https://signup.live.com, kies **Use your email instead**/vul je e-mailadres in en volg de stappen (je krijgt een code per mail).
+   Zo wordt je Gmail-adres ook een Microsoft-account; je mail blijft gewoon bij Gmail.
+2. **Gratis Azure-account.** Ga naar https://azure.microsoft.com/free en klik op **Try Azure for free** / **Start free** (Gratis beginnen).
+   - Log in met het Microsoft-account van stap 1.
+   - Vul je gegevens in. Microsoft vraagt een telefoonnummer en een **creditcard ter controle**. Er wordt niets afgeschreven:
+     een gratis account heeft een uitgavenlimiet en wordt nooit vanzelf betaald. Kies later dus níet voor „Upgrade”.
+   - Rond af met **Sign up** (Aanmelden). Je komt in https://portal.azure.com.
+3. **Controleer de omgeving.** Rechtsboven in de portal staat onder je naam de omgeving, meestal **Default Directory** (Standaardmap).
+   Staat er **Microsoft Services** of zie je straks „geen toegang”? Klik dan rechtsboven op je naam → **Switch directory** (Map wisselen)
+   en kies **Default Directory**.
+
+### B1. De app registreren
+
+1. Ga naar https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade
+   (of zoek bovenin **App registrations** (App-registraties)) en klik op **New registration** (Nieuwe registratie).
+   - **Name** (Naam): `Tijdkompas` (of algemener, bijv. `Brendans apps`: deze naam zien gebruikers in het toestemmingsvenster).
+   - **Supported account types** (Ondersteunde accounttypen): kies **Accounts in any organizational directory and personal Microsoft accounts**
+     (Accounts in een organisatiemap en persoonlijke Microsoft-accounts). Zo kan iedereen inloggen: privé én werk.
    - **Redirect URI** (Omleidings-URI): kies platform **Web** en vul `https://brennycc86-apps.firebaseapp.com/__/auth/handler` in.
-     Dit adres zie je ook in Firebase bij stap 3 hieronder.
    - Klik op **Register** (Registreren).
-2. **Gegevens kopiëren**
-   - Kopieer op **Overview** (Overzicht) de **Application (client) ID** (Toepassings-id (client)).
-   - Ga naar **Certificates & secrets** (Certificaten en geheimen) en klik op **New client secret** (Nieuw clientgeheim).
-   - Kopieer meteen de **Value** (Waarde). Die is later niet meer te zien.
-3. **Microsoft toevoegen in Firebase**
-   - Ga naar https://console.firebase.google.com/project/brennycc86-apps/authentication/providers.
-   - Klik op **Add new provider** (Nieuwe aanbieder toevoegen) en kies **Microsoft**.
-   - Plak de ID bij **Application ID** en het geheim bij **Application secret**. Zet **Enable** aan en klik op **Save**.
+2. Je staat nu op **Overview** (Overzicht). Kopieer de **Application (client) ID** (Toepassings-id (client)) en bewaar hem even.
+
+### B2. Een geheim maken voor Firebase
+
+1. Ga links naar **Certificates & secrets** (Certificaten en geheimen) → tabblad **Client secrets** (Clientgeheimen) → **New client secret** (Nieuw clientgeheim).
+2. **Description** (Beschrijving): `Firebase`. **Expires** (Verloopt): kies de langste termijn (24 maanden). Klik op **Add** (Toevoegen).
+3. Kopieer meteen de **Value** (Waarde) — níet de *Secret ID*. De waarde is later niet meer te zien.
+   Zet in je agenda een herinnering een paar weken vóór het verloopt: dan maak je een nieuw geheim en plak je dat in Firebase.
+
+### B3. Microsoft aanzetten in Firebase
+
+1. Ga naar https://console.firebase.google.com/project/brennycc86-apps/authentication/providers
+   (of: linkermenu → **Authentication** → tabblad **Sign-in method**).
+2. Klik op **Add new provider** (Nieuwe aanbieder toevoegen) en kies **Microsoft**.
+3. Zet **Enable** aan. Plak de Application (client) ID bij **Application ID** en de Value van B2 bij **Application secret**. Klik op **Save**.
+
+Klaar met inloggen. Ga meteen door met **C-Microsoft** hieronder (zelfde registratie), en stuur daarna de Application (client) ID naar Claude.
 
 ---
 
@@ -121,18 +151,19 @@ Ga naar https://console.cloud.google.com en kies bovenin het Firebase-project ui
 
 ### Microsoft
 
-Open in https://portal.azure.com de app-registratie `Tijdkompas` uit stap B.
+Open in https://portal.azure.com dezelfde app-registratie `Tijdkompas` uit stap B (**App registrations** → `Tijdkompas`).
 
 1. **Platform toevoegen**
-   - Ga naar **Authentication** (Verificatie) → **Add a platform** (Een platform toevoegen) en kies **Single-page application** (Toepassing met één pagina).
-   - Vul als omleidings-URI `https://brennyc86.github.io/tijdkompas/auth.html` in en klik op **Configure** (Configureren).
-   - Het Web-platform uit stap B blijft gewoon staan.
+   - Ga links naar **Authentication** (Verificatie) → **Add a platform** (Een platform toevoegen) → **Single-page application** (Toepassing met één pagina).
+   - Vul als omleidings-URI `https://brennyc86.github.io/tijdkompas/auth.html` in (GitHub-naam, met één c) en klik op **Configure** (Configureren).
+   - Het Web-platform uit stap B blijft gewoon staan; je hebt er nu twee.
 2. **Machtigingen toevoegen**
-   - Ga naar **API permissions** (API-machtigingen) → **Add a permission** (Een machtiging toevoegen) → **Microsoft Graph** → **Delegated permissions** (Gedelegeerde machtigingen).
-   - Vink `Files.ReadWrite.AppFolder`, `Calendars.ReadWrite`, `Tasks.ReadWrite` en `MailboxSettings.Read` aan. `User.Read` staat er meestal al.
-     (`MailboxSettings.Read` is alleen om de kleuren van je Outlook-categorieën over te nemen.)
-   - Klik op **Add permissions** (Machtigingen toevoegen).
-3. **ID kopiëren:** kopieer op **Overview** (Overzicht) de **Application (client) ID** (Toepassings-id (client)).
+   - Ga links naar **API permissions** (API-machtigingen) → **Add a permission** (Een machtiging toevoegen) → **Microsoft Graph** → **Delegated permissions** (Gedelegeerde machtigingen).
+   - Typ in het zoekveld de namen en vink ze aan: `Calendars.ReadWrite`, `Tasks.ReadWrite`, `Files.ReadWrite.AppFolder` en `MailboxSettings.Read`.
+     `User.Read` staat er meestal al. (`MailboxSettings.Read` is alleen om de kleuren van je Outlook-categorieën over te nemen.)
+   - Klik op **Add permissions** (Machtigingen toevoegen). Op **Grant admin consent** (Beheerderstoestemming verlenen) hoef je niet te klikken:
+     elke gebruiker geeft zelf toestemming bij het koppelen.
+3. **ID sturen:** stuur de **Application (client) ID** van **Overview** (Overzicht) naar Claude (dezelfde als in stap B). Die komt in `js/config.js`.
 
 ### Zakelijke Microsoft-accounts
 
