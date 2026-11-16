@@ -201,12 +201,18 @@ function itemRij(t, { toonProject = true, toonOv = true } = {}) {
 
 function toast(tekst, actie) {
   const t = $("#toast"); t.textContent = tekst; t.classList.add("aan");
+  // staat er een venster open, dan de melding daarin tonen (anders valt hij erachter, wazig en onklikbaar)
+  const open = [...document.querySelectorAll("dialog[open]")].pop() || document.body;
+  if (t.parentNode !== open) open.appendChild(t);
   if (actie) {
     const b = document.createElement("button"); b.type = "button"; b.className = "knop klein"; b.textContent = actie.label;
     b.onclick = () => { t.classList.remove("aan"); actie.f(); }; t.append(" ", b);
   }
   clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("aan"), actie ? 7000 : 2600);
 }
+
+// gaat het venster met de melding erin dicht, dan de melding terug naar de pagina
+document.querySelectorAll("dialog").forEach(dl => dl.addEventListener("close", () => { const t = $("#toast"); if (t.parentNode === dl) document.body.appendChild(t); }));
 
 // ---------- kop: overzicht-chips ----------
 const CHIPTIP = "Klik: alleen deze · Ctrl+klik (telefoon: lang indrukken): erbij of eraf";
@@ -1922,11 +1928,17 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
         return;
       }
       const n = d().taken.filter(t => t.overzicht === o.id).length + d().projecten.filter(p => p.overzicht === o.id).length;
-      if (n) { toast(`Verplaats eerst de ${n} taken/projecten in „${o.naam}”`); return; }
-      if (confirm(`Lijst „${o.naam}” verwijderen?`)) {
+      const tl = takenlijstVan(o.id), tlx = tl && d().takenlijsten[tl];
+      if (confirm(`Lijst „${o.naam}” verwijderen?${n ? `\n\nDe ${n} ${n === 1 ? "taak/project" : "taken en projecten"} erin gaan ook weg uit Tijdkompas.` : ""}${tlx ? `\nDe takenlijst „${tlx.naam}” in ${tlx.accountSoort === "ms" ? "Microsoft To Do" : "Google Taken"} blijft gewoon bestaan; hij wordt alleen losgekoppeld.` : ""}`)) {
+        if (tl) koppelTakenlijst(tl, "");          // eerst loskoppelen, zodat de taken in Google/Microsoft blijven staan
+        d().taken = d().taken.filter(t => t.overzicht !== o.id); d().projecten = d().projecten.filter(p => p.overzicht !== o.id);
+        d().planning = d().planning.filter(b => b.overzicht !== o.id);
         lijstWeg(o.id);
         d().koers.forEach(k => { if (k.doel?.soort === "lijst" && k.doel.id === o.id) k.doel = o.map ? { soort: "map", id: o.map } : { soort: "", id: "" }; });
-        d().overzichten = d().overzichten.filter(x => x !== o); bewaar();
+        d().overzichten = d().overzichten.filter(x => x !== o);
+        if (actief) { actief = actief.filter(x => x !== o.id); voorkeur.zet("actief", actief.length ? actief : null); if (!actief.length) actief = null; }
+        bewaar(); toast(`Lijst „${o.naam}” verwijderd`);
+        if (instOpen && (instOpen === o.id)) dlg3.close();
       }
     }
     else if (a === "tijdBij") { const o = overzicht(el.closest("[data-ov]").dataset.ov); o.tijden.push({ dagen: [1, 2, 3, 4, 5], van: "09:00", tot: "17:00", locatie: o.locatie || "" }); bewaar(); }
