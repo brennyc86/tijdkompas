@@ -42,8 +42,14 @@ export const koppelHaak = { wijzig: null };
 export function verbindingen() { try { return JSON.parse(localStorage.getItem(VSLEUTEL) || "[]"); } catch { return []; } }
 const zonderSleutel = ({ token, verloopt, ...r }) => r;
 export const gedeeldeKoppelingen = () => verbindingen().map(zonderSleutel);
+// Sleutels per koppeling apart bewaard, zodat ze bij wisselen van account of Tijdkompas op dit apparaat niet verloren gaan
+const SLEUTELS = "tk_sleutels";
+function sleutels() { try { return JSON.parse(localStorage.getItem(SLEUTELS) || "{}"); } catch { return {}; } }
 function bewaarV(lijst, stil = false) {
   try { localStorage.setItem(VSLEUTEL, JSON.stringify(lijst)); } catch {}
+  const s = sleutels(); let anders = false;
+  for (const v of lijst) if (v.token && s[v.id]?.token !== v.token) { s[v.id] = { token: v.token, verloopt: v.verloopt }; anders = true; }
+  if (anders) try { localStorage.setItem(SLEUTELS, JSON.stringify(s)); } catch {}
   if (!stil) koppelHaak.wijzig?.(lijst.map(zonderSleutel));
 }
 /**
@@ -57,7 +63,8 @@ export function neemGedeeldeOver(metas, eigenaar) {
   let uit;
   if (!Array.isArray(metas)) uit = van && van !== eigenaar ? [] : lokaal;                    // cloud kent nog niets: eigen koppelingen meenemen
   else {
-    uit = metas.map(m => { const l = lokaal.find(x => x.id === m.id); return l ? { ...m, token: l.token, verloopt: l.verloopt } : { ...m }; });
+    const s = sleutels();
+    uit = metas.map(m => { const l = lokaal.find(x => x.id === m.id) || (s[m.id] && { ...s[m.id] }); return l?.token ? { ...m, token: l.token, verloopt: l.verloopt } : { ...m }; });
     if (!van) for (const l of lokaal) if (!uit.some(x => x.id === l.id)) uit.push(l);       // gemaakt zonder in te loggen: erbij
   }
   try { localStorage.setItem(VAN, eigenaar); } catch {}

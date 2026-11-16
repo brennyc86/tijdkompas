@@ -162,5 +162,5 @@ Een **verified publisher** (geverifieerde uitgever) in Microsoft maakt dat makke
 ### Beveiligingsregels bijwerken
 
 Als Claude `firestore.rules` heeft aangepast (staat in de tabel bovenaan), plak je ze opnieuw:
-https://console.firebase.google.com/project/brennycc86-apps/firestore/rules → alles vervangen door de inhoud van
+https://console.firebase.google.com/project/brennycc86-apps/firestore/databases/-default-/rules (of: linkermenu → Firestore Database → tabblad **Rules**) → in het tekstvak Ctrl+A, Delete, alles vervangen door de inhoud van
 [`firestore.rules`](firestore.rules) → **Publish** (Publiceren).

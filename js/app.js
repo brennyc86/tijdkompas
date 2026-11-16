@@ -61,11 +61,22 @@ function zetPet(id) {
 }
 // Bij inloggen (of wisselen van account) vanzelf de bijbehorende pet opzetten
 let petEmail;
+// Elk account van dit Tijdkompas krijgt vanzelf een eigen pet (en dus eigen kleuren): het hoofdaccount de eerste,
+// het eerste toegevoegde account de tweede, enz. Zo zie je meteen met welk account je kijkt. Aanpassen kan bij Petten.
 function petBijAccount() {
   const em = cloud.gebruiker?.email?.toLowerCase() || "";
-  if (em === petEmail) return; petEmail = em;
-  if (!em) return;
-  const p = petten().find(p => (p.account || "").toLowerCase() === em) || petten().find(p => p.id === voorkeur.lees("petPerAccount", {})[em]);
+  if (em === petEmail) return;
+  if (!em) { petEmail = em; return; }
+  if (!cloudGeladen()) return;                                   // eerst de gegevens (en petten) van dit Tijdkompas
+  let p = petten().find(p => (p.account || "").toLowerCase() === em);
+  if (!p) {
+    const fam = familieEmails(), i = fam.indexOf(em);
+    if (i < 0) return;                                           // familie nog niet bekend: straks opnieuw
+    const vrij = petten().filter(x => !x.account || !fam.includes(x.account));
+    p = vrij[Math.min(i, vrij.length - 1)] || null;
+    if (p && fam.length > 1) { p.account = em; bewaar(); }      // vastleggen, zodat het overal hetzelfde is
+  }
+  petEmail = em;
   if (p && p.id !== voorkeur.lees("pet", "")) { voorkeur.zet("pet", p.id); zetThema(); }
 }
 /** Valt deze lijst op onder de huidige pet? */
