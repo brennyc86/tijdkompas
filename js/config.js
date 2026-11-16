@@ -11,6 +11,6 @@ export const CONFIG = {
   },
 
   // Optioneel: agenda's lezen en blokken wegschrijven
-  googleClientId: "",      // Google Drive + Agenda (OAuth-webclient van het Firebase-project, SETUP.md stap C)
+  googleClientId: "144197829489-mfos5cs0kvghs2et10i4evvsj4m1g8cs.apps.googleusercontent.com",      // Google Drive + Agenda (OAuth-webclient van het Firebase-project, SETUP.md stap C)
   microsoftClientId: "",   // OneDrive + Outlook (SPA-platform op de Entra-registratie, SETUP.md stap C)
 };

@@ -10,7 +10,7 @@ Gebruikers merken er niets van. Zij klikken alleen in de app op „Inloggen met 
 |---|---|---|
 | **A** Firebase | inloggen met Google, online opslag, delen | ✅ gedaan |
 | **B** Microsoft-app | inloggen met Microsoft | nog doen (optioneel) |
-| **C-Google** | Google Agenda, Google Taken en Google Drive koppelen | nog doen; stuur daarna de **Google Client ID** |
+| **C-Google** | Google Agenda, Google Taken en Google Drive koppelen | Client ID ✅ ingevuld; controleer de rest van stap C-Google |
 | **C-Microsoft** | Outlook-agenda, Microsoft To Do (Outlook-taken) en OneDrive koppelen | nog doen; stuur daarna de **Microsoft client-ID** |
 
 **Over de knoppen in deze handleiding:** de Firebase-console is altijd Engels. Google Cloud en Microsoft tonen soms Nederlands, afhankelijk van je instellingen.
@@ -100,7 +100,7 @@ Ga naar https://console.cloud.google.com en kies bovenin het Firebase-project ui
 2. **De website toestaan**
    - Ga naar https://console.cloud.google.com/apis/credentials?project=brennycc86-apps en open **Web client (auto created by Google Service)**.
    - Voeg bij **Authorized JavaScript origins** (Geautoriseerde JavaScript-bronnen) `https://brennyc86.github.io` toe en klik op **Save** (Opslaan).
-   - Kopieer de **Client ID** (Client-ID). Die eindigt op `.apps.googleusercontent.com`.
+   - Kopieer de **Client ID** (Client-ID). Die eindigt op `.apps.googleusercontent.com`. **Stuur die naar Claude**: die zet hem in de app.
 3. **Toestemmingen kiezen**
    - Ga naar https://console.cloud.google.com/auth/scopes?project=brennycc86-apps (**Google Auth Platform** → **Data Access** (Gegevenstoegang))
      en klik op **Add or remove scopes** (Bereiken toevoegen of verwijderen).
