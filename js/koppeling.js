@@ -107,8 +107,12 @@ function vraagGoogleToken(opties) {
 function bewaarToken(v, r) { v.token = r.access_token; v.verloopt = Date.now() + (r.expires_in - 120) * 1000; }
 
 /** Koppelt een Google-account voor de gevraagde doelen (["agenda"], ["schijf"] of beide). Bestaande doelen blijven behouden. */
-export async function koppelGoogle(doelen = ["agenda"]) {
-  const r = await vraagGoogleToken({ prompt: "select_account", scope: scopesVoor(G_SCOPES, doelen).join(" ") });
+export async function koppelGoogle(doelen = ["agenda"], email = "") {
+  // met email: hetzelfde account uitbreiden (bijv. agenda erbij); anders een account kiezen
+  const oudV = email ? verbindingen().find(x => x.id === "google:" + email) : null;
+  const alle = [...new Set([...(oudV ? doelenVan(oudV) : []), ...doelen])];
+  const r = await vraagGoogleToken(email ? { prompt: "", hint: email, login_hint: email, scope: scopesVoor(G_SCOPES, alle).join(" ") }
+                                         : { prompt: "select_account", scope: scopesVoor(G_SCOPES, doelen).join(" ") });
   const info = await (await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: "Bearer " + r.access_token } })).json();
   const oud = verbindingen().find(x => x.id === "google:" + info.email);
   // include_granted_scopes: het token bevat ook eerder gegeven toestemmingen — kijk wat er nu werkelijk mag
@@ -119,7 +123,7 @@ export async function koppelGoogle(doelen = ["agenda"]) {
   bewaarToken(v, r);
   werkV(v);
   const geweigerd = doelen.filter(d => !nu.includes(d));
-  if (geweigerd.length) throw new Error(`Je hebt geen toestemming gegeven voor ${geweigerd.map(d => DOELNAAM[d] || d).join(" en ")}. Probeer opnieuw en vink het aan.`);
+  if (geweigerd.length === doelen.length) throw new Error(`Je hebt geen toestemming gegeven voor ${geweigerd.map(d => DOELNAAM[d] || d).join(" en ")}. Probeer opnieuw en vink het aan.`);
   return v;
 }
 export async function vernieuw(v) {
@@ -141,10 +145,12 @@ async function msClient() {
   msal = pca; return pca;
 }
 /** Koppelt een Microsoft-account (werk/school of persoonlijk) voor de gevraagde doelen. Bestaande doelen blijven behouden. */
-export async function koppelMs(doelen = ["agenda"]) {
+export async function koppelMs(doelen = ["agenda"], email = "") {
   if (!ids().microsoft) throw new Error("Microsoft-koppeling is nog niet ingesteld (client-ID ontbreekt)");
   if (!msal) { msClient(); throw new Error("Microsoft wordt nog geladen — klik nog een keer"); }
-  const r = await msal.loginPopup({ scopes: M_SCOPES.basis.concat(doelen.flatMap(d => M_SCOPES[d])), prompt: "select_account" });
+  const oudV = email ? verbindingen().find(x => x.id === "ms:" + email.toLowerCase()) : null;
+  const alle = [...new Set([...(oudV ? doelenVan(oudV) : []), ...doelen])];
+  const r = await msal.loginPopup({ scopes: M_SCOPES.basis.concat(alle.flatMap(d => M_SCOPES[d])), ...(email ? { loginHint: email } : { prompt: "select_account" }) });
   const a = r.account, id = "ms:" + a.username.toLowerCase(), oud = verbindingen().find(x => x.id === id);
   return werkV({ ...(oud || {}), id, soort: "ms", email: a.username, naam: a.name || a.username, homeAccountId: a.homeAccountId, primair: false,
                  doelen: [...new Set([...(oud ? doelenVan(oud) : []), ...doelen])] });

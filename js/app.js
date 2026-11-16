@@ -1124,20 +1124,25 @@ function instKoppelingen() {
   return `<h3 style="margin-top:0">Je account</h3>
   ${accountBlok()}
 
-  <h3>Agenda's koppelen</h3>
-  <p class="hint">Koppel je Google- en/of Outlook-agenda's: Tijdkompas plant om je afspraken heen en kan ingeplande blokken er direct in zetten. Je kunt meerdere accounts koppelen (bijv. zakelijk Outlook én privé Google).
+  <h3>Agenda's en takenlijsten koppelen</h3>
+  <p class="hint">Koppel je Google- en Microsoft-accounts: Tijdkompas plant om je afspraken heen, zet ingeplande blokken in je agenda en werkt met je takenlijsten. Je kunt meerdere accounts koppelen (bijv. zakelijk Outlook én privé Google).
     ${ingelogd() ? "Wat je koppelt geldt voor je hele Tijdkompas: met elk van je accounts en op elk apparaat zie je dezelfde agenda's. Bijwerken kan op een apparaat waar de koppeling verbonden is; elders vraagt de app één keer om te verbinden." : ""}</p>
-  ${kanAgenda ? `<div class="lijst">${lijst.map(v => `<div class="accrij" data-verb="${esc(v.id)}">
+  ${kanAgenda ? `<div class="lijst">${alleVerbindingen().filter(v => heeft(v, "agenda") || heeft(v, "taken")).map(v => {
+    const ms = v.soort === "ms", act = ms ? "koppelMs" : "koppelGoogle";
+    const doel = (x, naam) => heeft(v, x) ? `<span class="tag">✓ ${naam}</span>`
+      : `<button type="button" class="knop klein" data-actie="${act}" data-w="${x}" data-email="${esc(v.email)}" title="Ook ${naam.toLowerCase()} van dit account koppelen">＋ ${naam}</button>`;
+    return `<div class="accrij" data-verb="${esc(v.id)}">
     ${v.foto ? `<img class="avatar" src="${esc(v.foto)}" alt="" referrerpolicy="no-referrer">` : `<span class="avatar">${esc((v.naam || v.email)[0].toUpperCase())}</span>`}
-    <div class="ibody"><div class="ititel">${esc(v.naam)} <span class="tag">${v.soort === "ms" ? "Outlook" : "Google Agenda"}</span></div>
-      <div class="imeta">${esc(v.email)}${isVerlopen(v) ? ` · <span style="color:var(--oranje)">sessie verlopen</span>` : ""}</div></div>
-    ${isVerlopen(v) ? `<button class="knop klein" data-actie="vernieuw">Opnieuw verbinden</button>` : ""}
+    <div class="ibody"><div class="ititel">${esc(v.email)} <span class="hint">${ms ? "Microsoft" : "Google"}</span></div>
+      <div class="imeta" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${doel("agenda", "Agenda")}${doel("taken", "Taken")}${isVerlopen(v) ? `<span style="color:var(--oranje)">${v.token ? "sessie verlopen" : "op dit apparaat nog niet verbonden"}</span>` : ""}</div></div>
+    ${isVerlopen(v) ? `<button class="knop klein" data-actie="vernieuw">${v.token ? "Opnieuw verbinden" : "Verbinden"}</button>` : ""}
     <button class="knop klein gevaar" data-actie="ontkoppel">Ontkoppelen</button>
-  </div>`).join("")}</div>
+  </div>`; }).join("")}</div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-    ${id.google ? `<button class="knop" data-actie="koppelGoogle">${googleLogo} Google Agenda koppelen</button>` : ""}
-    ${id.microsoft ? `<button class="knop" data-actie="koppelMs">${msLogo} Outlook-agenda koppelen</button>` : ""}
-  </div>` : `<div class="leeg">Rechtstreeks koppelen met Google Agenda en Outlook komt eraan. Tot die tijd: importeer je agenda als .ics-bestand via Agenda → ⋯.</div>`}
+    ${id.google ? `<button class="knop" data-actie="koppelGoogle" data-w="agenda+taken">${googleLogo} Google-account koppelen</button>` : ""}
+    ${id.microsoft ? `<button class="knop" data-actie="koppelMs" data-w="agenda+taken">${msLogo} Microsoft-account koppelen</button>` : ""}
+  </div>
+  <p class="hint">Koppelen vraagt toegang tot agenda én takenlijsten. Wil je er maar één, vink de andere dan uit in het venster van Google of Microsoft.</p>` : `<div class="leeg">Rechtstreeks koppelen met Google Agenda en Outlook komt eraan. Tot die tijd: importeer je agenda als .ics-bestand via Agenda → ⋯.</div>`}
 
   ${kanAgenda ? takenBlok(id) : ""}
 
@@ -1186,20 +1191,10 @@ function takenBlok(id) {
       <option value="+nieuw">＋ nieuwe lijst „${esc(x.naam)}”</option></select>
     <span class="hint">${x.lijst ? d().taken.filter(t => t.ext?.bron === k).length || "" : ""}</span>
   </div>`;
-  return `<h3>Takenlijsten koppelen</h3>
+  return `<h3>Takenlijsten: welke hoort waarbij?</h3>
   <p class="hint">Koppel Google Taken (ook de taken uit Gmail en Google Agenda) of Microsoft To Do (de taken uit Outlook) aan een lijst in Tijdkompas.
     Taken gaan dan twee kanten op: wat je daar toevoegt komt hier binnen en wordt ingepland, en wat je hier toevoegt of afvinkt zie je daar ook.</p>
-  ${lijst.length ? `<div class="lijst">${lijst.map(v => `<div class="accrij" data-verb="${esc(v.id)}">
-    ${v.foto ? `<img class="avatar" src="${esc(v.foto)}" alt="" referrerpolicy="no-referrer">` : `<span class="avatar">${esc((v.naam || v.email)[0].toUpperCase())}</span>`}
-    <div class="ibody"><div class="ititel">${esc(v.naam)} <span class="tag">${v.soort === "ms" ? "Microsoft To Do" : "Google Taken"}</span></div>
-      <div class="imeta">${esc(v.email)}${isVerlopen(v) ? ` · <span style="color:var(--oranje)">sessie verlopen</span>` : ""}</div></div>
-    ${isVerlopen(v) ? `<button class="knop klein" data-actie="vernieuw">Opnieuw verbinden</button>` : ""}
-    <button class="knop klein gevaar" data-actie="takenWeg">Ontkoppelen</button>
-  </div>`).join("")}</div>` : ""}
-  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-    ${id.google ? `<button class="knop" data-actie="koppelGoogle" data-w="taken">${googleLogo} Google Taken koppelen</button>` : ""}
-    ${id.microsoft ? `<button class="knop" data-actie="koppelMs" data-w="taken">${msLogo} Microsoft To Do koppelen</button>` : ""}
-  </div>
+  ${lijst.length ? "" : `<p class="hint">Koppel hierboven een Google- of Microsoft-account; de takenlijsten verschijnen dan hier.</p>`}
   ${tl.length ? `<div class="paneel agendagroep" style="margin-top:10px"><div class="hint" style="margin-bottom:6px">Welke takenlijst hoort bij welke lijst?</div>${tl.map(rij).join("")}</div>
   <div style="margin-top:8px"><button class="knop" data-actie="takenOphalen">🔄 Taken synchroniseren</button>
     <span class="hint">${d().takenSync ? "Laatst: " + new Date(d().takenSync).toLocaleString("nl-NL", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}</span></div>` : ""}`;
@@ -1357,11 +1352,17 @@ function sessieBanner() {
     + schijfVerl.map(v => `<div class="banner">🔑 De verbinding met je ${esc(naamVan(v.id))} is verlopen — wijzigingen staan veilig op dit apparaat en gaan mee zodra je opnieuw verbindt.<button class="knop klein" data-actie="vernieuw" data-verbid="${esc(v.id)}">Opnieuw verbinden</button></div>`).join("");
 }
 // doel: "agenda" of "schijf"; lijstId: na het koppelen van een schijf deze lijst er meteen naartoe verplaatsen
-async function doeKoppel(soort, doel = "agenda", lijstId = null) {
+// doel: "agenda", "taken", "agenda+taken" of "schijf"; email: een bestaand account uitbreiden
+async function doeKoppel(soort, doel = "agenda+taken", lijstId = null, email = "") {
   try {
-    const v = await (soort === "ms" ? koppelMs([doel]) : koppelGoogle([doel]));
-    if (doel === "agenda") { toast(`Agenda van ${v.email} gekoppeld`); await doeOphalen(true); }
-    else if (doel === "taken") { await doeTakenSync(true); toast(`Takenlijsten van ${v.email} gekoppeld. Kies hieronder welke lijst waarbij hoort.`); }
+    const doelen = doel.split("+");
+    const v = await (soort === "ms" ? koppelMs(doelen, email) : koppelGoogle(doelen, email));
+    if (doelen.includes("agenda") || doelen.includes("taken")) {
+      if (doelen.includes("agenda")) await doeOphalen(true);
+      if (doelen.includes("taken")) await doeTakenSync(true);
+      const wel = doelen.filter(x => heeft(v, x)), niet = doelen.filter(x => !heeft(v, x)), nm = (x) => x === "agenda" ? "agenda" : "takenlijsten";
+      toast(`${wel.map(nm).join(" en ").replace(/^./, c => c.toUpperCase())} van ${v.email} gekoppeld${niet.length ? ` (zonder ${niet.map(nm).join(" en ")}; dat kan later met ＋)` : ""}`);
+    }
     else {
       toast(`${soort === "ms" ? "OneDrive" : "Google Drive"} van ${v.email} gekoppeld`);
       startSchijf(); await synchroniseerAlles();
@@ -1952,13 +1953,16 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
       d().koers.forEach(k => { if (k.doel?.soort === "map" && k.doel.id === m.id) k.doel = ouder ? { soort: "map", id: ouder } : { soort: "", id: "" }; });
       d().mappen = d().mappen.filter(x => x !== m); bewaar();
     }
-    else if (a === "koppelGoogle") doeKoppel("google", w || "agenda");
-    else if (a === "koppelMs") doeKoppel("ms", w || "agenda");
+    else if (a === "koppelGoogle") doeKoppel("google", w || "agenda+taken", null, el.dataset.email || "");
+    else if (a === "koppelMs") doeKoppel("ms", w || "agenda+taken", null, el.dataset.email || "");
     else if (a === "vernieuw") { const id = el.dataset.verbid || el.closest("[data-verb]")?.dataset.verb; doeVernieuw(alleVerbindingen().find(v => v.id === id)); }
     else if (a === "ontkoppel") {
-      const v = verbindingen().find(x => x.id === el.closest("[data-verb]").dataset.verb);
-      if (confirm(`Agenda's van ${v.email} ontkoppelen? Afspraken uit dit account worden niet meer meegenomen.`)) {
-        await zonderDoel(v, "agenda"); d().bezet = d().bezet.filter(b => !String(b.bron).startsWith(v.id + "|")); bewaar(); toast("Ontkoppeld");
+      const v = alleVerbindingen().find(x => x.id === el.closest("[data-verb]").dataset.verb);
+      if (confirm(`Agenda en takenlijsten van ${v.email} ontkoppelen?\nAfspraken uit dit account worden niet meer meegenomen. Taken blijven aan beide kanten staan, ze worden alleen niet meer bijgewerkt.`)) {
+        for (const k of Object.keys(d().takenlijsten || {})) if (k.startsWith(v.id + "|")) { koppelTakenlijst(k, ""); delete d().takenlijsten[k]; }
+        if (heeft(v, "agenda")) await zonderDoel(v, "agenda");
+        const nu = alleVerbindingen().find(x => x.id === v.id); if (nu && heeft(nu, "taken")) await zonderDoel(nu, "taken");
+        d().bezet = d().bezet.filter(b => !String(b.bron).startsWith(v.id + "|")); bewaar(); toast("Ontkoppeld"); render();
       }
     }
     else if (a === "schijfWeg") {
