@@ -23,7 +23,7 @@
 // De app blijft werken met één object in het geheugen (opslag.d). Deze module vertaalt dat heen en weer:
 // wijzigingen worden als verschil naar Firestore geschreven, en wijzigingen van anderen komen live binnen.
 import { CONFIG } from "./config.js";
-import { opslag, sessie, uid as nieuwId, startData, isIk } from "./data.js";
+import { opslag, sessie, uid as nieuwId, startData, isIk, bewaar } from "./data.js";
 import { aanvullen, haak, laadOntbrekende, vergeet } from "./schijf.js";
 import { herkenLocatie } from "./plan.js";
 import { vingerafdruk } from "./sync.js";
@@ -152,7 +152,10 @@ async function aangemeld(u) {
   if (hoofd && hoofd !== u.uid) {
     try {
       const h = await F.getDoc(F.doc(db, "gebruikers", hoofd));
-      if (h.exists() && (h.data().aliassen || []).includes(u.uid)) { sessie.ik = hoofd; sessie.familie = [hoofd, ...h.data().aliassen]; cloud.familie = [...sessie.familie]; }
+      if (h.exists() && (h.data().aliassen || []).includes(u.uid)) {
+        sessie.ik = hoofd; sessie.familie = [hoofd, ...h.data().aliassen]; cloud.familie = [...sessie.familie];
+        if (!eigen.data().samengevoegd) teMergen = { uid: u.uid, data: eigen.data() };   // wat dit account zelf al had: zo meteen erbij
+      }
     } catch {}   // niet (meer) toegevoegd: gewoon het eigen Tijdkompas
   }
   if (!eigen.exists() && sessie.ik === u.uid) await eersteKeer();
@@ -235,6 +238,24 @@ function abonneer() {
   }, () => {}));
 }
 function fout(e) { cloud.fout = e.message; meld(); }
+
+// ---------- wat een toegevoegd account al had, samenvoegen ----------
+// Agenda's (en hun afspraken), takenlijsten en koppelingen van het andere account horen daarna bij dit Tijdkompas,
+// zodat je ze niet opnieuw hoeft te koppelen. (Lijsten en mappen gaan al mee bij het toevoegen.)
+let teMergen = null;
+function voegSamen(z) {
+  const D = opslag.d; if (!z) return 0;
+  let n = 0;
+  const kop = Array.isArray(D.koppelingen) ? D.koppelingen : [];
+  const nieuweKop = (z.koppelingen || []).filter(k => !kop.some(x => x.id === k.id)).map(k => ({ ...k, primair: false }));
+  if (nieuweKop.length) { D.koppelingen = [...kop, ...nieuweKop]; n += nieuweKop.length; }
+  D.agendas ||= {}; for (const [k, a] of Object.entries(z.agendas || {})) if (!D.agendas[k]) { D.agendas[k] = a; n++; }
+  const ids = new Set((D.bezet || []).map(e => e.id)); D.bezet = [...(D.bezet || []), ...(z.bezet || []).filter(e => !ids.has(e.id))];
+  D.takenlijsten ||= {}; for (const [k, t] of Object.entries(z.takenlijsten || {})) if (!D.takenlijsten[k]) { D.takenlijsten[k] = t; n++; }
+  D.extern ||= {}; for (const [k, e] of Object.entries(z.extern || {})) D.extern[k] ||= e;
+  bewaar();
+  return n;
+}
 function opnieuw() { stop(); if (auth.currentUser) aangemeld(auth.currentUser).catch(fout); }
 
 // ---------- meerdere inlogs, één Tijdkompas ----------
@@ -261,15 +282,19 @@ export async function voegInlogToe(soort) {
       for (const x of sn.docs) {
         const vanHem = x.data().eigenaar === b.uid && (x.data().leden || []).length === 1;
         // lege lijsten die alleen van dat account waren (zoals de standaard Werk/Privé) niet dubbel meenemen
-        if (soortC === "lijsten" && vanHem && (await F.getDocs(F.collection(tweede.db, "lijsten", x.id, "items"))).docs.length === 0) {
+        const inGebruik = Object.values(zijn.data()?.takenlijsten || {}).some(t => t.lijst === x.id) || Object.values(zijn.data()?.agendas || {}).some(a => a.lijst === x.id);
+        if (soortC === "lijsten" && vanHem && !inGebruik && (await F.getDocs(F.collection(tweede.db, "lijsten", x.id, "items"))).docs.length === 0) {
           await F.deleteDoc(x.ref); continue;
         }
         await F.updateDoc(x.ref, { leden: F.arrayUnion(...fam), ...(x.data().eigenaar === b.uid ? { eigenaar: ik } : {}) });
         if (soortC === "lijsten") n++;
       }
     }
-    exFamilie.delete(b.uid);   // 4. alles van dit Tijdkompas krijgt het nieuwe account als lid: gebeurt bij de volgende herbouw (metFamilie)
-    return { email, lijsten: n };
+    // 4. zijn agenda's, afspraken, takenlijsten en koppelingen horen voortaan ook bij dit Tijdkompas
+    const extra = voegSamen(zijn.data());
+    await F.setDoc(F.doc(tweede.db, "gebruikers", b.uid), { samengevoegd: true }, { merge: true });
+    exFamilie.delete(b.uid);   // 5. alles van dit Tijdkompas krijgt het nieuwe account als lid: gebeurt bij de volgende herbouw (metFamilie)
+    return { email, lijsten: n, extra };
   } finally { try { await A.signOut(tweede.auth); } catch {} }
 }
 /** Haalt een toegevoegd account weer los. Zijn eigen (oude) gegevens blijven bestaan; het ziet dit Tijdkompas niet meer. */
@@ -321,6 +346,11 @@ function bouw() {
   const itemTitel = new Map([...d.taken, ...d.projecten].map(x => [x.id, x.titel]));
   d.planning = d.planning.map(b => b.titel ? b : { ...b, titel: itemTitel.get(b.item) || titels.blok?.[b.id] || "🔒 Niet geladen" });
   opslag.vervang(d, { stil: true });
+  if (teMergen && geladen.lijsten && geladen.mappen) {          // ingelogd met een toegevoegd account dat nog eigen koppelingen had
+    const m = teMergen; teMergen = null;
+    voegSamen(m.data);
+    F.setDoc(F.doc(db, "gebruikers", m.uid), { samengevoegd: true }, { merge: true }).catch(() => {});
+  }
   inGeheugen = new Set([...d.overzichten.map(o => "lijsten/" + o.id), ...(d.mappen || []).map(m => "mappen/" + m.id),
                         ...[...d.taken, ...d.projecten].map(x => `lijsten/${x.overzicht}/items/${x.id}`)]);
   // nieuw toegevoegd account nog niet overal lid? (bijv. net gekoppeld) → bijwerken

@@ -1322,7 +1322,8 @@ function accountActie(a, w, klaar) {
     login(w).then(() => { klaar?.(); toast("Ingelogd"); }).catch(e => toast(foutTekst(e)));
   } else if (a === "inlogBij") {
     voegInlogToe(w).then(r => {
-      toast(`${r.email} hoort nu bij dit Tijdkompas${r.lijsten ? ` (${r.lijsten} lijsten samengevoegd)` : ""}. Kies bij Petten welke pet daarbij hoort.`);
+      const mee = [r.lijsten ? `${r.lijsten} lijsten` : "", r.extra ? "agenda's, takenlijsten en koppelingen" : ""].filter(Boolean).join(" en ");
+      toast(`${r.email} hoort nu bij dit Tijdkompas${mee ? ` — ${mee} zijn meegekomen` : ""}. Kies bij Petten welke pet daarbij hoort.`);
       render(); if (dlg.open) $("#accountKnop").click();
     }).catch(e => toast(foutTekst(e)));
   } else if (a === "inlogWeg") {
