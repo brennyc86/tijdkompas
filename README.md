@@ -60,6 +60,7 @@ Planner voor werk, privé en hobby's: projecten en taken, de Eisenhower-matrix (
 - Een taak of project kan een eigen locatie hebben (bijv. „printen op kantoor” → alleen op kantoordagen).
 
 ## Inloggen en delen
+- Inloggen met Google, of met elk e-mailadres via een inloglink per mail (zonder wachtwoord). Ook als gelinkt account toe te voegen.
 
 - **Inloggen met Google of Microsoft** (Firebase Authentication). Je planning staat online (Firestore) en is op elk apparaat hetzelfde, ook offline bruikbaar.
 - **Zakelijk + privé**: log in met het ene account en koppel het andere erbij; daarna kom je met beide in hetzelfde Tijdkompas.

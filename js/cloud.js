@@ -69,6 +69,7 @@ export async function cloudStart(test) {
     try { db = f.initializeFirestore(fb, { localCache: f.persistentLocalCache({ tabManager: f.persistentMultipleTabManager() }) }); }
     catch { db = f.getFirestore(fb); }
     a.onAuthStateChanged(auth, (u) => (u ? aangemeld(u) : afgemeld()).catch(e => { cloud.fout = e.message; meld(); }));
+    setTimeout(() => rondEmailLinkAf().catch(e => { cloud.fout = foutTekst(e); meld(); }), 0);
     // vooraf klaarzetten: de inlog-popup moet direct bij de klik openen
     try {
       const fb2 = app.initializeApp(CONFIG.firebase, "toevoegen");
@@ -93,6 +94,9 @@ export function foutTekst(e) {
   if (c.includes("provider-already-linked")) return "Er is al een account van deze soort gekoppeld.";
   if (c.includes("operation-not-allowed")) return "Deze inlogmethode is nog niet aangezet.";
   if (c.includes("unauthorized-domain")) return "Deze website staat nog niet in de lijst met toegestane domeinen.";
+  if (c.includes("invalid-action-code") || c.includes("expired-action-code")) return "Deze inloglink is verlopen of al gebruikt. Vraag een nieuwe aan.";
+  if (c.includes("invalid-email")) return "Dat e-mailadres klopt niet helemaal.";
+  if (c.includes("quota-exceeded")) return "Er zijn vandaag te veel inloglinks verstuurd. Probeer het morgen opnieuw.";
   return e?.message || String(e);
 }
 // Let op: de popup moet direct binnen de klik openen, daarom is alles vooraf geladen (cloudStart)
@@ -101,6 +105,41 @@ export function login(soort) {
   return A.signInWithPopup(auth, aanbieder(soort));
 }
 export function koppelAccount(soort) { return A.linkWithPopup(auth.currentUser, aanbieder(soort)); }
+
+// ---------- inloggen met een link per e-mail (zonder wachtwoord, zonder Google/Microsoft) ----------
+// We sturen een link naar het e-mailadres; wie erop klikt (in deze browser of een andere) is ingelogd.
+// Met ?koppel=1 is de link bedoeld om dat adres als gelinkt account toe te voegen aan wie hier al is ingelogd.
+const MAILSLEUTEL = "tk_inlogmail";
+const terugUrl = (extra = "") => location.origin + location.pathname + "?emaillink=1" + extra;
+export async function stuurInlogLink(email, { koppelen = false } = {}) {
+  if (!auth) throw new Error(cloudIngesteld() ? "Even geduld, inloggen wordt nog geladen…" : "Inloggen is nog niet geactiveerd");
+  email = String(email || "").trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("Vul een geldig e-mailadres in");
+  await A.sendSignInLinkToEmail(auth, email, { url: terugUrl(koppelen ? "&koppel=1" : ""), handleCodeInApp: true });
+  try { localStorage.setItem(MAILSLEUTEL, email); } catch {}
+  return email;
+}
+// Bij het openen van de app via zo'n link: inloggen (of koppelen) afmaken
+async function rondEmailLinkAf() {
+  const url = location.href;
+  if (!A.isSignInWithEmailLink(auth, url)) return;
+  let email = ""; try { email = localStorage.getItem(MAILSLEUTEL) || ""; } catch {}
+  if (!email) email = (prompt("Met welk e-mailadres vroeg je de inloglink aan?") || "").trim().toLowerCase();
+  const schoon = () => history.replaceState(null, "", location.pathname + location.hash);
+  if (!email) { schoon(); return; }
+  const koppel = new URL(url).searchParams.get("koppel") === "1";
+  try {
+    if (koppel) {
+      // eerst wachten tot het hoofdaccount hier ingelogd is, dan het e-mailaccount in de tweede app aanmelden en koppelen
+      await new Promise((ok) => { const t = setInterval(() => { if (cloud.gebruiker && geladen.gebruiker) { clearInterval(t); ok(); } }, 200); setTimeout(() => { clearInterval(t); ok(); }, 15000); });
+      if (!cloud.gebruiker) throw new Error("Log eerst in met het account waaraan je dit adres wilt koppelen, en klik dan opnieuw op de link in de mail.");
+      const r = await A.signInWithEmailLink(tweede.auth, email, url);
+      cloud.koppelResultaat = await koppelUitvoeren(r.user);
+    } else await A.signInWithEmailLink(auth, email, url);
+    try { localStorage.removeItem(MAILSLEUTEL); } catch {}
+  } catch (e) { cloud.fout = foutTekst(e); }
+  schoon(); meld();
+}
 export async function uitloggen() {
   stop();
   await A.signOut(auth);
@@ -143,7 +182,7 @@ async function aangemeld(u) {
   cloud.melding = "";
   cloud.gebruiker = {
     uid: u.uid, naam: u.displayName || u.email || "Gebruiker", email: (u.email || u.providerData.find(p => p.email)?.email || "").toLowerCase(),
-    foto: u.photoURL || "", aanbieders: u.providerData.map(p => ({ soort: p.providerId === "google.com" ? "google" : "microsoft", email: p.email || "" })),
+    foto: u.photoURL || "", aanbieders: u.providerData.map(p => ({ soort: p.providerId === "google.com" ? "google" : p.providerId === "microsoft.com" ? "microsoft" : "email", email: p.email || "" })),
   };
   sessie.ik = u.uid; sessie.familie = [u.uid]; cloud.familie = [u.uid]; cloud.hoofdUid = null;
   meld();
@@ -338,7 +377,12 @@ export async function voegInlogToe(soort) {
   if (!tweede) throw new Error("Even geduld, inloggen wordt nog geladen…");
   if (!isHoofd()) throw new Error("Accounts toevoegen kan alleen als je inlogt met het hoofdaccount.");
   const r = await A.signInWithPopup(tweede.auth, aanbieder(soort));
-  const b = r.user, ik = sessie.ik;
+  return koppelUitvoeren(r.user);
+}
+// b = het andere account, aangemeld in de tweede app (via popup of via een e-maillink)
+async function koppelUitvoeren(b) {
+  const ik = sessie.ik;
+  if (!isHoofd()) throw new Error("Accounts toevoegen kan alleen als je inlogt met het hoofdaccount.");
   try {
     if (b.uid === ik || cloud.familie.includes(b.uid)) throw new Error("Dit account hoort al bij dit Tijdkompas.");
     const email = (b.email || b.providerData.find(p => p.email)?.email || "").toLowerCase();

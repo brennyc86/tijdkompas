@@ -9,7 +9,7 @@ import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroni
 import { verversAgendas, zetNaarAgendas, verversLinks, linkBron } from "./sync.js";
 import { syncTaken, takenVerbindingen, koppelTakenlijst, takenlijstVan, takenVerbindingVan } from "./takensync.js";
 import { kiesEmoji, voorstellen } from "./emoji.js";
-import { cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda, gelinkteInfo } from "./cloud.js";
+import { cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda, gelinkteInfo, stuurInlogLink } from "./cloud.js";
 familieHaak.agenda = familieAgenda;
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -352,7 +352,12 @@ function render() {
 }
 window.addEventListener("hashchange", () => { render(); window.scrollTo(0, 0); });
 opslag.luister(({ stil } = {}) => { if (!stil) planSchrijven(); render(); });
-opCloud(() => render());
+// Enter in het e-mailveld: inloglink sturen (niet het venster sluiten)
+document.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.id === "inlogMail") { e.preventDefault(); e.target.closest("div").parentElement.querySelector("[data-actie=mailLink]")?.click(); } }, true);
+opCloud(() => {
+  if (cloud.koppelResultaat) { const r = cloud.koppelResultaat; cloud.koppelResultaat = null; setTimeout(() => toast(`${r.email} is nu gelinkt`), 300); }
+  render();
+});
 // schijfstatus: niet hertekenen terwijl iemand in een veld typt
 opSchijf(() => { if (document.activeElement?.matches?.("input,select,textarea")) renderAccount(); else render(); });
 
@@ -1261,6 +1266,14 @@ function accountBlok() {
       <button type="button" class="knop inlog" data-actie="login" data-w="google" ${cloudIngesteld() ? "" : "disabled"}>${googleLogo} Inloggen met Google</button>
       <button type="button" class="knop inlog" data-actie="login" data-w="microsoft" ${cloudIngesteld() ? "" : "disabled"}>${msLogo} Inloggen met Microsoft</button>
     </div>
+    <div class="mailinlog">
+      <div class="hint">Geen Google-account? Log in met elk e-mailadres (Outlook, Hotmail, werk…): je krijgt een inloglink per mail, zonder wachtwoord.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+        <input type="email" id="inlogMail" placeholder="jij@voorbeeld.nl" autocomplete="email" style="flex:1;min-width:200px" ${cloudIngesteld() ? "" : "disabled"}>
+        <button type="button" class="knop" data-actie="mailLink" ${cloudIngesteld() ? "" : "disabled"}>✉️ Stuur inloglink</button>
+      </div>
+      <div class="hint" id="mailStatus"></div>
+    </div>
     ${cloudIngesteld() ? "" : `<p class="hint">Inloggen wordt binnenkort geactiveerd. Tot die tijd werkt alles gewoon in deze browser.</p>`}`;
   const heeft = (s) => g.aanbieders.some(a => a.soort === s);
   return `<div class="accrij">${g.foto ? `<img class="avatar" src="${esc(g.foto)}" alt="" referrerpolicy="no-referrer">` : `<span class="avatar">${esc(g.naam[0].toUpperCase())}</span>`}
@@ -1286,7 +1299,8 @@ function familieBlok() {
     <div class="lijst">${rij(hoofd, cloud.hoofdUid || sessie.ik, true)}${Object.entries(cloud.aliasInfo || {}).map(([u, x]) => rij(x, u, false)).join("")}</div>
     ${isHoofd() ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
       <button type="button" class="knop klein" data-actie="inlogBij" data-w="google">${googleLogo} ＋ Google-account toevoegen</button>
-      <button type="button" class="knop klein" data-actie="inlogBij" data-w="microsoft">${msLogo} ＋ Microsoft-account toevoegen</button></div>`
+      <button type="button" class="knop klein" data-actie="inlogBij" data-w="microsoft">${msLogo} ＋ Microsoft-account toevoegen</button>
+      <button type="button" class="knop klein" data-actie="mailKoppel">✉️ ＋ E-mailadres toevoegen</button></div>`
     : `<p class="hint">Accounts toevoegen of loskoppelen doe je als je inlogt met het hoofdaccount (${esc(hoofd.email)}).</p>`}`;
 }
 function renderAccount() {
@@ -1324,6 +1338,16 @@ $("#accountKnop").addEventListener("click", () => {
 function accountActie(a, w, klaar) {
   if (a === "login") {
     login(w).then(() => { klaar?.(); toast("Ingelogd"); }).catch(e => toast(foutTekst(e)));
+  } else if (a === "mailLink") {
+    const inp = $("#inlogMail"), st = $("#mailStatus");
+    stuurInlogLink(inp?.value).then(email => {
+      if (st) st.innerHTML = `✉️ Er is een inloglink gestuurd naar <b>${esc(email)}</b>. Open de mail en klik op de link (kijk ook in je spam). Je mag dit venster sluiten.`;
+      toast(`Inloglink gestuurd naar ${email}`);
+    }).catch(e => toast(foutTekst(e)));
+  } else if (a === "mailKoppel") {
+    const email = prompt("Welk e-mailadres wil je als gelinkt account toevoegen?\nJe krijgt een mail op dat adres; open de link daarin in déze browser.");
+    if (email) stuurInlogLink(email, { koppelen: true })
+      .then(m => toast(`Link gestuurd naar ${m}. Open die mail in deze browser, dan wordt het account gekoppeld.`)).catch(e => toast(foutTekst(e)));
   } else if (a === "inlogBij") {
     voegInlogToe(w).then(r => {
       const mee = [r.lijsten ? `${r.lijsten} lijsten` : "", r.extra ? "agenda's, takenlijsten en koppelingen" : ""].filter(Boolean).join(" en ");
@@ -1927,7 +1951,7 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
       }
     }
     else if (a === "beschBij") { d().beschikbaar.push({ dagen: [6, 0], van: "09:00", tot: "22:00" }); bewaar(); }
-    else if (["login", "koppelAccount", "uitloggen", "inlogBij", "inlogWeg"].includes(a)) accountActie(a, w);
+    else if (["login", "koppelAccount", "uitloggen", "inlogBij", "inlogWeg", "mailLink", "mailKoppel"].includes(a)) accountActie(a, w);
     else if (a === "accepteer") { accepteer(w).then(() => toast("Je doet nu mee met deze lijst")).catch(e => toast(e.message)); }
     else if (a === "weiger") { weiger(w).catch(e => toast(e.message)); }
     else if (a === "lidWeg") {

@@ -8,7 +8,7 @@ Gebruikers merken er niets van. Zij klikken alleen in de app op „Inloggen met 
 
 | Stap | Waarvoor | Status |
 |---|---|---|
-| **A** Firebase | inloggen met Google, online opslag, delen | ✅ gedaan — **let op:** plak de nieuwste `firestore.rules` opnieuw bij Regels (nodig voor meerdere accounts per Tijdkompas, sinds 16-11-2026) |
+| **A** Firebase | inloggen met Google of met een link per e-mail (2b), online opslag, delen | ✅ gedaan — **let op:** plak de nieuwste `firestore.rules` opnieuw bij Regels (nodig voor meerdere accounts per Tijdkompas, sinds 16-11-2026) |
 | **B** Microsoft-omgeving + app | inloggen met Microsoft (B0: eenmalig een gratis eigen omgeving) | nog doen |
 | **C-Google** | Google Agenda, Google Taken en Google Drive koppelen | Client ID ✅ ingevuld; controleer de rest van stap C-Google |
 | **C-Microsoft** | Outlook-agenda, Microsoft To Do (Outlook-taken) en OneDrive koppelen | nog doen; stuur daarna de **Microsoft client-ID** |
@@ -36,6 +36,11 @@ Zie je na het openen van je project in de adresbalk na `/project/` iets anders s
    - Ga naar https://console.firebase.google.com/project/brennycc86-apps/authentication en klik op **Get started** (Aan de slag).
    - Open het tabblad **Sign-in method** (Inlogmethode), kies **Google** en zet **Enable** (Inschakelen) aan.
    - Kies bij **Project support email** (Ondersteunings-e-mail) je eigen adres en klik op **Save** (Opslaan).
+2b. **Inloggen met een link per e-mail aanzetten** (voor wie geen Google-account heeft; geen Microsoft-registratie nodig)
+   - Ga naar https://console.firebase.google.com/project/brennycc86-apps/authentication/providers en klik op **Add new provider** (Nieuwe aanbieder toevoegen) → **Email/Password** (E-mail/wachtwoord).
+   - Zet **Email/Password** aan én daaronder **Email link (passwordless sign-in)** (E-maillink, inloggen zonder wachtwoord). Klik op **Save**.
+   - Optioneel, mails in het Nederlands: tabblad **Templates** (Sjablonen) → potloodje bij **Template language** (Sjabloontaal) → **Dutch** → **Save**.
+   - De mail komt van `noreply@brennycc86-apps.firebaseapp.com` en kan in de spam belanden.
 3. **De website toestaan**
    - Blijf op dezelfde pagina en ga naar het tabblad **Settings** (Instellingen), onderdeel **Authorized domains** (Geautoriseerde domeinen).
    - Klik op **Add domain** (Domein toevoegen) en vul `brennyc86.github.io` in.
