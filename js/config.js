@@ -1,7 +1,14 @@
 // Openbare configuratie (geen geheimen — dit staat bij elke website met "Inloggen met Google" gewoon in de broncode).
 export const CONFIG = {
   // Firebase: inloggen met Google/Microsoft + online opslag en delen. Uit Firebase-console → Projectinstellingen → Je apps → Web-app.
-  firebase: null,   // { apiKey: "…", authDomain: "….firebaseapp.com", projectId: "…", appId: "…" }
+  firebase: {
+    apiKey: "AIzaSyAaA8n67JaBUmjMJfOJsxBGBOUS7foOfJA",
+    authDomain: "brennycc86-apps.firebaseapp.com",
+    projectId: "brennycc86-apps",
+    storageBucket: "brennycc86-apps.firebasestorage.app",
+    messagingSenderId: "144197829489",
+    appId: "1:144197829489:web:7ded3fe52355e9f9f92cd0",
+  },
 
   // Optioneel: agenda's lezen en blokken wegschrijven
   googleClientId: "",      // Google Drive + Agenda (OAuth-webclient van het Firebase-project, SETUP.md stap C)
