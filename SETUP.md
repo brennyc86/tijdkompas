@@ -114,6 +114,7 @@ Ga naar https://console.cloud.google.com en kies bovenin het Firebase-project ui
    - Ga naar https://console.cloud.google.com/auth/audience?project=brennycc86-apps (**Google Auth Platform** → **Audience** (Doelgroep))
      en klik op **Publish app** (App publiceren), zodat de status **In production** (In productie) wordt.
      Doe je dit niet, dan kunnen alleen testgebruikers koppelen en vervalt de koppeling elke 7 dagen.
+     Staat bij **Publishing status** (Publicatiestatus) al **In production** met een knop **Back to testing**? Dan is dit al gebeurd (meestal vanzelf via Firebase): niets doen en níet op die knop klikken.
    - Voor Drive-opslag (`drive.appdata`) is geen verificatie nodig: het is een *niet-gevoelige* toestemming.
    - Agenda- en takenrechten zijn wel *gevoelig*. Tot Google de app heeft geverifieerd, zien gebruikers een waarschuwing („niet geverifieerd”) en kunnen er maximaal 100 gebruikers koppelen.
      Jij kunt het wel meteen gebruiken.
