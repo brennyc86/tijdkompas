@@ -7,6 +7,7 @@ import { planAutomatisch, werkGeplandBij, doelDatum, harde, prioriteit, googleLi
 import { ids, verbindingen as alleVerbindingen, heeft, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, zonderDoel } from "./koppeling.js";
 import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroniseerAlles, naamVan, lijstWeg } from "./schijf.js";
 import { verversAgendas, zetNaarAgendas } from "./sync.js";
+import { kiesEmoji, voorstellen } from "./emoji.js";
 import { cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd } from "./cloud.js";
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -14,7 +15,7 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const d = () => opslag.d;
 const verbindingen = () => alleVerbindingen().filter(v => heeft(v, "agenda"));   // agenda-koppelingen
-const main = $("#main"), dlg = $("#dlg"), dlg2 = $("#dlg2");
+const main = $("#main"), dlg = $("#dlg"), dlg2 = $("#dlg2"), dlg3 = $("#dlg3");
 
 // ---------- voorkeuren per kijker (geen gedeelde staat) ----------
 const voorkeur = {
@@ -192,11 +193,24 @@ function renderChips() {
     return `<span class="ovmap" style="--k:${m.kleur}"><button class="ovchip map" type="button" data-ov="m:${m.id}" aria-pressed="${staat(l)}"
       title="Map ${esc(m.naam)} (${l.length} ${l.length === 1 ? "lijst" : "lijsten"}) — ${CHIPTIP}"><span class="stip"></span>${m.icoon} ${esc(m.naam)}</button><button class="ovchip pijl" type="button" data-menu="${m.id}"
       aria-label="Lijsten in ${esc(m.naam)} los kiezen" title="Lijsten in deze map los kiezen">▾</button></span>`; };
+  const ks = keuzeSleutel(), kx = ks && (ks.startsWith("m:") ? map(ks.slice(2)) : overzicht(ks));
   $("#ovChips").innerHTML =
     `<button class="ovchip alles" type="button" data-ov="*" aria-pressed="${alle}" title="Alle lijsten tonen — daarna kun je er met Ctrl+klik losse uit halen">Alles</button>` +
+    (kx ? `<button class="ovchip inst" type="button" data-inst="${ks}" title="Instellingen van ${esc(kx.naam)}: soort, tijden, verdeling, delen, koers">⚙️ ${esc(kx.naam)}</button>` : "") +
     submappen("").map(mapChip).join("") + lijstenIn("").map(lijstChip).join("") +
     `<button class="ovchip nieuw" type="button" data-ov="+" title="Nieuwe lijst of map" aria-label="Nieuwe lijst of map">＋</button>`;
   if ($("#ovMenu")) toonMenu($("#ovMenu").dataset.map);
+}
+// Kijk je naar precies één lijst of één map? Dan is dat de sleutel voor ⚙️
+let laatsteKeuze = null;
+const zelfdeSet = (x, y) => x.length === y.length && x.every(i => y.includes(i));
+function keuzeSleutel() {
+  const a = actieveOverzichten();
+  if (a.length === d().overzichten.length && d().overzichten.length > 1) return null;
+  if (laatsteKeuze && (laatsteKeuze.startsWith("m:") ? map(laatsteKeuze.slice(2)) : overzicht(laatsteKeuze)) && zelfdeSet(idsVan(laatsteKeuze), a)) return laatsteKeuze;
+  if (a.length === 1) return a[0];
+  const m = d().mappen.find(m => { const l = lijstenOnder(m.id); return l.length === a.length && l.every(i => a.includes(i)); });
+  return m ? "m:" + m.id : null;
 }
 // Klik = alleen deze lijst (of alles in de map); nog eens klikken = weer alles. Ctrl/⌘-klik of lang indrukken = erbij of eraf.
 function kiesLijst(sleutel, wissel) {
@@ -210,6 +224,7 @@ function kiesLijst(sleutel, wissel) {
       if (!s.length) { toast("Er blijft minstens één lijst zichtbaar"); return; }
       actief = s.length === alleIds.length ? null : s;
     } else {
+      laatsteKeuze = sleutel;
       const zelfde = huidig.length === groep.length && groep.every(x => huidig.includes(x));
       actief = zelfde || groep.length === alleIds.length ? null : groep;
       const n = voorkeur.lees("chipTip", 0);
@@ -230,11 +245,12 @@ function toonMenu(mapId) {
     const ids = r.soort === "map" ? lijstenOnder(r.x.id) : [r.x.id], st = staat(ids), sl = r.soort === "map" ? "m:" + r.x.id : r.x.id;
     return `<div class="mrij" style="padding-left:${6 + r.diepte * 18}px;--k:${r.x.kleur}">
       <button type="button" class="vinkje" data-wissel="${sl}" aria-pressed="${st}" title="Erbij of eraf">${st === "true" ? "✓" : st === "mixed" ? "–" : ""}</button>
-      <button type="button" class="mnaam" data-solo="${sl}" title="Alleen ${r.soort === "map" ? "deze map" : "deze lijst"}">${r.x.icoon} ${esc(r.x.naam)}${r.soort === "map" ? ` <small class="hint">${ids.length}</small>` : ""}</button></div>`;
+      <button type="button" class="mnaam" data-solo="${sl}" title="Alleen ${r.soort === "map" ? "deze map" : "deze lijst"}">${r.x.icoon} ${esc(r.x.naam)}${r.soort === "map" ? ` <small class="hint">${ids.length}</small>` : ""}</button>
+      <button type="button" class="x" data-inst="${sl}" title="Instellingen">⚙️</button></div>`;
   }).join("");
   const st = staat(lijstenOnder(mapId));
   el.innerHTML = `<div class="mrij mkop"><button type="button" class="vinkje" data-wissel="m:${mapId}" aria-pressed="${st}">${st === "true" ? "✓" : st === "mixed" ? "–" : ""}</button>
-      <button type="button" class="mnaam" data-solo="m:${mapId}"><b>${m.icoon} ${esc(m.naam)}</b></button></div>
+      <button type="button" class="mnaam" data-solo="m:${mapId}"><b>${m.icoon} ${esc(m.naam)}</b></button><button type="button" class="x" data-inst="m:${mapId}" title="Instellingen van de map">⚙️</button></div>
     ${rijen || `<div class="hint" style="padding:6px 10px">Nog leeg</div>`}
     <div class="mvoet"><button type="button" class="knop klein" data-nieuw="${mapId}">＋ Lijst of map hierin</button><span class="hint">vinkje = erbij/eraf · naam = alleen die</span></div>`;
   const r = knop.getBoundingClientRect(), br = window.innerWidth || 1000;
@@ -242,8 +258,9 @@ function toonMenu(mapId) {
 }
 function sluitMenu() { $("#ovMenu")?.remove(); }
 function menuKlik(e) {
-  const w = e.target.closest("[data-wissel]"), so = e.target.closest("[data-solo]"), n = e.target.closest("[data-nieuw]");
-  if (w) kiesLijst(w.dataset.wissel, true);                 // render() tekent het menu opnieuw
+  const w = e.target.closest("[data-wissel]"), so = e.target.closest("[data-solo]"), n = e.target.closest("[data-nieuw]"), ins = e.target.closest("[data-inst]");
+  if (ins) { sluitMenu(); openInst(ins.dataset.inst); }
+  else if (w) kiesLijst(w.dataset.wissel, true);                 // render() tekent het menu opnieuw
   else if (so) { sluitMenu(); kiesLijst(so.dataset.solo, false); }
   else if (n) { sluitMenu(); nieuweLijst({ map: n.dataset.nieuw }); }
 }
@@ -257,6 +274,8 @@ $("#ovChips").addEventListener("pointerdown", (e) => {
 ["pointerup", "pointercancel"].forEach(t => $("#ovChips").addEventListener(t, () => clearTimeout(langDruk)));
 $("#ovChips").addEventListener("contextmenu", (e) => { if (e.target.closest(".ovchip")) e.preventDefault(); });
 $("#ovChips").addEventListener("click", (e) => {
+  const ik = e.target.closest("[data-inst]");
+  if (ik) { openInst(ik.dataset.inst); return; }
   const mk = e.target.closest("[data-menu]");
   if (mk) { $("#ovMenu")?.dataset.map === mk.dataset.menu ? sluitMenu() : toonMenu(mk.dataset.menu); return; }
   const b = e.target.closest(".ovchip"); if (!b) return;
@@ -281,6 +300,7 @@ function render() {
   }
   window.scrollTo(0, scroll);
   renderAccount();
+  if (dlg3.open && instOpen) tekenInst();
 }
 window.addEventListener("hashchange", () => { render(); window.scrollTo(0, 0); });
 opslag.luister(({ stil } = {}) => { if (!stil) planSchrijven(); render(); });
@@ -334,10 +354,20 @@ function vandaag() {
         <div class="stat" title="Werkelijke tijd gedeeld door geschatte tijd (afgeronde taken)"><b>${kal.n >= 3 ? "×" + kal.factor.toFixed(2) : "–"}</b><span>schatfactor${kal.n < 3 ? " (na 3 taken)" : ""}</span></div>
       </div>
       ${opMij.length ? `<h3>⏳ Anderen wachten op jou</h3><div class="lijst">${opMij.map(t => itemRij(t)).join("")}</div>` : ""}
+      ${koersVandaag()}
       <h3>Deadlines komende 7 dagen</h3>
       <div class="lijst">${binnenWeek.map(i => i.type === "taak" ? itemRij(i) : projectRij(i)).join("") || `<div class="leeg">Geen deadlines deze week.</div>`}</div>
     </aside>
   </div>`;
+}
+
+function koersVandaag() {
+  const vd = vandaagStr(), lopend = d().koers.filter(a => binnenPeriode(a, vd) && koersZichtbaar(a));
+  if (!lopend.length) return `<h3>🎯 Koers</h3><div class="leeg">Leg je jaarplan / POP-afspraken vast en zie wat eraan bijdraagt: <a href="#koers">🎯 Koers</a></div>`;
+  return `<h3>🎯 Koers <a href="#koers" class="hint" style="font-weight:400">alles →</a></h3><div class="lijst">${lopend.map(a => {
+    const tk = koersTaken(a), k = tk.filter(t => t.status === "klaar").length, v = koersVoorstellen(a).length;
+    return `<a class="item koersitem" href="#koers" style="--ok:${doelKleur(a)}"><span>🎯</span><div class="ibody"><div class="ititel">${esc(a.titel)}</div>
+      <div class="imeta"><span>${esc(doelTekst(a))}</span><span>${k}/${tk.length} taken klaar</span>${v ? `<span class="tag hierop">💡 ${v} ${v === 1 ? "voorstel" : "voorstellen"}</span>` : ""}</div></div></a>`; }).join("")}</div>`;
 }
 
 function projectRij(p) {
@@ -569,6 +599,36 @@ function agenda() {
 const verbindingVanBron = (bron) => verbindingen().some(v => String(bron).startsWith(v.id + "|"));
 
 // ===== Inzicht =====
+// ===== ⚙️ Instellingen van één lijst of map, overal te openen =====
+let instOpen = null;
+function openInst(sleutel) { instOpen = sleutel; tekenInst(); if (instOpen && !dlg3.open) dlg3.showModal(); }
+function tekenInst() {
+  const isMap = instOpen.startsWith("m:"), x = isMap ? map(instOpen.slice(2)) : overzicht(instOpen);
+  if (!x) { instOpen = null; if (dlg3.open) dlg3.close(); return; }
+  const koersHier = d().koers.filter(a => a.doel?.soort === (isMap ? "map" : "lijst") && a.doel.id === x.id);
+  const viaMap = d().koers.filter(a => a.doel?.soort === "map" && a.doel.id !== x.id && (isMap ? mappenOnder(a.doel.id).includes(x.id) : lijstenOnder(a.doel.id).includes(x.id)));
+  const pad = mapPad(isMap ? x.ouder : x.map).map(m => m.icoon + " " + m.naam).join(" › ");
+  const inhoud = isMap ? boom(x.id).filter(r => r.diepte === 0) : [];
+  dlg3.innerHTML = `<div class="dkop"><span class="soort">⚙️ ${isMap ? "Map" : "Lijst"} instellen${pad ? ` <small class="hint">· in ${esc(pad)}</small>` : ""}</span><button type="button" class="sluit" data-sluit aria-label="Sluiten">×</button></div>
+    <div class="dlijf">
+      ${instRij({ soort: isMap ? "map" : "lijst", x, diepte: 0 })}
+      ${isMap ? `<div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">In deze map</div>
+        <div class="chips">${inhoud.map(r => `<button type="button" data-inst="${r.soort === "map" ? "m:" : ""}${r.x.id}">${r.x.icoon} ${esc(r.x.naam)} ⚙️</button>`).join("") || `<span class="hint">Nog leeg</span>`}</div></div>` : ""}
+      <div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">🎯 Koersafspraken (jaarplan · POP/PAP)</div>
+        <div class="lijst">${[...koersHier, ...viaMap].map(a => `<div class="linkrij"><span>🎯</span><span>${esc(a.titel)}</span><span class="hint">${periodeTekst(a)}${viaMap.includes(a) ? " · via map " + esc(doelTekst(a)) : ""}</span>
+          <button type="button" class="knop klein" data-afspraak="${a.id}">Open</button></div>`).join("") || `<div class="hint">Nog geen afspraken voor deze ${isMap ? "map" : "lijst"}.</div>`}</div>
+        <div style="margin-top:6px"><button type="button" class="knop klein" data-koershier>＋ Koersafspraak voor deze ${isMap ? "map" : "lijst"}</button> <a href="#koers" class="hint" data-naarkoers>alles in 🎯 Koers</a></div></div>
+    </div>`;
+}
+dlg3.addEventListener("click", (e) => {
+  if (e.target.closest("[data-koershier]")) { const isMap = instOpen.startsWith("m:"); openAfspraak(null, { soort: isMap ? "map" : "lijst", id: isMap ? instOpen.slice(2) : instOpen }); return; }
+  if (e.target.closest("[data-naarkoers]")) { dlg3.close(); return; }
+  if (e.target.closest("[data-sluit]")) return;
+  hoofdKlik(e);
+});
+dlg3.addEventListener("change", hoofdWijzig);
+dlg3.addEventListener("close", () => { instOpen = null; });
+
 // ===== Koers: afspraken voor een periode (POP/PAP) =====
 const KSTATUS = { loopt: ["⏳", "Loopt"], gehaald: ["✅", "Gehaald"], deels: ["◐", "Deels"], niet: ["✕", "Niet gehaald"] };
 const fmtDag = (iso) => { if (!iso) return ""; const x = new Date(iso.length === 10 ? iso + "T12:00" : iso); return x.getDate() + " " + MAAND[x.getMonth()] + " " + x.getFullYear(); };
@@ -625,17 +685,17 @@ function koers() {
       <div><button type="button" class="knop klein" data-afspraak="${a.id}">Bewerken</button></div>
     </article>`;
   };
-  return `<div class="titelbalk"><h1>🎯 Koers</h1><span class="sub">Wat je deze periode wilt bereiken, en wat eraan bijdroeg — voor je POP/PAP en het beoordelingsgesprek</span>
+  return `<div class="titelbalk"><h1>🎯 Koers</h1><span class="sub">Jaarplan · POP/PAP: wat je deze periode wilt bereiken, en wat eraan bijdroeg — voor het beoordelingsgesprek</span>
     <div class="rechts"><select name="koersPeriode" aria-label="Periode"><option value="nu" ${per === "nu" ? "selected" : ""}>Lopend</option><option value="alle" ${per === "alle" ? "selected" : ""}>Alle perioden</option>
       ${koersPerioden().map(p => { const [van, tot] = p.split("|"); return `<option value="${esc(p)}" ${per === p ? "selected" : ""}>${periodeTekst({ van, tot })}</option>`; }).join("")}</select>
     <button class="knop" data-actie="koersRapport" ${lijst.length ? "" : "disabled"}>📄 Overzicht voor gesprek</button>
     <button class="knop prim" data-actie="nieuweAfspraak">＋ Afspraak</button></div></div>
   <div class="kaarten">${lijst.map(kaart).join("") || `<div class="leeg">Nog geen koersafspraken${per === "nu" ? " voor nu" : ""}. Leg aan het begin van een periode (bv. een jaar) vast wat je wilt bereiken — per lijst, per map of algemeen. Taken die erop lijken stelt Tijdkompas daarna vanzelf voor.</div>`}</div>`;
 }
-function openAfspraak(a) {
+function openAfspraak(a, voorDoel) {
   const nieuw = !a, jaar = new Date().getFullYear();
   const c = structuredClone(a || { titel: "", toelichting: "", trefwoorden: "", van: jaar + "-01-01", tot: jaar + "-12-31", status: "loopt", evaluatie: "", taken: [], nee: [],
-    doel: (() => { const ids = actieveOverzichten(); return ids.length === 1 ? { soort: "lijst", id: ids[0] } : { soort: "", id: "" }; })() });
+    doel: voorDoel || (() => { const ids = actieveOverzichten(); return ids.length === 1 ? { soort: "lijst", id: ids[0] } : { soort: "", id: "" }; })() });
   const doelOpties = `<option value="">Algemeen (alle lijsten)</option>` + boom().map(r => {
     const v = (r.soort === "map" ? "map:" : "lijst:") + r.x.id;
     return `<option value="${v}" ${c.doel?.soort + ":" + c.doel?.id === v ? "selected" : ""}>${" ".repeat(r.diepte)}${r.x.icoon} ${esc(r.x.naam)}${r.soort === "map" ? " (hele map)" : ""}</option>`; }).join("");
@@ -834,14 +894,14 @@ function opslagKeuze(o) {
   </select></label>`;
 }
 
-function instLijsten() {
+// Instellingen van één lijst of map (in Instellingen én in het ⚙️-venster)
+function instRij(r) {
   const ik = sessie.ik;
-  const rij = (r) => {
     const inspring = `style="margin-left:${Math.min(r.diepte, 6) * 22}px"`;
     if (r.soort === "map") {
       const m = r.x, n = lijstenOnder(m.id).length;
       return `<div class="ovrij maprij" data-map="${m.id}" ${inspring}>
-    <input type="text" value="${esc(m.icoon)}" data-mveld="icoon" aria-label="Icoon" style="text-align:center;padding:6px">
+    <button type="button" class="emojiknop" data-emoji="map" aria-label="Icoon kiezen" title="Icoon kiezen">${esc(m.icoon)}</button>
     <input type="color" value="${esc(m.kleur)}" data-mveld="kleur" aria-label="Kleur">
     <input type="text" value="${esc(m.naam)}" data-mveld="naam" aria-label="Naam van de map" style="font-weight:600">
     <button class="knop klein gevaar" data-actie="mapWeg">${m.eigenaar && ik && m.eigenaar !== ik ? "Verlaten" : "Verwijderen"}</button>
@@ -862,7 +922,7 @@ function instLijsten() {
         : `<button type="button" class="knop klein" data-actie="koppelGoogle" data-w="schijf">${googleLogo} Google Drive koppelen</button>`}</div>
   </div>`;
     return `<div class="ovrij" data-ov="${o.id}" ${inspring}>
-    <input type="text" value="${esc(o.icoon)}" data-veld="icoon" aria-label="Icoon" style="text-align:center;padding:6px">
+    <button type="button" class="emojiknop" data-emoji="lijst" aria-label="Icoon kiezen" title="Icoon kiezen">${esc(o.icoon)}</button>
     <input type="color" value="${esc(o.kleur)}" data-veld="kleur" aria-label="Kleur">
     <input type="text" value="${esc(o.naam)}" data-veld="naam" aria-label="Naam" style="font-weight:600">
     <button class="knop klein gevaar" data-actie="ovWeg">${o.eigenaar && ik && o.eigenaar !== ik ? "Verlaten" : "Verwijderen"}</button>
@@ -888,7 +948,10 @@ function instLijsten() {
       ${ledenBlok(o)}
     </div>
   </div>`;
-  };
+  }
+
+function instLijsten() {
+  const rij = instRij;
   return `<p class="hint">Zet je lijsten in <b>mappen</b>, zo diep als je wilt (bv. 📁 Werk → 💼 Team en 🌱 Werkgroep). Een lijst verplaats je met „In map”; hernoemen doe je gewoon in het naamveld.
     Je kunt een hele map delen (alles erin gaat mee, ook lijsten die je er later in zet) of één lijst.
     Bovenin: klik = alleen die lijst of map, <b>Ctrl+klik</b> (telefoon: lang indrukken) = erbij of eraf, <b>▾</b> naast een map = de lijsten erin los kiezen.</p>
@@ -901,7 +964,7 @@ function instLocaties() {
   return `<h3 style="margin-top:0">Locaties</h3>
   <p class="hint">Reistijd = enkele reis vanaf huis, in minuten. Het adres (optioneel) gebruikt Tijdkompas om afspraken met die plaats te herkennen en er reistijd omheen te plannen.</p>
   <div class="lijst">${d().locaties.map(l => `<div class="locrij" data-loc="${l.id}">
-    <input type="text" value="${esc(l.icoon)}" data-locveld="icoon" aria-label="Icoon" style="text-align:center;padding:6px">
+    <button type="button" class="emojiknop" data-emoji="locatie" aria-label="Icoon kiezen" title="Icoon kiezen">${esc(l.icoon)}</button>
     <input type="text" value="${esc(l.naam)}" data-locveld="naam" aria-label="Naam">
     <label class="veld klein">${l.id === "thuis" ? "Startpunt" : "Reistijd (min)"}${l.id === "thuis" ? `<input type="text" value="—" disabled>` : `<input type="number" min="0" step="5" value="${l.reistijd || 0}" data-locveld="reistijd">`}</label>
     <input type="text" value="${esc(l.adres || "")}" data-locveld="adres" placeholder="adres of plaatsnaam (optioneel)" aria-label="Adres">
@@ -1392,13 +1455,14 @@ function verhuisd(x, naar, van) {
 const LIJSTKLEUREN = ["#d8a24e", "#6fb38a", "#6f9fd8", "#c48ed8", "#d87a6f", "#5fb8b0", "#b8b05f", "#8a978e"];
 function nieuweLijst({ map: inMap = "", soort = "lijst" } = {}) {
   const vrijeKleur = LIJSTKLEUREN.find(k => !d().overzichten.some(o => o.kleur === k)) || LIJSTKLEUREN[d().overzichten.length % LIJSTKLEUREN.length];
+  let icoon = "", zelfGekozen = false, naamTekst = "";
   const teken = () => {
     dlg2.innerHTML = `<form method="dialog" id="lijstForm"><div class="dkop"><h2>Nieuwe ${soort === "map" ? "map" : "lijst"}</h2><button type="button" class="sluit" data-sluit aria-label="Sluiten">×</button></div>
     <div class="dlijf">
       <div class="segment" role="group" aria-label="Soort"><button type="button" data-soort="lijst" aria-pressed="${soort === "lijst"}">📋 Lijst</button><button type="button" data-soort="map" aria-pressed="${soort === "map"}">📁 Map</button></div>
-      <div class="rij"><label class="veld" style="max-width:70px">Icoon<input type="text" name="icoon" value="${soort === "map" ? "📁" : "📋"}" style="text-align:center"></label>
+      <div class="rij"><div class="veld" style="max-width:70px">Icoon<button type="button" class="emojiknop" data-emoji="nieuw" title="Icoon kiezen">${icoon || (soort === "map" ? "📁" : "📋")}</button><input type="hidden" name="icoon" value="${icoon || (soort === "map" ? "📁" : "📋")}"></div>
         <label class="veld" style="max-width:70px">Kleur<input type="color" name="kleur" value="${vrijeKleur}"></label>
-        <label class="veld">Naam<input type="text" name="naam" placeholder="${soort === "map" ? "bv. Werk" : "bv. Werkgroep duurzaamheid"}" required autofocus></label></div>
+        <label class="veld">Naam<input type="text" name="naam" value="${esc(naamTekst)}" placeholder="${soort === "map" ? "bv. Werk" : "bv. Werkgroep duurzaamheid"}" required autofocus></label></div>
       <label class="veld">In map${mapKeuze(inMap, new Set(), `name="map"`)}</label>
       ${soort === "lijst" ? `<div class="segment" role="group" aria-label="Verdeling">${Object.entries(VERDELING).map(([k, [n]]) => `<button type="button" data-verd="${k}" aria-pressed="${k === "samen"}">${n}</button>`).join("")}</div>
       <p class="hint" style="margin:0" id="verdUitleg">${VERDELING.samen[1]}</p>
@@ -1411,7 +1475,9 @@ function nieuweLijst({ map: inMap = "", soort = "lijst" } = {}) {
   let verdeling = "samen";
   dlg2.onclick = (e) => {
     const so = e.target.closest("[data-soort]"), vd = e.target.closest("[data-verd]");
-    if (so && so.dataset.soort !== soort) { inMap = $("[name=map]", dlg2).value; soort = so.dataset.soort; teken(); }
+    const ek = e.target.closest("[data-emoji]");
+    if (ek) { kiesEmoji(ek, { naam: $("[name=naam]", dlg2).value, soort, huidig: $("[name=icoon]", dlg2).value }, (v) => { icoon = v; zelfGekozen = true; ek.textContent = v; $("[name=icoon]", dlg2).value = v; }); return; }
+    if (so && so.dataset.soort !== soort) { inMap = $("[name=map]", dlg2).value; naamTekst = $("[name=naam]", dlg2).value; if (!zelfGekozen) icoon = ""; soort = so.dataset.soort; teken(); }
     if (vd) { verdeling = vd.dataset.verd; $$("[data-verd]", dlg2).forEach(b => b.setAttribute("aria-pressed", b === vd)); $("#verdUitleg").textContent = VERDELING[verdeling][1]; }
   };
   dlg2.onclose = () => {
@@ -1433,6 +1499,12 @@ function nieuweLijst({ map: inMap = "", soort = "lijst" } = {}) {
     bewaar(); toast(`Lijst „${naam}” gemaakt${deel ? ` en gedeeld zoals map „${deel.naam}”` : ""}`);
   };
   dlg2.onsubmit = (e) => { const f = $("#lijstForm"); if (f && e.submitter?.value === "ok" && !$("[name=naam]", f).value.trim()) e.preventDefault(); };
+  // icoon volgt de naam zolang je zelf nog niets koos (Werk → 💼, Boot → ⛵ …)
+  dlg2.oninput = (e) => {
+    if (e.target.name !== "naam" || zelfGekozen || !$("#lijstForm")) return;
+    const v = voorstellen(e.target.value, soort)[0], k = $("[data-emoji=nieuw]", dlg2);
+    if (v && k) { k.textContent = v; $("[name=icoon]", dlg2).value = v; icoon = v; }
+  };
   dlg2.returnValue = "";
   dlg2.showModal();
 }
@@ -1520,7 +1592,16 @@ function kiesBestand(accept) {
 }
 
 // ---------- event-delegatie in hoofdvenster ----------
-main.addEventListener("click", async (e) => {
+async function hoofdKlik(e) {
+  const ek = e.target.closest("[data-emoji]");
+  if (ek) {
+    const orij = ek.closest("[data-ov]"), mrij = ek.closest("[data-map]"), lrij = ek.closest("[data-loc]");
+    const x = orij ? overzicht(orij.dataset.ov) : mrij ? map(mrij.dataset.map) : lrij ? locatie(lrij.dataset.loc) : null;
+    if (x) kiesEmoji(ek, { naam: x.naam, soort: orij ? "lijst" : mrij ? "map" : "locatie", huidig: x.icoon }, (v) => { x.icoon = v; bewaar(); });
+    return;
+  }
+  const ins = e.target.closest("[data-inst]");
+  if (ins) { openInst(ins.dataset.inst); return; }
   if (e.target.closest("a[href^='http']")) return;
   const tabLink = e.target.closest("[data-tab]");
   if (tabLink) { voorkeur.zet("instTab", tabLink.dataset.tab); }
@@ -1696,7 +1777,7 @@ main.addEventListener("click", async (e) => {
   if (blok) { openBlok(blok.dataset.blok); return; }
   const rij = e.target.closest("[data-id]");
   if (rij) { const it = rij.dataset.type === "project" ? project(rij.dataset.id) : taak(rij.dataset.id); if (it) openEditor(it); }
-});
+}
 main.addEventListener("submit", (e) => {
   if (e.target.dataset.actie !== "snel") return;
   e.preventDefault();
@@ -1708,7 +1789,7 @@ main.addEventListener("submit", (e) => {
     setTimeout(() => $(".snel input")?.focus(), 0);
   }
 });
-main.addEventListener("change", (e) => {
+function hoofdWijzig(e) {
   const bes = e.target.closest("[data-besch]"), loc = e.target.closest("[data-loc]"), ag = e.target.closest("[data-agenda]");
   if (bes && e.target.dataset.veld) { d().beschikbaar[+bes.dataset.besch][e.target.dataset.veld] = e.target.value; bewaar(); return; }
   if (loc && e.target.dataset.locveld) {
@@ -1751,7 +1832,9 @@ main.addEventListener("change", (e) => {
   } else if (g.dataset.actie === "inst") {
     d().instellingen[e.target.name] = e.target.type === "checkbox" ? e.target.checked : Math.max(0, +e.target.value || 0); bewaar();
   } else if (g.dataset.actie === "toonKlaarProj") { voorkeur.zet("toonKlaarProj", e.target.checked); render(); }
-});
+}
+main.addEventListener("click", hoofdKlik);
+main.addEventListener("change", hoofdWijzig);
 main.addEventListener("input", (e) => {
   if (e.target.name === "zoek") {
     const f = voorkeur.lees("takenFilter", { status: "open", groep: "project", zoek: "" }); f.zoek = e.target.value; voorkeur.zet("takenFilter", f);

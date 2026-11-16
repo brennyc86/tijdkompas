@@ -28,6 +28,8 @@ Planner voor werk, privé en hobby's: projecten en taken, de Eisenhower-matrix (
 
 - Lijsten staan in **mappen**, zo diep als je wilt (📁 Werk → 💼 Team, 🌱 Werkgroep, 📁 Projecten 2027 → …). Een lijst bevat nooit een lijst.
 - Verplaatsen met „In map”, hernoemen in het naamveld (Instellingen → Mappen & lijsten). Map verwijderen = de inhoud schuift een niveau omhoog.
+- **⚙️ overal**: kijk je naar één lijst of map, dan staat bovenin „⚙️ naam” — daar wijzig je alles (soort, tijden, verdeling, map, delen, koersafspraken), ook later bij op- of afschalen. Ook via ⚙️ in het ▾-mapmenu.
+- **Icoon kiezen** uit een emoji-kiezer: voorstellen die bij de naam passen bovenaan, dan groepen, zoeken, en „Alle emoji's”.
 - Bovenin: **klik** = alleen die lijst of map, nog eens = weer alles. **Ctrl/⌘+klik** (telefoon: lang indrukken) = erbij of eraf. **▾** naast een map = de lijsten erin los aan/uit vinken. **＋** = nieuwe lijst of map.
 - **Delen**: een hele map (met alles erin, ook wat er later bij komt) of één lijst. Waar je een gedeelde lijst of map bij jezelf neerzet is persoonlijk; zonder eigen keuze zie je de indeling van de eigenaar.
 - **Verdeling** per lijst: 🙌 *Samen* — alles wordt bij iedereen ingepland (privé, of in het begin); 🧩 *Verdelen* — pas ingepland bij wie het is toegewezen, „hele groep” blijft liggen tot iemand het oppakt.

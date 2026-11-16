@@ -347,3 +347,25 @@ details.meer .menu{position:absolute;right:0;top:calc(100% + 6px);z-index:15;dis
   body.afdrukken #afdruk{display:block;padding:10mm}
   body.afdrukken .rapport h3,body.afdrukken .hint{color:#444}
 }
+
+/* ---- v7: emoji-kiezer, ⚙️-venster ---- */
+.emojiknop{width:44px;height:38px;font-size:20px;line-height:1;border:1px solid var(--rand);border-radius:8px;background:var(--bg2);cursor:pointer;padding:0;display:inline-flex;align-items:center;justify-content:center}
+.emojiknop:hover{border-color:var(--accent)}
+.veld .emojiknop{margin-top:4px}
+.emojikies{position:fixed;z-index:80;width:330px;max-width:calc(100vw - 16px);max-height:360px;display:flex;flex-direction:column;background:var(--kaart);border:1px solid var(--rand);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.4);overflow:hidden}
+.ezoek,.eeigen{display:flex;gap:6px;padding:8px;align-items:center}
+.ezoek{border-bottom:1px solid var(--rand)}.eeigen{border-top:1px solid var(--rand)}
+.ezoek input,.eeigen input{flex:1;min-width:0}
+.einhoud{overflow:auto;padding:4px 8px}
+.ekop{font-size:11px;color:var(--meta);margin:8px 0 4px;text-transform:uppercase;letter-spacing:.04em}
+.eraster{display:grid;grid-template-columns:repeat(auto-fill,minmax(34px,1fr));gap:2px}
+.eraster button{font-size:21px;line-height:1;height:36px;border:1px solid transparent;border-radius:8px;background:none;cursor:pointer;padding:0}
+.eraster button:hover{background:var(--kaart2);border-color:var(--rand)}
+.eraster button[aria-pressed="true"]{border-color:var(--accent);background:var(--kaart2)}
+.ovchip.inst{border-style:dashed;color:var(--tekst)}
+.ovchip.inst:hover{border-color:var(--accent)}
+.instdlg{width:min(860px,calc(100vw - 24px))}
+.instdlg .dlijf{overflow:auto}
+.instdlg .ovrij{margin:0}
+.mrij .x{opacity:.55}.mrij:hover .x{opacity:1}
+a.koersitem{text-decoration:none;color:inherit}
