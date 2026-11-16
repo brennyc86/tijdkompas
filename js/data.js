@@ -133,9 +133,10 @@ export const opslag = {
   vervang(nieuw, opties) { data = normaliseer(nieuw); bewaar(opties); },
   wis() { const ik = sessie.ik; const oud = data; data = leeg(); data.overzichten = [];
           if (ik) { // gedeelde lijsten en mappen van anderen blijven gewoon staan
-            const anders = oud.overzichten.filter(o => o.eigenaar && o.eigenaar !== ik), ids = new Set(anders.map(o => o.id));
+            data.koppelingen = [];   // ook de koppelingen weg, voor al je inlogs en apparaten
+            const anders = oud.overzichten.filter(o => o.eigenaar && !isIk(o.eigenaar)), ids = new Set(anders.map(o => o.id));
             data.overzichten.push(...anders);
-            data.mappen = (oud.mappen || []).filter(m => m.eigenaar && m.eigenaar !== ik);
+            data.mappen = (oud.mappen || []).filter(m => m.eigenaar && !isIk(m.eigenaar));
             data.taken = oud.taken.filter(t => ids.has(t.overzicht)); data.projecten = oud.projecten.filter(p => ids.has(p.overzicht));
           }
           bewaar(); },

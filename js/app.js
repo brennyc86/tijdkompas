@@ -1230,7 +1230,7 @@ function instOverig() {
     <button class="knop" data-actie="exportJson">⬇ Back-up downloaden</button>
     <button class="knop" data-actie="importJson">⬆ Back-up terugzetten</button>
     ${ingelogd() ? "" : `<button class="knop" data-actie="demo">Voorbeelddata laden</button>`}
-    <button class="knop gevaar" data-actie="leeg">Alles wissen</button>
+    <button class="knop gevaar" data-actie="leeg">Alles wissen en opnieuw beginnen</button>
   </div>
   <p class="hint">${ingelogd() ? `Je planning staat online in je account (${esc(cloud.gebruiker.email)}) en is op elk apparaat hetzelfde, ook offline bruikbaar.` : "Je planning staat nu alleen in deze browser. Log in om hem op al je apparaten te hebben en lijsten te delen."}</p>`;
 }
@@ -1828,7 +1828,18 @@ async function hoofdKlik(e) {
   }
   if (el && el.tagName !== "FORM" && el.tagName !== "DIV" || (el?.tagName === "DIV" && e.target.closest("button[data-w]"))) {
     const a = el.dataset.actie, w = e.target.closest("[data-w]")?.dataset.w;
-    if (a === "leeg") { if (confirm("Alle taken, projecten en planning wissen en met een lege planner beginnen?")) { d().overzichten.forEach(o => lijstWeg(o.id)); opslag.wis(); actief = null; voorkeur.zet("actief", null); toast("Lege planner — succes!"); } }
+    if (a === "leeg") {
+      if (!confirm(`Alles wissen en opnieuw beginnen, alsof je nieuw bent?
+
+Weg gaan: lijsten, mappen, taken, projecten, planning, koersafspraken, petten en koppelingen${ingelogd() ? " — voor al je gekoppelde accounts en apparaten" : ""}.
+Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit Tijdkompas horen" : ""}. Wat in Google of Outlook staat blijft daar staan; alleen de blokken die Tijdkompas in je agenda had gezet worden weggehaald.`)) return;
+      el.disabled = true; toast("Bezig met wissen…");
+      try { if (verbindingen().length) { d().planning = []; await zetNaarAgendas(); } } catch {}   // ingeplande blokken uit je agenda halen
+      for (const v of alleVerbindingen()) { try { await ontkoppel(v); } catch {} }
+      d().overzichten.forEach(o => lijstWeg(o.id)); opslag.wis();
+      actief = null; for (const k of ["actief", "pet", "petPerAccount", "instTab"]) voorkeur.zet(k, null);
+      zetThema(); toast("Alles gewist — je begint opnieuw"); location.hash = "#vandaag"; render();
+    }
     else if (a === "demo") { if (confirm("Huidige gegevens vervangen door voorbeelddata?")) opslag.demo(); }
     else if (a === "nieuwProject") openEditor(null, { type: "project" });
     else if (a === "nieuweAfspraak") openAfspraak();
