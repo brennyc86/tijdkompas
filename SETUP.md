@@ -65,6 +65,13 @@ dus achter elkaar, in dezelfde registratie.
 
 ### B0. Een eigen Microsoft-omgeving (eenmalig)
 
+> ⚠️ **Let op: route 2 hieronder vraagt een creditcard** (ter controle; een gratis account schrijft niets af, maar je moet de gegevens wel invullen).
+> Wil je dat niet, dan zijn er twee andere routes:
+> - **Zonder kaart, via je werk:** log met je zakelijke Microsoft-account in op https://portal.azure.com → **App registrations** → **New registration**.
+>   Zie je het formulier, dan mag je daar registreren (standaard mag dat, tenzij IT het heeft uitgezet). Sla dan B0 over en ga verder bij B1.
+>   Nadeel: de registratie staat in de omgeving van je werkgever; vraag het eventueel na bij IT.
+> - **Microsoft voorlopig overslaan:** Google werkt volledig. Een Outlook-agenda kan Tijdkompas dan alleen *lezen* via een gepubliceerde agendalink (vraag Claude).
+
 Een app registreren kan alleen in een eigen Microsoft-omgeving (een *tenant*). Met een gewoon persoonlijk Microsoft-account
 heb je die nog niet; je krijgt hem gratis door een gratis Azure-account aan te maken. App-registraties kosten niets.
 
