@@ -13,15 +13,15 @@ De Firebase-console is in 2025/2026 vernieuwd. Er is geen kopje **Build** meer.
 Negeer **Build a backend** en **Firebase Studio**: dat is de AI-bouwer, die heb je niet nodig.
 Producten staan links onder **Product categories**: Authentication bij *Security*, Firestore bij *Databases & Storage*. Je kunt ze ook bovenin opzoeken via het zoekveld.
 
-Het makkelijkst zijn de directe links hieronder. Vervang daarin `PROJECT-ID` door het ID van je project.
-Dat ID staat in de adresbalk na `/project/`, bijvoorbeeld `brennycc86-apps` of `brennycc86-apps-1a2b3`.
+Het makkelijkst zijn de directe links hieronder. Ze zijn gemaakt voor project-ID `brennycc86-apps`.
+Zie je na het openen van je project in de adresbalk na `/project/` iets anders staan, bijvoorbeeld `brennycc86-apps-1a2b3`? Dan heeft Firebase er iets achter gezet. Pas het in de links dan even aan.
 
 1. **Project maken**
    - Ga naar https://console.firebase.google.com en klik op **Create a project** (Project maken).
      Heb je het project al gemaakt, zoals `brennycc86-apps`? Open het dan gewoon.
    - Google Analytics mag uit.
 2. **Inloggen met Google aanzetten**
-   - Ga naar https://console.firebase.google.com/project/PROJECT-ID/authentication en klik op **Get started** (Aan de slag).
+   - Ga naar https://console.firebase.google.com/project/brennycc86-apps/authentication en klik op **Get started** (Aan de slag).
    - Open het tabblad **Sign-in method** (Inlogmethode), kies **Google** en zet **Enable** (Inschakelen) aan.
    - Kies bij **Project support email** (Ondersteunings-e-mail) je eigen adres en klik op **Save** (Opslaan).
 3. **De website toestaan**
@@ -29,13 +29,13 @@ Dat ID staat in de adresbalk na `/project/`, bijvoorbeeld `brennycc86-apps` of `
    - Klik op **Add domain** (Domein toevoegen) en vul `brennyc86.github.io` in.
      Let op: dit is je GitHub-naam, met één c.
 4. **Database maken**
-   - Ga naar https://console.firebase.google.com/project/PROJECT-ID/firestore en klik op **Create database** (Database maken).
+   - Ga naar https://console.firebase.google.com/project/brennycc86-apps/firestore en klik op **Create database** (Database maken).
    - Vraagt hij om een editie, kies dan **Standard edition**.
    - Kies als **Location** (Locatie) `europe-west4 (Netherlands)`.
    - Kies **Start in production mode** (Starten in productiemodus) en klik op **Create** (Maken).
    - Open daarna het tabblad **Rules** (Regels). Vervang alles door de inhoud van [`firestore.rules`](firestore.rules) en klik op **Publish** (Publiceren).
 5. **De app registreren**
-   - Ga naar https://console.firebase.google.com/project/PROJECT-ID/settings/general.
+   - Ga naar https://console.firebase.google.com/project/brennycc86-apps/settings/general.
      Je komt hier ook via het tandwiel naast **Project Overview** (Projectoverzicht) → **Project settings** (Projectinstellingen).
    - Klik onderaan bij **Your apps** (Je apps) op het web-icoon `</>`.
    - Vul bij **App nickname** (Bijnaam) `Tijdkompas` in. Vink **Firebase Hosting** níet aan. Klik op **Register app** (App registreren).
@@ -54,7 +54,7 @@ Klaar: vanaf nu kan iedereen inloggen met Google. Google hoeft daar niets voor g
      https://entra.microsoft.com kan ook, maar toont bij persoonlijke accounts soms „geen toegang”.
    - **Name** (Naam): `Tijdkompas`.
    - **Supported account types** (Ondersteunde accounttypen): kies **Accounts in any organizational directory and personal Microsoft accounts** (Accounts in een organisatiemap en persoonlijke Microsoft-accounts).
-   - **Redirect URI** (Omleidings-URI): kies platform **Web** en vul `https://PROJECT-ID.firebaseapp.com/__/auth/handler` in.
+   - **Redirect URI** (Omleidings-URI): kies platform **Web** en vul `https://brennycc86-apps.firebaseapp.com/__/auth/handler` in.
      Dit adres zie je ook in Firebase bij stap 3 hieronder.
    - Klik op **Register** (Registreren).
 2. **Gegevens kopiëren**
@@ -62,7 +62,7 @@ Klaar: vanaf nu kan iedereen inloggen met Google. Google hoeft daar niets voor g
    - Ga naar **Certificates & secrets** (Certificaten en geheimen) en klik op **New client secret** (Nieuw clientgeheim).
    - Kopieer meteen de **Value** (Waarde). Die is later niet meer te zien.
 3. **Microsoft toevoegen in Firebase**
-   - Ga naar https://console.firebase.google.com/project/PROJECT-ID/authentication/providers.
+   - Ga naar https://console.firebase.google.com/project/brennycc86-apps/authentication/providers.
    - Klik op **Add new provider** (Nieuwe aanbieder toevoegen) en kies **Microsoft**.
    - Plak de ID bij **Application ID** en het geheim bij **Application secret**. Zet **Enable** aan en klik op **Save**.
 
