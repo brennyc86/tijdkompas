@@ -142,6 +142,23 @@ async function rondEmailLinkAf() {
   } catch (e) { cloud.fout = foutTekst(e); }
   schoon(); meld();
 }
+// ---------- e-mailadres bevestigen ----------
+// Google en de e-maillink controleren je adres zelf. Bij sommige andere inlogs (bijv. Microsoft) moet je het één keer
+// bevestigen via een mail; pas dan zie je uitnodigingen en kun je accounts linken.
+export async function stuurBevestiging() {
+  if (!auth?.currentUser) throw new Error("Log eerst in");
+  await A.sendEmailVerification(auth.currentUser, { url: location.origin + location.pathname });
+  return cloud.gebruiker.email;
+}
+export async function controleerBevestiging() {
+  if (!auth?.currentUser) return false;
+  await auth.currentUser.reload();
+  await auth.currentUser.getIdToken(true);     // nieuw token, met email_verified erin
+  if (auth.currentUser.emailVerified) { opnieuw(); return true; }
+  return false;
+}
+const moetGeverifieerd = (wat) => { if (!cloud.gebruiker?.geverifieerd) throw new Error(`Bevestig eerst je e-mailadres (${cloud.gebruiker?.email || "?"}) om ${wat}: Account → „E-mailadres bevestigen”.`); };
+
 export async function uitloggen() {
   stop();
   await A.signOut(auth);
@@ -189,7 +206,7 @@ async function aangemeld(u) {
   cloud.melding = "";
   cloud.gebruiker = {
     uid: u.uid, naam: u.displayName || u.email || "Gebruiker", email: (u.email || u.providerData.find(p => p.email)?.email || "").toLowerCase(),
-    foto: u.photoURL || "", aanbieders: u.providerData.map(p => ({ soort: p.providerId === "google.com" ? "google" : p.providerId === "microsoft.com" ? "microsoft" : "email", email: p.email || "" })),
+    foto: u.photoURL || "", geverifieerd: !!u.emailVerified, aanbieders: u.providerData.map(p => ({ soort: p.providerId === "google.com" ? "google" : p.providerId === "microsoft.com" ? "microsoft" : "email", email: p.email || "" })),
   };
   sessie.ik = u.uid; sessie.familie = [u.uid]; cloud.familie = [u.uid]; cloud.hoofdUid = null;
   meld();
@@ -288,7 +305,8 @@ function abonneer() {
     geladen.mappen = true; bouwStraks();
   }, fout));
   // Uitnodigingen: per lijst en per map. Een gedeelde map nodigt ook uit voor alles erin; toon alleen de bovenste.
-  if (email) for (const soort of ["lijsten", "mappen"]) subs.push(F.onSnapshot(F.query(F.collection(db, soort), F.where("uitgenodigd", "array-contains", email)), (s) => {
+  // Uitnodigingen gaan op e-mailadres: alleen met een gecontroleerd adres (anders kan iedereen zich als jou voordoen)
+  if (email && cloud.gebruiker.geverifieerd) for (const soort of ["lijsten", "mappen"]) subs.push(F.onSnapshot(F.query(F.collection(db, soort), F.where("uitgenodigd", "array-contains", email)), (s) => {
     for (const [id, x] of [...wachtend]) if (x.soort === soort) wachtend.delete(id);
     s.docs.filter(x => veiligId(x.id) && !(x.data().leden || []).includes(wie)).forEach(x => wachtend.set(x.id, { soort, data: x.data() }));
     const ouderVan = (x) => x.soort === "lijsten" ? x.data.map : x.data.ouder;
@@ -597,7 +615,7 @@ function schrijfVerschil() {
 }
 // Schrijft wat verschilt van 'oud'; geeft het aantal bewerkingen terug (commit loopt asynchroon door)
 function schrijf(gewenst, oud, opruimen = false) {
-  const ik = sessie.ik, ops = [];
+  const ik = sessie.ik, ops = [], metInhoud = [];
   for (const [pad, obj] of gewenst) {
     const s = stabiel(obj);
     if (oud.get(pad) !== s) { ops.push(["set", pad, obj]); if (oud === bekend) bekend.set(pad, s); }
@@ -609,7 +627,7 @@ function schrijf(gewenst, oud, opruimen = false) {
     const delen = pad.split("/");
     if ((delen[0] === "lijsten" || delen[0] === "mappen") && delen.length === 2) {
       const l = (delen[0] === "lijsten" ? lijstDocs : mapDocs).get(delen[1]);
-      if (!l || isIk(l.eigenaar)) ops.push(["del", pad]);
+      if (!l || isIk(l.eigenaar)) metInhoud.push(pad);                   // eigen lijst/map: met alles erin weg (zie hieronder)
       else ops.push(["verlaat", pad]);                                   // andermans lijst: alleen jezelf eruit halen
     } else if ((delen[0] === "lijsten" || delen[0] === "mappen") && delen.length === 4) {
       const l = (delen[0] === "lijsten" ? lijstDocs : mapDocs).get(delen[1]);
@@ -617,7 +635,7 @@ function schrijf(gewenst, oud, opruimen = false) {
     }
     bekend.delete(pad);
   }
-  if (!ops.length) return ops.length === 0 && oud !== bekend ? Promise.resolve(0) : 0;
+  if (!ops.length && !metInhoud.length) return oud !== bekend ? Promise.resolve(0) : 0;
   cloud.bezig = true; meld();
   const klaar = [];
   // Gedeelde koersafspraken apart: wordt zo'n schrijfactie geweigerd, dan blijft de rest (taken, lijsten) gewoon bewaard
@@ -633,10 +651,25 @@ function schrijf(gewenst, oud, opruimen = false) {
     }
     klaar.push(b.commit());
   }
-  Promise.all(klaar).then(() => { cloud.fout = ""; }).catch(e => { cloud.fout = "Opslaan mislukt: " + e.message; })
+  // Verwijderde lijsten en mappen pas ná de rest, en dan met alles erin (taken, gedeelde koers): Firestore haalt
+  // sub-verzamelingen niet vanzelf weg, en de regels willen dat de lijst nog bestaat zolang je de inhoud weghaalt.
+  Promise.all(klaar).then(() => Promise.all(metInhoud.map(verwijderMetInhoud))).then(() => { cloud.fout = ""; })
+    .catch(e => { cloud.fout = "Opslaan mislukt: " + e.message; })
     .finally(() => { cloud.bezig = false; meld(); });
-  if (oud !== bekend) return Promise.all(klaar).then(() => ops.length);
-  return ops.length;
+  if (oud !== bekend) return Promise.all(klaar).then(() => ops.length + metInhoud.length);
+  return ops.length + metInhoud.length;
+}
+async function verwijderMetInhoud(pad) {
+  const [soort, id] = pad.split("/");
+  for (const sub of soort === "lijsten" ? ["items", "koers"] : ["koers"]) {
+    const sn = await F.getDocs(F.collection(db, soort, id, sub));
+    for (let i = 0; i < sn.docs.length; i += 400) {
+      const b = F.writeBatch(db);
+      sn.docs.slice(i, i + 400).forEach(x => b.delete(x.ref));
+      await b.commit();
+    }
+  }
+  await F.deleteDoc(F.doc(db, soort, id));
 }
 
 // ---------- delen ----------
@@ -718,10 +751,11 @@ export async function vraagKoppelcode() {
   if ((gebruikerDoc?.aliassen || []).length) throw new Error("Aan dit account zijn zelf al andere accounts gelinkt. Gebruik dit account als hoofd: vul hier de code van het andere account in.");
   const email = cloud.gebruiker.email;
   if (!email) throw new Error("Dit account heeft geen e-mailadres; linken met een code kan dan niet.");
+  moetGeverifieerd("accounts te linken");
   const r = crypto.getRandomValues(new Uint32Array(6)), code = [...r].map(x => TEKENS[x % TEKENS.length]).join("");
   const id = await codeHash(email, code), verloopt = Date.now() + 10 * 60e3;
-  await F.setDoc(F.doc(db, "koppelcodes", id), { uid: sessie.ik, email, naam: cloud.gebruiker.naam, foto: cloud.gebruiker.foto || "",
-                                                  status: "open", verloopt: F.Timestamp.fromMillis(verloopt) });
+  // alleen uid en je (door Google/Microsoft/de bevestigingsmail gecontroleerde) e-mailadres: niets wat je zelf kunt verzinnen
+  await F.setDoc(F.doc(db, "koppelcodes", id), { uid: sessie.ik, email, status: "open", verloopt: F.Timestamp.fromMillis(verloopt) });
   koppelSubs.forEach(f => f()); koppelSubs = [];
   koppel.b = { id, code, verloopt, status: "open", van: null };
   bewaarKoppel(); volgCode("b", id); meld();
@@ -731,6 +765,7 @@ export async function vraagKoppelcode() {
 export async function gebruikKoppelcode(email, code) {
   if (!cloud.gebruiker) throw new Error("Log eerst in");
   if (!isHoofd()) throw new Error("Accounts linken doe je vanuit het hoofdaccount.");
+  moetGeverifieerd("accounts te linken");
   email = String(email || "").trim().toLowerCase(); code = String(code || "").replace(/[\s-]/g, "").toUpperCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("Vul het e-mailadres van het andere account in");
   if (!/^[A-Z0-9]{6}$/.test(code)) throw new Error("De koppelcode heeft 6 tekens");
@@ -742,8 +777,8 @@ export async function gebruikKoppelcode(email, code) {
   const tot = x.verloopt?.toMillis ? x.verloopt.toMillis() : (x.verloopt?.seconds ?? 0) * 1000;
   if (x.status !== "open" || tot < Date.now()) throw new Error("Deze code is al gebruikt of verlopen. Vraag op het andere account een nieuwe aan.");
   if (x.uid === sessie.ik || cloud.familie.includes(x.uid)) throw new Error("Dit account hoort al bij dit Tijdkompas.");
-  await F.updateDoc(ref, { status: "verzocht", van: { uid: sessie.ik, email: cloud.gebruiker.email, naam: cloud.gebruiker.naam, foto: cloud.gebruiker.foto || "" } });
-  koppel.a = { id, email: x.email, naam: x.naam, status: "verzocht" };
+  await F.updateDoc(ref, { status: "verzocht", van: { uid: sessie.ik, email: cloud.gebruiker.email } });
+  koppel.a = { id, email: x.email, status: "verzocht" };
   bewaarKoppel(); volgCode("a", id); meld();
   return koppel.a;
 }
@@ -754,6 +789,7 @@ export async function beantwoordKoppel(ja) {
   const ref = F.doc(db, "koppelcodes", k.id);
   if (!ja) { await F.updateDoc(ref, { status: "geweigerd" }); koppel.b = null; bewaarKoppel(); meld(); return null; }
   if ((gebruikerDoc?.aliassen || []).length || cloud.hoofdUid) throw new Error("Dit account is intussen al gelinkt.");
+  moetGeverifieerd("accounts te linken");
   const A = k.van, b = F.writeBatch(db);
   b.update(ref, { status: "klaar" });
   b.set(F.doc(db, "gebruikers", sessie.ik), { hoofd: A.uid, aliassen: [A.uid] }, { merge: true });

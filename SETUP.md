@@ -13,7 +13,7 @@ Gebruikers merken er niets van. Zij klikken alleen in de app op „Inloggen met 
 | **C-Google** | Google Agenda, Google Taken en Google Drive koppelen | Client ID ✅ ingevuld; controleer de rest van stap C-Google |
 | **C-Microsoft** | Outlook-agenda, Microsoft To Do (Outlook-taken) en OneDrive koppelen | ✅ client-ID ingevuld, redirect-URI (SPA) staat |
 | **E** Extra afschermen (aanbevolen) | API-sleutel beperken tot deze site; controleren wie bij het Firebase-project kan | zie [E. Extra afschermen](#e-extra-afschermen-aanbevolen-10-minuten) |
-| **D** Outlook-agenda via een link | Outlook-agenda zien en eromheen plannen (alleen lezen), zonder Microsoft-registratie | ✅ doorgeefluik staat (tijdkompas-agenda.brennycc86.workers.dev); per agenda D2 + D3 |
+| **D** Outlook-agenda via een link | Outlook-agenda zien en eromheen plannen (alleen lezen), zonder Microsoft-registratie | ⚠️ **plak de nieuwe code in het doorgeefluik** (D1 → Bijwerken; geen cache meer) — of haal het weg als je de Microsoft-koppeling gebruikt (E3) |
 
 **Over de knoppen in deze handleiding:** de Firebase-console is altijd Engels. Google Cloud en Microsoft tonen soms Nederlands, afhankelijk van je instellingen.
 Daarom staat elke knop er zo: **English label** (Nederlandse vertaling). Kijk dus naar wat jouw scherm toont.
@@ -224,6 +224,10 @@ Het slaat niets op en geeft alleen links van Outlook, Google en iCloud door.
 6. Bovenaan staat het adres, iets als `https://tijdkompas-agenda.<jouwnaam>.workers.dev`. **Stuur dat adres naar Claude**
    (of zet het zelf in `js/config.js` bij `icsProxy`).
 
+**Bijwerken** (als Claude `worker/agenda-doorgeef.js` heeft aangepast, zoals op 16-11-2026: niets meer in de cache, alleen nog Tijdkompas zelf):
+https://dash.cloudflare.com → **Workers & Pages** → **tijdkompas-agenda** → **Edit code** (Code bewerken) → Ctrl+A, plak de nieuwe inhoud → **Deploy**.
+Controle: open https://tijdkompas-agenda.brennycc86.workers.dev/?url=x in je browser. Je hoort **Niet toegestaan** te zien (de site zelf mag hem wel gebruiken).
+
 ### D2. Je Outlook-agenda publiceren (per agenda, ± 2 minuten)
 
 1. Open Outlook op het web: **outlook.live.com** (privé/Outlook.com) of **outlook.office.com** (werk).
@@ -244,6 +248,8 @@ hebben uitgezet; dan zie je de optie niet. Spijt? Klik daar op **Unpublish** (Pu
 ### Beveiligingsregels bijwerken
 
 **Doe dit vóórdat je de nieuwe functies gebruikt** (koppelcode, gedeelde Koers). Met de oude regels weigert Firebase die.
+Sinds 16-11-2026 (tweede ronde) eisen de regels ook een **bevestigd e-mailadres** voor uitnodigingen en koppelcodes. Google en de e-maillink
+bevestigen dat zelf. Log je in met Microsoft en zie je in Tijdkompas „E-mailadres bevestigen”, klik dan op **Bevestigingsmail sturen**.
 
 Als Claude `firestore.rules` heeft aangepast (staat in de tabel bovenaan), plak je ze opnieuw:
 https://console.firebase.google.com/project/brennycc86-apps/firestore/databases/-default-/rules (of: linkermenu → Firestore Database → tabblad **Rules**) → in het tekstvak Ctrl+A, Delete, alles vervangen door de inhoud van
@@ -261,7 +267,10 @@ Wat er nu al geregeld is (in de app en in `firestore.rules`):
 - **Je agenda, planning, koppelingen en persoonlijke Koers** staan in je eigen gebruikersdocument. Alleen jij en de accounts die je zelf hebt gelinkt kunnen dat lezen.
 - **Toegangssleutels** voor Google en Microsoft staan alleen in de browser van je eigen apparaat. Bij uitloggen worden ze gewist.
 - **Gedeelde lijsten**: alleen leden zien de taken. Niemand komt in een lijst zonder zelf een uitnodiging te accepteren. Alleen de eigenaar wijzigt naam, kleur en wie er is uitgenodigd.
-- **Linken van accounts** kan alleen als beide kanten instemmen (koppelcode én bevestiging).
+- **Linken van accounts** kan alleen als beide kanten instemmen (koppelcode én bevestiging). Een verzoek toont alleen het door Google/Microsoft gecontroleerde e-mailadres, geen zelfgekozen naam.
+- **Uitnodigingen** (op e-mailadres) zie je alleen met een bevestigd e-mailadres: niemand kan een account met jouw adres maken en zo meekijken.
+- **Een lijst verwijderen** haalt in de cloud ook alle taken en gedeelde koersafspraken erin weg (of verhuist ze eerst, als je dat kiest).
+- **Het doorgeefluik** bewaart niets (ook niet tijdelijk) en werkt alleen voor Tijdkompas zelf. De app bewaart nooit foutpagina's in de offline-cache.
 - **Geen code van anderen in je scherm**: alles wordt gefilterd en ontsmet. Een beveiligingsbeleid (Content-Security-Policy) laat alleen scripts van de app zelf en van Google/Firebase toe. Microsoft-inloggen (MSAL) staat in de app zelf, met een vaste controle-hash.
 
 Wat je zelf nog kunt doen:

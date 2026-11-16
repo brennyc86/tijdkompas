@@ -456,3 +456,12 @@ a.koersitem{text-decoration:none;color:inherit}
 .koppelverzoek{border-color:var(--accent)}
 /* koers: voor wie */
 .kwie{display:flex;flex-wrap:wrap;gap:4px}
+.keuzeregel{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--rand);border-radius:var(--r);margin:6px 0;cursor:pointer}
+.keuzeregel select,.keuzeregel input[type=text]{flex:1;min-width:160px}
+.keuzeregel.gevaar{border-color:color-mix(in srgb,var(--rood) 50%,var(--rand))}
+/* koers: privé of gedeeld, altijd zichtbaar */
+.kzicht{display:inline-block;font-size:12px;font-weight:600;padding:3px 8px;border-radius:999px;line-height:1.4}
+.kzicht.prive{background:color-mix(in srgb,var(--meta) 18%,transparent);color:var(--tekst)}
+.kzicht.gedeeld{background:color-mix(in srgb,var(--accent) 25%,transparent);color:var(--tekst);border:1px solid var(--accent)}
+.kkaart>.kzicht{align-self:flex-start;margin-bottom:4px}
+.kkaart.kgedeeld{border:2px solid var(--accent)}

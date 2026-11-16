@@ -39,6 +39,20 @@ else {
   if (echt !== sri) fout(`MSAL-bestand past niet bij de hash: ${echt} ≠ ${sri}`);
 }
 
+// Service worker: nooit foutpagina's of doorverwijzingen in de cache
+const sw = fs.readFileSync(ROOT + "/sw.js", "utf8");
+if (!/r\.ok && r\.type === "basic"/.test(sw)) fout("sw.js: bewaart ook mislukte antwoorden in de cache");
+// Doorgeefluik: niets bewaren, alleen Tijdkompas zelf
+const wk = fs.readFileSync(ROOT + "/worker/agenda-doorgeef.js", "utf8").replace(/\/\/.*$/gm, "");
+if (/cacheTtl|max-age=[1-9]/.test(wk)) fout("doorgeefluik: agenda's worden tijdelijk bewaard (cache)");
+if (!/no-store/.test(wk)) fout("doorgeefluik: geen Cache-Control: no-store");
+if (!/HERKOMST\.includes\(origin\)\)\s*return new Response\("Niet toegestaan", \{ status: 403/.test(wk)) fout("doorgeefluik: beantwoordt ook andere sites");
+// Firestore-regels: uitnodigingen en koppelcodes alleen met een gecontroleerd e-mailadres
+const regels = fs.readFileSync(ROOT + "/firestore.rules", "utf8");
+for (const f of ["uitgenodigd", "muitgenodigd"]) if (!new RegExp(`function ${f}\\(\\) \\{[^}]*geverifieerd\\(\\)`).test(regels)) fout(`firestore.rules: ${f}() controleert het e-mailadres niet`);
+if (!/email_verified/.test(regels)) fout("firestore.rules: email_verified wordt nergens gecontroleerd");
+if (/hasOnly\(\['uid', 'email', 'naam'/.test(regels)) fout("firestore.rules: koppelcode met zelfgekozen naam");
+
 // ---------- 2. dynamisch ----------
 const P = `"'><xss-x data-xss="1" onmouseover="alert(1)">`;
 const vijand = {
@@ -67,14 +81,16 @@ const vijand = {
 
 const { window, document } = parseHTML(html);
 const mem = { tijdkompas_v1: JSON.stringify(vijand) };
-Object.assign(globalThis, {
+// Sinds Node 21 zijn sommige globale waarden (navigator, crypto, …) alleen-lezen getters: overschrijf ze met defineProperty
+const zet = (naam, waarde) => Object.defineProperty(globalThis, naam, { value: waarde, writable: true, configurable: true });
+for (const [k, v] of Object.entries({
   window, document, location: new URL("https://brennyc86.github.io/tijdkompas/#vandaag"),
   history: { replaceState() {} }, navigator: {}, matchMedia: () => ({ matches: false }),
   localStorage: { getItem: k => mem[k] ?? null, setItem: (k, v) => mem[k] = String(v), removeItem: k => delete mem[k] },
   sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} },
   scrollY: 0, scrollTo() {}, confirm: () => false, alert() {}, prompt: () => "",
   structuredClone: globalThis.structuredClone, HTMLElement: window.HTMLElement,
-});
+})) zet(k, v);
 window.top = window.self = window;
 globalThis.addEventListener = () => {}; globalThis.setInterval = () => 0;
 window.HTMLElement.prototype.showModal = function () { this.open = true; };

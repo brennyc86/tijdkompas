@@ -12,6 +12,9 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{db}/documents {
     function ingelogd() { return request.auth != null; }
+    // Een e-mailadres telt alleen als de inlogdienst (of de bevestigingsmail) het heeft gecontroleerd. Zonder die check kan
+    // iemand een account aanmaken met jouw adres en zo jouw uitnodigingen zien of zich als jou voordoen.
+    function geverifieerd() { return request.auth.token.get('email_verified', false) == true && request.auth.token.get('email', '') != ''; }
     function mijnMail() { return request.auth.token.email.lower(); }
     function gebr(u) { return get(/databases/$(db)/documents/gebruikers/$(u)).data; }
     function veiligeId(x) { return x is string && x.matches('^[A-Za-z0-9_-]{1,128}$'); }
@@ -45,7 +48,13 @@ service cloud.firestore {
       let oud = resource.data.get('ledenInfo', {});
       let nieuw = request.resource.data.get('ledenInfo', {});
       let delta = request.resource.data.leden.removeAll(resource.data.leden).concat(resource.data.leden.removeAll(request.resource.data.leden));
-      return nieuw.diff(oud).affectedKeys().hasOnly(delta.concat([request.auth.uid]));
+      return nieuw.diff(oud).affectedKeys().hasOnly(delta.concat([request.auth.uid]))
+        && (!(request.auth.uid in nieuw) || !(request.auth.uid in nieuw.diff(oud).affectedKeys()) || eigenRegelOk(nieuw[request.auth.uid]));
+    }
+    // je eigen naamregel (in een lijst, map of bij het linken): e-mailadres = je echte, gecontroleerde adres
+    function eigenRegelOk(x) {
+      return x is map && x.keys().hasOnly(['naam', 'email', 'foto']) && x.get('naam', '') is string && x.get('naam', '').size() <= 200
+        && x.get('email', '') == request.auth.token.get('email', '').lower() && x.get('foto', '') is string;
     }
     // naam, kleur en icoon: geen tekens waarmee iemand code in andermans scherm kan zetten
     function inhoudOk(d) {
@@ -66,7 +75,7 @@ service cloud.firestore {
         && request.resource.data.leden.removeAll(resource.data.leden).hasOnly([request.auth.uid])
         && resource.data.leden.removeAll(request.resource.data.leden).size() == 0
         && request.resource.data.get('uitgenodigd', []).removeAll(resource.data.get('uitgenodigd', [])).size() == 0
-        && resource.data.get('uitgenodigd', []).removeAll(request.resource.data.get('uitgenodigd', [])).hasOnly([mijnMail(), request.auth.token.email])
+        && resource.data.get('uitgenodigd', []).removeAll(request.resource.data.get('uitgenodigd', [])).hasOnly([mijnMail()])
         && infoOk();
     }
     // een lid: taken-leden (zichzelf/gelinkte accounts) en 'mensen' zonder Tijdkompas; de eigenaar(sfamilie) ook de rest
@@ -82,7 +91,8 @@ service cloud.firestore {
       let d = request.resource.data;
       return ingelogd() && d.leden is list && request.auth.uid in d.leden && welkom(d.eigenaar) && inhoudOk(d)
         && erbijOk(d.leden, soort, d.get(ouderVeld, ''))
-        && d.get('ledenInfo', {}).keys().hasOnly(d.leden);
+        && d.get('ledenInfo', {}).keys().hasOnly(d.leden)
+        && (!(request.auth.uid in d.get('ledenInfo', {})) || eigenRegelOk(d.ledenInfo[request.auth.uid]));
     }
 
     match /gebruikers/{uid} {
@@ -104,12 +114,13 @@ service cloud.firestore {
                         && request.resource.data.get('aliassen', []).removeAll(resource.data.get('aliassen', [])).hasOnly([request.auth.uid])
                         && resource.data.get('aliassen', []).removeAll(request.resource.data.get('aliassen', [])).size() == 0
                         && request.resource.data.get('aliasInfo', {}).diff(resource.data.get('aliasInfo', {})).affectedKeys().hasOnly([request.auth.uid])
+                        && geverifieerd() && eigenRegelOk(request.resource.data.aliasInfo[request.auth.uid])
                         && koppelOk()));
     }
 
     match /lijsten/{lijst} {
       function lid() { return ingelogd() && request.auth.uid in resource.data.leden; }
-      function uitgenodigd() { return ingelogd() && request.auth.token.email != null && mijnMail() in resource.data.get('uitgenodigd', []); }
+      function uitgenodigd() { return ingelogd() && geverifieerd() && mijnMail() in resource.data.get('uitgenodigd', []); }
 
       allow read: if lid() || uitgenodigd();
       allow create: if veiligeId(lijst) && nieuwOk('mappen', 'map');
@@ -132,7 +143,7 @@ service cloud.firestore {
 
     match /mappen/{m} {
       function mlid() { return ingelogd() && request.auth.uid in resource.data.leden; }
-      function muitgenodigd() { return ingelogd() && request.auth.token.email != null && mijnMail() in resource.data.get('uitgenodigd', []); }
+      function muitgenodigd() { return ingelogd() && geverifieerd() && mijnMail() in resource.data.get('uitgenodigd', []); }
       allow read: if mlid() || muitgenodigd();
       allow create: if veiligeId(m) && nieuwOk('mappen', 'ouder');
       allow update: if (mlid() && lidWijzigingOk('mappen', 'ouder')) || (muitgenodigd() && uitnodigingOk());
@@ -156,18 +167,20 @@ service cloud.firestore {
       function vanUid() { return resource.data.get('van', {}).get('uid', ''); }
       allow get: if ingelogd();
       allow list: if false;
-      allow create: if ingelogd() && k.matches('^[0-9a-f]{64}$')
-                    && request.resource.data.keys().hasOnly(['uid', 'email', 'naam', 'foto', 'status', 'verloopt'])
-                    && request.resource.data.uid == request.auth.uid && request.resource.data.status == 'open'
+      // Wie de code aanvraagt staat er alleen met uid en het gecontroleerde e-mailadres in (geen zelfgekozen naam of foto)
+      allow create: if ingelogd() && geverifieerd() && k.matches('^[0-9a-f]{64}$')
+                    && request.resource.data.keys().hasOnly(['uid', 'email', 'status', 'verloopt'])
+                    && request.resource.data.uid == request.auth.uid && request.resource.data.email == mijnMail()
+                    && request.resource.data.status == 'open'
                     && request.resource.data.verloopt is timestamp
-                    && request.resource.data.verloopt < request.time + duration.value(11, 'm');
+                    && request.resource.data.verloopt < request.time + duration.value(15, 'm');
       allow update: if ingelogd() && (
             (resource.data.status == 'open' && request.time < resource.data.verloopt
-              && request.auth.uid != resource.data.uid
+              && request.auth.uid != resource.data.uid && geverifieerd()
               && wijziging().hasOnly(['status', 'van'])
               && request.resource.data.status == 'verzocht'
-              && request.resource.data.van.keys().hasOnly(['uid', 'email', 'naam', 'foto'])
-              && request.resource.data.van.uid == request.auth.uid)
+              && request.resource.data.van.keys().hasOnly(['uid', 'email'])
+              && request.resource.data.van.uid == request.auth.uid && request.resource.data.van.email == mijnMail())
          || (resource.data.uid == request.auth.uid && resource.data.status == 'verzocht'
               && request.time < resource.data.verloopt + duration.value(30, 'm')
               && wijziging().hasOnly(['status'])

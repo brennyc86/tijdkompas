@@ -26,6 +26,8 @@ Planner voor werk, privé en hobby's: projecten en taken, de Eisenhower-matrix (
 
 ## Mappen en lijsten
 
+- **Een lijst verwijderen**: je kiest wat er met de inhoud gebeurt: verplaatsen naar een andere lijst, naar een nieuwe lijst, of alles definitief verwijderen (taken én gedeelde koersafspraken; je eigen koersafspraken blijven bestaan, zonder lijst).
+
 - Lijsten staan in **mappen**, zo diep als je wilt (📁 Werk → 💼 Team, 🌱 Werkgroep, 📁 Projecten 2027 → …). Een lijst bevat nooit een lijst.
 - Verplaatsen met „In map”, hernoemen in het naamveld (Instellingen → Mappen & lijsten). Map verwijderen = de inhoud schuift een niveau omhoog.
 - **⚙️ overal**: kijk je naar één lijst of map, dan staat bovenin „⚙️ naam” — daar wijzig je alles (soort, tijden, verdeling, map, delen, koersafspraken), ook later bij op- of afschalen. Ook via ⚙️ in het ▾-mapmenu.
@@ -43,6 +45,7 @@ Planner voor werk, privé en hobby's: projecten en taken, de Eisenhower-matrix (
 - Een afspraak is **persoonlijk** (alleen jij ziet hem) of **voor iedereen in de lijst of map** waar hij bij hoort.
   Een gedeelde afspraak wijs je toe aan de **hele groep**, aan **één of meer personen**, of aan de groep mét een paar trekkers.
   Met „Voor mij” zie je alleen wat voor jou is; het overzicht voor het gesprek volgt die keuze.
+- Of een afspraak **🔒 privé** of **👥 gedeeld** is, staat altijd zichtbaar: bovenaan elke kaart (met wie hem kunnen zien), in het venster, op Vandaag, in de keuzelijst bij een taak en in het overzicht voor het gesprek. Iets privés delen vraagt altijd om bevestiging.
 
 ## Samenwerken: wie doet wat, en wie wacht op wie
 

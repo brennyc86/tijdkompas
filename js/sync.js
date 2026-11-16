@@ -12,7 +12,7 @@ export async function verversLinks() {
   for (const l of d().agendaLinks || []) {
     try {
       const url = CONFIG.icsProxy ? `${CONFIG.icsProxy.replace(/\/$/, "")}/?url=${encodeURIComponent(l.url)}` : l.url.replace(/^webcals?:\/\//i, "https://");
-      const r = await fetch(url);
+      const r = await fetch(url, { cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer" });
       const tekst = await r.text();
       if (!r.ok || !tekst.includes("BEGIN:VCALENDAR")) throw new Error(tekst.slice(0, 120) || "geen agenda (" + r.status + ")");
       const k = linkBron(l), ev = leesIcs(tekst, k);
