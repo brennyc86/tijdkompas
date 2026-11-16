@@ -1,66 +1,178 @@
 rules_version = '2';
 // Tijdkompas — wie mag wat
-//   gebruikers/{uid}               jijzelf, en de andere accounts die je aan je Tijdkompas hebt toegevoegd (aliassen)
-//   lijsten/{id}                   leden lezen en schrijven; wie uitgenodigd is mag de lijst zien en zichzelf toevoegen
-//   lijsten/{id}/items/{item}      alle leden van de lijst
-//   mappen/{id}                    net als lijsten (een gedeelde map nodigt ook uit voor alles erin)
-// Meerdere inlogs, één Tijdkompas: het hoofdaccount zet andere accounts in gebruikers/{hoofd}.aliassen.
-// Alleen het hoofd zelf mag die lijst wijzigen. De app zet alle inlogs als lid in elke lijst en map.
+//   gebruikers/{uid}               alleen jijzelf, en de accounts die je aan je Tijdkompas hebt gelinkt (aliassen).
+//                                  Hierin staan je agenda, planning, koppelingen en persoonlijke koers: niemand anders kan dit lezen.
+//   lijsten/{id}, mappen/{id}      leden lezen en schrijven taken; alleen de eigenaar (en diens gelinkte accounts) wijzigt
+//                                  naam, kleur, icoon en wie er is uitgenodigd. Niemand komt in een lijst zonder zelf te accepteren
+//                                  (behalve je eigen gelinkte accounts, en leden van een gedeelde map waar de lijst in staat).
+//   lijsten/{id}/items, …/koers    alleen leden van die lijst of map
+//   koppelcodes/{hash}             tijdelijke code om twee accounts te linken (10 minuten, en het andere account moet bevestigen)
+// Een gelinkt account is pas "familie" als beide kanten hebben ingestemd: het hoofd zet het in zijn aliassen, en het account
+// zelf wijst in zijn eigen document naar dat hoofd.
 service cloud.firestore {
   match /databases/{db}/documents {
     function ingelogd() { return request.auth != null; }
     function mijnMail() { return request.auth.token.email.lower(); }
-    // Ben ik een toegevoegd account van gebruiker e?
-    function aliasVan(e) { return request.auth.uid in get(/databases/$(db)/documents/gebruikers/$(e)).data.get('aliassen', []); }
-    function zelfOfAlias(e) { return e == request.auth.uid || aliasVan(e); }
+    function gebr(u) { return get(/databases/$(db)/documents/gebruikers/$(u)).data; }
+    function veiligeId(x) { return x is string && x.matches('^[A-Za-z0-9_-]{1,128}$'); }
+
+    // ---------- gelinkte accounts ----------
+    function mijnHoofd() { return gebr(request.auth.uid).get('hoofd', request.auth.uid); }
+    function familieVan(u, h) {
+      let ali = gebr(h).get('aliassen', []);
+      return (h == request.auth.uid || request.auth.uid in ali)
+          && (u == h || (u in ali && gebr(u).get('hoofd', '') == h));
+    }
+    // ik zelf, of een account dat (wederzijds) aan mijn Tijdkompas gelinkt is
+    function welkom(u) { return u == request.auth.uid || familieVan(u, mijnHoofd()); }
+
+    // Leden die erbij komen of eraf gaan: alleen ikzelf, mijn gelinkte accounts, of (bij erbij) leden van de gedeelde map
+    // waarin de lijst staat en waar ik zelf ook in zit. Anderen komen er alleen in via een uitnodiging die ze zelf accepteren.
+    function mapLeden(soort, m) {
+      return m is string && m != '' && exists(/databases/$(db)/documents/$(soort)/$(m))
+        && request.auth.uid in get(/databases/$(db)/documents/$(soort)/$(m)).data.get('leden', [])
+        ? get(/databases/$(db)/documents/$(soort)/$(m)).data.get('leden', []) : [];
+    }
+    function rijOk(r) {
+      return r.size() <= 5
+        && (r.size() < 1 || welkom(r[0])) && (r.size() < 2 || welkom(r[1])) && (r.size() < 3 || welkom(r[2]))
+        && (r.size() < 4 || welkom(r[3])) && (r.size() < 5 || welkom(r[4]));
+    }
+    function erbijOk(nieuw, soort, m) { let r = nieuw.removeAll([request.auth.uid]); return r.size() == 0 || rijOk(r.removeAll(mapLeden(soort, m))); }
+    function erafOk(weg, eigenaar) { let r = weg.removeAll([request.auth.uid]); return r.size() == 0 || welkom(eigenaar) || rijOk(r); }
+    // ledenInfo (naam, e-mail, foto per lid): alleen je eigen regel, of die van wie er net bij komt of af gaat
+    function infoOk() {
+      let oud = resource.data.get('ledenInfo', {});
+      let nieuw = request.resource.data.get('ledenInfo', {});
+      let delta = request.resource.data.leden.removeAll(resource.data.leden).concat(resource.data.leden.removeAll(request.resource.data.leden));
+      return nieuw.diff(oud).affectedKeys().hasOnly(delta.concat([request.auth.uid]));
+    }
+    // naam, kleur en icoon: geen tekens waarmee iemand code in andermans scherm kan zetten
+    function inhoudOk(d) {
+      return d.get('naam', '') is string && d.get('naam', '').size() <= 200
+        && d.get('kleur', '#888') is string && d.get('kleur', '#888').matches('^#[0-9a-fA-F]{3,8}$')
+        && d.get('icoon', '') is string && d.get('icoon', '').matches('^[^<>&"\\x27`\\\\=]{0,16}$')
+        && d.get('leden', []) is list && d.get('uitgenodigd', []) is list;
+    }
+    // eigenaar blijft gelijk, of: de eigenaar draagt zijn lijst over aan een eigen gelinkt account
+    function eigenaarOk() {
+      return request.resource.data.eigenaar == resource.data.eigenaar
+          || (resource.data.eigenaar == request.auth.uid && welkom(request.resource.data.eigenaar));
+    }
+    function wijziging() { return request.resource.data.diff(resource.data).affectedKeys(); }
+    // uitgenodigd: alleen zichzelf erbij zetten (als lid) en de eigen uitnodiging weghalen
+    function uitnodigingOk() {
+      return wijziging().hasOnly(['leden', 'uitgenodigd', 'ledenInfo'])
+        && request.resource.data.leden.removeAll(resource.data.leden).hasOnly([request.auth.uid])
+        && resource.data.leden.removeAll(request.resource.data.leden).size() == 0
+        && request.resource.data.get('uitgenodigd', []).removeAll(resource.data.get('uitgenodigd', [])).size() == 0
+        && resource.data.get('uitgenodigd', []).removeAll(request.resource.data.get('uitgenodigd', [])).hasOnly([mijnMail(), request.auth.token.email])
+        && infoOk();
+    }
+    // een lid: taken-leden (zichzelf/gelinkte accounts) en 'mensen' zonder Tijdkompas; de eigenaar(sfamilie) ook de rest
+    function lidWijzigingOk(soort, ouderVeld) {
+      return request.resource.data.leden is list
+        && (wijziging().hasOnly(['leden', 'ledenInfo', 'mensen'])
+            || (welkom(resource.data.eigenaar) && eigenaarOk() && inhoudOk(request.resource.data)))
+        && erbijOk(request.resource.data.leden.removeAll(resource.data.leden), soort, request.resource.data.get(ouderVeld, ''))
+        && erafOk(resource.data.leden.removeAll(request.resource.data.leden), resource.data.eigenaar)
+        && infoOk();
+    }
+    function nieuwOk(soort, ouderVeld) {
+      let d = request.resource.data;
+      return ingelogd() && d.leden is list && request.auth.uid in d.leden && welkom(d.eigenaar) && inhoudOk(d)
+        && erbijOk(d.leden, soort, d.get(ouderVeld, ''))
+        && d.get('ledenInfo', {}).keys().hasOnly(d.leden);
+    }
 
     match /gebruikers/{uid} {
       function familie() { return resource != null && request.auth.uid in resource.data.get('aliassen', []); }
+      // Een account linkt zichzelf aan dit (hoofd)account met een koppelcode die het hoofd heeft gebruikt:
+      // alleen zichzelf toevoegen, alleen als de code net (in dezelfde schrijfactie) door hem bevestigd wordt.
+      function koppelOk() {
+        let id = request.resource.data.koppelcode;
+        let voor = get(/databases/$(db)/documents/koppelcodes/$(id)).data;
+        let na = getAfter(/databases/$(db)/documents/koppelcodes/$(id)).data;
+        return voor.status == 'verzocht' && na.status == 'klaar' && voor.uid == request.auth.uid && voor.van.uid == uid;
+      }
       allow read: if ingelogd() && (request.auth.uid == uid || familie());
       allow create, delete: if ingelogd() && request.auth.uid == uid;
       allow update: if ingelogd() && (request.auth.uid == uid
-                    || (familie() && request.resource.data.get('aliassen', []) == resource.data.get('aliassen', [])));
+                    || (familie() && request.resource.data.get('aliassen', []) == resource.data.get('aliassen', []))
+                    || (resource.data.get('hoofd', '') == ''
+                        && wijziging().hasOnly(['aliassen', 'aliasInfo', 'koppelcode'])
+                        && request.resource.data.get('aliassen', []).removeAll(resource.data.get('aliassen', [])).hasOnly([request.auth.uid])
+                        && resource.data.get('aliassen', []).removeAll(request.resource.data.get('aliassen', [])).size() == 0
+                        && request.resource.data.get('aliasInfo', {}).diff(resource.data.get('aliasInfo', {})).affectedKeys().hasOnly([request.auth.uid])
+                        && koppelOk()));
     }
 
     match /lijsten/{lijst} {
       function lid() { return ingelogd() && request.auth.uid in resource.data.leden; }
-      function uitgenodigd() { return ingelogd() && request.auth.token.email != null && mijnMail() in resource.data.uitgenodigd; }
-      // eigenaar blijft gelijk, of: de eigenaar draagt zijn lijst over aan het hoofdaccount waar hij bij hoort
-      function eigenaarOk() { return request.resource.data.eigenaar == resource.data.eigenaar
-                                  || (resource.data.eigenaar == request.auth.uid && aliasVan(request.resource.data.eigenaar)); }
+      function uitgenodigd() { return ingelogd() && request.auth.token.email != null && mijnMail() in resource.data.get('uitgenodigd', []); }
 
       allow read: if lid() || uitgenodigd();
-      allow create: if ingelogd() && zelfOfAlias(request.resource.data.eigenaar)
-                    && request.auth.uid in request.resource.data.leden;
-      allow update: if (lid() && eigenaarOk())
-                    || (uitgenodigd()
-                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['leden', 'uitgenodigd', 'ledenInfo'])
-                        && request.resource.data.leden.removeAll(resource.data.leden).hasOnly([request.auth.uid])
-                        && resource.data.leden.removeAll(request.resource.data.leden).size() == 0);
-      allow delete: if ingelogd() && zelfOfAlias(resource.data.eigenaar);
+      allow create: if veiligeId(lijst) && nieuwOk('mappen', 'map');
+      allow update: if (lid() && lidWijzigingOk('mappen', 'map')) || (uitgenodigd() && uitnodigingOk());
+      allow delete: if ingelogd() && welkom(resource.data.eigenaar);
 
+      function lidVan(pad) { return ingelogd() && request.auth.uid in pad.data.leden; }
       match /items/{item} {
-        function lidVan(pad) { return ingelogd() && request.auth.uid in pad.data.leden; }
         allow read:            if lidVan(get(/databases/$(db)/documents/lijsten/$(lijst)));
-        allow create, update:  if lidVan(getAfter(/databases/$(db)/documents/lijsten/$(lijst)));
+        allow create, update:  if veiligeId(item) && lidVan(getAfter(/databases/$(db)/documents/lijsten/$(lijst)));
+        allow delete:          if lidVan(get(/databases/$(db)/documents/lijsten/$(lijst)));
+      }
+      // Koersafspraken voor iedereen in deze lijst
+      match /koers/{a} {
+        allow read:            if lidVan(get(/databases/$(db)/documents/lijsten/$(lijst)));
+        allow create, update:  if veiligeId(a) && lidVan(getAfter(/databases/$(db)/documents/lijsten/$(lijst)));
         allow delete:          if lidVan(get(/databases/$(db)/documents/lijsten/$(lijst)));
       }
     }
 
     match /mappen/{m} {
       function mlid() { return ingelogd() && request.auth.uid in resource.data.leden; }
-      function muitgenodigd() { return ingelogd() && request.auth.token.email != null && mijnMail() in resource.data.uitgenodigd; }
-      function meigenaarOk() { return request.resource.data.eigenaar == resource.data.eigenaar
-                                   || (resource.data.eigenaar == request.auth.uid && aliasVan(request.resource.data.eigenaar)); }
+      function muitgenodigd() { return ingelogd() && request.auth.token.email != null && mijnMail() in resource.data.get('uitgenodigd', []); }
       allow read: if mlid() || muitgenodigd();
-      allow create: if ingelogd() && zelfOfAlias(request.resource.data.eigenaar)
-                    && request.auth.uid in request.resource.data.leden;
-      allow update: if (mlid() && meigenaarOk())
-                    || (muitgenodigd()
-                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['leden', 'uitgenodigd', 'ledenInfo'])
-                        && request.resource.data.leden.removeAll(resource.data.leden).hasOnly([request.auth.uid])
-                        && resource.data.leden.removeAll(request.resource.data.leden).size() == 0);
-      allow delete: if ingelogd() && zelfOfAlias(resource.data.eigenaar);
+      allow create: if veiligeId(m) && nieuwOk('mappen', 'ouder');
+      allow update: if (mlid() && lidWijzigingOk('mappen', 'ouder')) || (muitgenodigd() && uitnodigingOk());
+      allow delete: if ingelogd() && welkom(resource.data.eigenaar);
+
+      // Koersafspraken voor iedereen in deze map
+      match /koers/{a} {
+        function mapLid(pad) { return ingelogd() && request.auth.uid in pad.data.leden; }
+        allow read:            if mapLid(get(/databases/$(db)/documents/mappen/$(m)));
+        allow create, update:  if veiligeId(a) && mapLid(getAfter(/databases/$(db)/documents/mappen/$(m)));
+        allow delete:          if mapLid(get(/databases/$(db)/documents/mappen/$(m)));
+      }
+    }
+
+    // ---------- koppelcodes ----------
+    // De id is een hash van e-mailadres + code: alleen wie allebei kent, vindt het document. Opzoeken (list) kan niet.
+    //   open      → account B heeft een code aangevraagd (10 minuten geldig)
+    //   verzocht  → account A heeft e-mail + code ingevuld (eenmalig, binnen de 10 minuten)
+    //   klaar / geweigerd → B heeft bevestigd (en zich in dezelfde schrijfactie aan A gelinkt) of geweigerd
+    match /koppelcodes/{k} {
+      function vanUid() { return resource.data.get('van', {}).get('uid', ''); }
+      allow get: if ingelogd();
+      allow list: if false;
+      allow create: if ingelogd() && k.matches('^[0-9a-f]{64}$')
+                    && request.resource.data.keys().hasOnly(['uid', 'email', 'naam', 'foto', 'status', 'verloopt'])
+                    && request.resource.data.uid == request.auth.uid && request.resource.data.status == 'open'
+                    && request.resource.data.verloopt is timestamp
+                    && request.resource.data.verloopt < request.time + duration.value(11, 'm');
+      allow update: if ingelogd() && (
+            (resource.data.status == 'open' && request.time < resource.data.verloopt
+              && request.auth.uid != resource.data.uid
+              && wijziging().hasOnly(['status', 'van'])
+              && request.resource.data.status == 'verzocht'
+              && request.resource.data.van.keys().hasOnly(['uid', 'email', 'naam', 'foto'])
+              && request.resource.data.van.uid == request.auth.uid)
+         || (resource.data.uid == request.auth.uid && resource.data.status == 'verzocht'
+              && request.time < resource.data.verloopt + duration.value(30, 'm')
+              && wijziging().hasOnly(['status'])
+              && request.resource.data.status in ['klaar', 'geweigerd']));
+      allow delete: if ingelogd() && (resource.data.uid == request.auth.uid || vanUid() == request.auth.uid);
     }
   }
 }

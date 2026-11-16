@@ -1,0 +1,6 @@
+{
+  "name": "tijdkompas-tests",
+  "private": true,
+  "type": "module",
+  "devDependencies": { "linkedom": "0.18.5" }
+}

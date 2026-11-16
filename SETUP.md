@@ -8,10 +8,11 @@ Gebruikers merken er niets van. Zij klikken alleen in de app op „Inloggen met 
 
 | Stap | Waarvoor | Status |
 |---|---|---|
-| **A** Firebase | inloggen met Google of met een link per e-mail (2b), online opslag, delen | ✅ gedaan — **let op:** plak de nieuwste `firestore.rules` opnieuw bij Regels (nodig voor meerdere accounts per Tijdkompas, sinds 16-11-2026) |
-| **B** Microsoft-omgeving + app | inloggen met Microsoft (B0: eenmalig een gratis eigen omgeving) | nog doen |
+| **A** Firebase | inloggen met Google of met een link per e-mail (2b), online opslag, delen | ✅ gedaan — ⚠️ **plak de nieuwste `firestore.rules` opnieuw** (zie [Beveiligingsregels bijwerken](#beveiligingsregels-bijwerken); nieuw op 16-11-2026: koppelcode, gedeelde Koers, strengere regels voor delen) |
+| **B** Microsoft-omgeving + app | inloggen met Microsoft (B0: eenmalig een gratis eigen omgeving) | ✅ gedaan — maak het geheim (B2) opnieuw aan als het ooit in een chat of mail heeft gestaan |
 | **C-Google** | Google Agenda, Google Taken en Google Drive koppelen | Client ID ✅ ingevuld; controleer de rest van stap C-Google |
-| **C-Microsoft** | Outlook-agenda, Microsoft To Do (Outlook-taken) en OneDrive koppelen | nog doen; stuur daarna de **Microsoft client-ID** |
+| **C-Microsoft** | Outlook-agenda, Microsoft To Do (Outlook-taken) en OneDrive koppelen | ✅ client-ID ingevuld, redirect-URI (SPA) staat |
+| **E** Extra afschermen (aanbevolen) | API-sleutel beperken tot deze site; controleren wie bij het Firebase-project kan | zie [E. Extra afschermen](#e-extra-afschermen-aanbevolen-10-minuten) |
 | **D** Outlook-agenda via een link | Outlook-agenda zien en eromheen plannen (alleen lezen), zonder Microsoft-registratie | ✅ doorgeefluik staat (tijdkompas-agenda.brennycc86.workers.dev); per agenda D2 + D3 |
 
 **Over de knoppen in deze handleiding:** de Firebase-console is altijd Engels. Google Cloud en Microsoft tonen soms Nederlands, afhankelijk van je instellingen.
@@ -242,6 +243,59 @@ hebben uitgezet; dan zie je de optie niet. Spijt? Klik daar op **Unpublish** (Pu
 
 ### Beveiligingsregels bijwerken
 
+**Doe dit vóórdat je de nieuwe functies gebruikt** (koppelcode, gedeelde Koers). Met de oude regels weigert Firebase die.
+
 Als Claude `firestore.rules` heeft aangepast (staat in de tabel bovenaan), plak je ze opnieuw:
 https://console.firebase.google.com/project/brennycc86-apps/firestore/databases/-default-/rules (of: linkermenu → Firestore Database → tabblad **Rules**) → in het tekstvak Ctrl+A, Delete, alles vervangen door de inhoud van
 [`firestore.rules`](firestore.rules) → **Publish** (Publiceren).
+
+Gaat het daarna mis (bijv. „Opslaan mislukt” of „Missing or insufficient permissions” rechtsboven bij je account)? Stuur dan een schermafbeelding.
+Je kunt ook zelf testen in de **Rules Playground** (Regels-speeltuin) op dezelfde pagina.
+
+---
+
+## E. Extra afschermen (aanbevolen, ± 10 minuten)
+
+Wat er nu al geregeld is (in de app en in `firestore.rules`):
+
+- **Je agenda, planning, koppelingen en persoonlijke Koers** staan in je eigen gebruikersdocument. Alleen jij en de accounts die je zelf hebt gelinkt kunnen dat lezen.
+- **Toegangssleutels** voor Google en Microsoft staan alleen in de browser van je eigen apparaat. Bij uitloggen worden ze gewist.
+- **Gedeelde lijsten**: alleen leden zien de taken. Niemand komt in een lijst zonder zelf een uitnodiging te accepteren. Alleen de eigenaar wijzigt naam, kleur en wie er is uitgenodigd.
+- **Linken van accounts** kan alleen als beide kanten instemmen (koppelcode én bevestiging).
+- **Geen code van anderen in je scherm**: alles wordt gefilterd en ontsmet. Een beveiligingsbeleid (Content-Security-Policy) laat alleen scripts van de app zelf en van Google/Firebase toe. Microsoft-inloggen (MSAL) staat in de app zelf, met een vaste controle-hash.
+
+Wat je zelf nog kunt doen:
+
+### E1. De Firebase-sleutel beperken tot deze site
+
+De sleutel in `js/config.js` is openbaar; dat hoort zo bij Firebase. Je gegevens worden beschermd door de regels, niet door de sleutel.
+Beperk hem toch, dan kan geen andere website hem gebruiken.
+
+1. Ga naar https://console.cloud.google.com/apis/credentials?project=brennycc86-apps
+2. Klik bij **API Keys** (API-sleutels) op de sleutel die begint met `AIzaSyAaA8n…` (meestal „Browser key (auto created by Firebase)”).
+3. Kies bij **Application restrictions** (Toepassingsbeperkingen) **Websites** en voeg toe:
+   - `https://brennyc86.github.io/*`
+   - `https://brennycc86-apps.firebaseapp.com/*`
+4. Klik op **Save** (Opslaan). Werkt inloggen daarna nog? Dan is het goed. Werkt het niet, stuur een schermafbeelding.
+
+### E2. Controleren wie bij het project kan
+
+1. Ga naar https://console.cloud.google.com/iam-admin/iam?project=brennycc86-apps
+2. Er hoort alleen **brennycc86@gmail.com** (Owner) te staan, plus serviceaccounts van Google zelf (eindigen op `gserviceaccount.com`).
+   Staat er iemand anders, haal die dan weg.
+3. Zet tweestapsverificatie aan op alle accounts die je in Tijdkompas linkt. Wie in één gelinkt account inbreekt, ziet ook de agenda van de andere.
+
+### E3. Outlook-agenda niet meer publiceren (als de Microsoft-koppeling werkt)
+
+Een gepubliceerde agenda (stap D) kan iedereen lezen die de geheime link heeft. Nu de echte Microsoft-koppeling werkt, is die link niet meer nodig:
+
+1. Haal hem in Tijdkompas weg: Instellingen → Agenda's & accounts → bij de agendalink op **Weghalen**.
+2. Ga in Outlook naar **Instellingen → Agenda → Gedeelde agenda's** en klik bij **Een agenda publiceren** op **Publicatie ongedaan maken** (Unpublish).
+
+### Goed om te weten voor werk
+
+- Tijdkompas bewaart je gegevens bij Google (Firebase, Nederland als je bij A de locatie `europe-west4` koos). Niet versleuteld met een eigen sleutel:
+  jij als eigenaar van het project en Google (als verwerker) kunnen er technisch bij, net als bij Google Drive.
+- Afspraaktitels uit je agenda staan in je eigen gebruikersdocument, zodat je gelinkte accounts ze ook zien.
+- Koppel een werk-takenlijst niet aan een lijst die je met mensen buiten je werk deelt: die zien dan ook die taken.
+- Check bij twijfel het beleid van je werkgever over agenda's en taken in externe apps.

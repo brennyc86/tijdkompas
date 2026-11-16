@@ -20,7 +20,24 @@ const scopesVoor = (tabel, doelen) => [...new Set([...tabel.basis, ...doelen.fla
 /** Waarvoor is deze koppeling? Oudere koppelingen waren alleen voor de agenda. */
 export const doelenVan = (v) => v.doelen || ["agenda"];
 export const heeft = (v, doel) => doelenVan(v).includes(doel);
-const MSAL_URL = "https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.28.1/lib/msal-browser.min.js";
+// MSAL staat in de app zelf (gecontroleerd tegen de officiële npm-hash van @azure/msal-browser 3.28.1), en de browser
+// controleert bij elk laden of het bestand nog precies hetzelfde is (Subresource Integrity). Geen externe CDN.
+const MSAL_URL = new URL("vendor/msal-browser-3.28.1.min.js", import.meta.url).href;
+const MSAL_SRI = "sha384-B5PXeUfgiegchZiX5iMRssMrHd9NfPhFnITob1HyW1CY76udptWpBsniaDsH/+BY";
+
+/**
+ * Bij uitloggen: alle toegangssleutels op dit apparaat wissen (Google-tokens, Microsoft-cache van MSAL),
+ * zodat iemand die na jou deze browser gebruikt niet bij je agenda's, takenlijsten of Drive kan.
+ */
+export function vergeetSleutels() {
+  try {
+    for (const k of Object.keys(localStorage)) {
+      if (k === SLEUTELS || k === VSLEUTEL || k === VAN || k.startsWith("msal.") || /login\.(windows\.net|microsoftonline\.com)/.test(k)) localStorage.removeItem(k);
+    }
+    for (const k of Object.keys(sessionStorage)) if (k.startsWith("msal.") || /login\.(windows\.net|microsoftonline\.com)/.test(k)) sessionStorage.removeItem(k);
+  } catch {}
+  gClient = null; msal = null;
+}
 
 export class VerlopenFout extends Error {
   constructor(v) { super(`Sessie van ${v.email} is verlopen`); this.verbinding = v; }
@@ -76,10 +93,11 @@ function werkV(v) { const l = verbindingen(); const i = l.findIndex(x => x.id ==
 export const primair = () => verbindingen().find(v => v.primair && v.soort === "google") || null;
 export const isVerlopen = (v) => v.soort === "google" && (!v.token || Date.now() > v.verloopt);
 
-function laadScript(src) {
+function laadScript(src, integriteit = "") {
   return new Promise((ok, fout) => {
     if ([...document.scripts].some(s => s.src === src && s.dataset.geladen)) return ok();
     const s = document.createElement("script"); s.src = src; s.async = true;
+    if (integriteit) { s.integrity = integriteit; s.crossOrigin = "anonymous"; }
     s.onload = () => { s.dataset.geladen = "1"; ok(); }; s.onerror = () => fout(new Error("Kon " + src + " niet laden"));
     document.head.appendChild(s);
   });
@@ -150,7 +168,7 @@ function msVrijmaken() {
 }
 async function msClient() {
   if (msal) return msal;
-  await laadScript(MSAL_URL);
+  await laadScript(MSAL_URL, MSAL_SRI);
   const pca = new window.msal.PublicClientApplication({
     auth: { clientId: ids().microsoft, authority: "https://login.microsoftonline.com/common", redirectUri: new URL("auth.html", location.href).href },
     cache: { cacheLocation: "localStorage" },

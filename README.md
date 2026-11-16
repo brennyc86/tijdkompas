@@ -40,7 +40,9 @@ Planner voor werk, privé en hobby's: projecten en taken, de Eisenhower-matrix (
 - Taken die erop lijken worden **voorgesteld** (bij snelinvoer, in de taak, bij afronden en op de Koers-pagina); koppelen kan ook met de hand.
 - Verhuist een lijst naar een map, dan kun je de afspraken meenemen naar de hele map.
 - **Overzicht voor het gesprek**: per afspraak de afgeronde taken met datum en tijd, wat nog open staat en je terugblik — af te drukken als PDF of te kopiëren als tekst.
-- Koers is persoonlijk: collega's in gedeelde lijsten zien het niet.
+- Een afspraak is **persoonlijk** (alleen jij ziet hem) of **voor iedereen in de lijst of map** waar hij bij hoort.
+  Een gedeelde afspraak wijs je toe aan de **hele groep**, aan **één of meer personen**, of aan de groep mét een paar trekkers.
+  Met „Voor mij” zie je alleen wat voor jou is; het overzicht voor het gesprek volgt die keuze.
 
 ## Samenwerken: wie doet wat, en wie wacht op wie
 
@@ -94,7 +96,9 @@ Eenmalige setup door de eigenaar: zie [SETUP.md](SETUP.md).
 
 ## Gelinkte accounts (bijv. privé en werk)
 - Elk account is zelfstandig: eigen koppelingen (agenda, takenlijsten, Drive), eigen planning en eigen kleuren.
-- Link ze vanuit het hoofdaccount: Account → „Gelinkte accounts” → ＋ Google-/Microsoft-account toevoegen.
+- Link ze vanuit het hoofdaccount: Account → „Gelinkte accounts” → ＋ Google-/Microsoft-account toevoegen (als je beide op dit apparaat kunt inloggen).
+- Of met een **koppelcode** (ook op twee verschillende apparaten): vraag op het andere account een code aan (6 tekens, 10 minuten geldig),
+  vul op het hoofdaccount het e-mailadres van dat account en de code in, en bevestig daarna op het andere account. Weigeren kan ook.
 - Daarna zie je met elk account ook de lijsten (en taken) van de ander, en hun agenda en planning gedimd op de achtergrond.
   De planner plant om alles heen; lijsten van het andere account plant dat account zelf in, in zijn eigen agenda.
 - Loskoppelen kan altijd: ieder houdt zijn eigen lijsten.
@@ -112,5 +116,9 @@ Eenmalige setup door de eigenaar: zie [SETUP.md](SETUP.md).
 - Toetsen: `n` nieuwe taak, `p` nieuw project
 
 ## Techniek
+
+**Veiligheid**: alles van buiten (gedeelde lijsten, agenda's, bestanden) gaat door `js/veilig.js`, en alles wordt bij het tonen ontsmet.
+Een Content-Security-Policy in `index.html` laat alleen scripts van de app zelf en van Google/Firebase toe. MSAL staat vast in `js/vendor/`, met een SRI-hash.
+`tests/veiligheid.mjs` controleert dit (`cd tests && npm install && node veiligheid.mjs`); dat gebeurt ook bij elke push (GitHub Actions).
 
 Statische site zonder build-stap: `js/data.js` (model + opslag), `js/plan.js` (dagindeling, inroosteren, .ics), `js/cloud.js` (Firebase: inloggen, Firestore-opslag als verschil-synchronisatie, delen), `js/koppeling.js` + `js/sync.js` (Google Agenda / Outlook), `js/schijf.js` (lijsten in eigen Drive/OneDrive, 3-wegs samenvoegen), `js/app.js` (UI). Beveiligingsregels: `firestore.rules`.

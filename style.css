@@ -449,3 +449,10 @@ dialog #toast{position:fixed}
 .instdlg .ovrij{margin:0}
 .mrij .x{opacity:.55}.mrij:hover .x{opacity:1}
 a.koersitem{text-decoration:none;color:inherit}
+/* koppelcode */
+.koppelblok{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+.koppelcode .code{font:700 30px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:6px;margin:6px 0;color:var(--accent)}
+.koppelcode{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.koppelverzoek{border-color:var(--accent)}
+/* koers: voor wie */
+.kwie{display:flex;flex-wrap:wrap;gap:4px}

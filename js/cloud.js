@@ -28,6 +28,8 @@ import { opslag, sessie, uid as nieuwId, startData, isIk, bewaar } from "./data.
 import { aanvullen, haak, laadOntbrekende, vergeet } from "./schijf.js";
 import { herkenLocatie } from "./plan.js";
 import { vingerafdruk } from "./sync.js";
+import { veiligIcoon, veiligeKleur, veiligId } from "./veilig.js";
+import { vergeetSleutels } from "./koppeling.js";
 
 const B = "https://www.gstatic.com/firebasejs/10.14.1/";
 let A = null, F = null, auth = null, db = null;
@@ -143,12 +145,15 @@ async function rondEmailLinkAf() {
 export async function uitloggen() {
   stop();
   await A.signOut(auth);
-  try { await F.clearIndexedDbPersistence?.(db); } catch {}
+  vergeetSleutels();   // geen toegang tot je agenda's meer vanaf dit apparaat
+  try { await F.terminate?.(db); await F.clearIndexedDbPersistence?.(db); } catch {}
 }
 
 // ---------- staat ----------
 let subs = [];
 const itemSubs = new Map();     // lijstId → unsubscribe
+const koersSubs = new Map();    // "lijsten/id" of "mappen/id" → unsubscribe (koersafspraken voor iedereen in die lijst/map)
+const koersDocs = new Map();    // idem → [afspraken]
 const lijstDocs = new Map();    // lijstId → data
 const itemDocs = new Map();     // lijstId → [items]
 const mapDocs = new Map();      // mapId → data
@@ -163,6 +168,8 @@ let geladen = { gebruiker: false, lijsten: false, mappen: false };
 function stop() {
   subs.forEach(f => f()); subs = [];
   itemSubs.forEach(f => f()); itemSubs.clear();
+  koersSubs.forEach(f => f()); koersSubs.clear(); koersDocs.clear();
+  koppelStop();
   lijstDocs.clear(); itemDocs.clear(); mapDocs.clear(); wachtend = new Map(); bekend.clear(); gebruikerDoc = null; inGeheugen = new Set();
   geladen = { gebruiker: false, lijsten: false, mappen: false };
   clearTimeout(schrijfTimer); schrijfTimer = null;
@@ -253,6 +260,7 @@ function abonneer() {
     abonneerFamilie();
     geladen.gebruiker = true; bouwStraks(); meld();
   }, fout));
+  hervatKoppel();
   subs.push(F.onSnapshot(F.query(F.collection(db, "lijsten"), F.where("leden", "array-contains", wie)), (s) => {
     const nu = new Set();
     s.forEach(doc => {
@@ -262,32 +270,51 @@ function abonneer() {
         itemDocs.set(doc.id, si.docs.map(x => { bekend.set(`lijsten/${doc.id}/items/${x.id}`, stabiel(x.data())); return { ...x.data(), id: x.id }; }));
         bouwStraks();
       }, fout));
+      volgKoers("lijsten", doc.id);
     });
     for (const id of [...lijstDocs.keys()]) if (!nu.has(id)) {
-      lijstDocs.delete(id); itemDocs.delete(id); itemSubs.get(id)?.(); itemSubs.delete(id);
+      lijstDocs.delete(id); itemDocs.delete(id); itemSubs.get(id)?.(); itemSubs.delete(id); stopKoers("lijsten", id);
       for (const k of [...bekend.keys()]) if (k === "lijsten/" + id || k.startsWith(`lijsten/${id}/`)) bekend.delete(k);
     }
     geladen.lijsten = true; bouwStraks();
   }, fout));
   subs.push(F.onSnapshot(F.query(F.collection(db, "mappen"), F.where("leden", "array-contains", wie)), (s) => {
     const nu = new Set();
-    s.forEach(doc => { nu.add(doc.id); mapDocs.set(doc.id, doc.data()); bekend.set("mappen/" + doc.id, stabiel(doc.data())); });
-    for (const id of [...mapDocs.keys()]) if (!nu.has(id)) { mapDocs.delete(id); bekend.delete("mappen/" + id); }
+    s.forEach(doc => { nu.add(doc.id); mapDocs.set(doc.id, doc.data()); bekend.set("mappen/" + doc.id, stabiel(doc.data())); volgKoers("mappen", doc.id); });
+    for (const id of [...mapDocs.keys()]) if (!nu.has(id)) {
+      mapDocs.delete(id); stopKoers("mappen", id);
+      for (const k of [...bekend.keys()]) if (k === "mappen/" + id || k.startsWith(`mappen/${id}/`)) bekend.delete(k);
+    }
     geladen.mappen = true; bouwStraks();
   }, fout));
   // Uitnodigingen: per lijst en per map. Een gedeelde map nodigt ook uit voor alles erin; toon alleen de bovenste.
   if (email) for (const soort of ["lijsten", "mappen"]) subs.push(F.onSnapshot(F.query(F.collection(db, soort), F.where("uitgenodigd", "array-contains", email)), (s) => {
     for (const [id, x] of [...wachtend]) if (x.soort === soort) wachtend.delete(id);
-    s.docs.filter(x => !(x.data().leden || []).includes(wie)).forEach(x => wachtend.set(x.id, { soort, data: x.data() }));
+    s.docs.filter(x => veiligId(x.id) && !(x.data().leden || []).includes(wie)).forEach(x => wachtend.set(x.id, { soort, data: x.data() }));
     const ouderVan = (x) => x.soort === "lijsten" ? x.data.map : x.data.ouder;
     cloud.uitnodigingen = [...wachtend].filter(([, x]) => !wachtend.has(ouderVan(x))).map(([id, x]) => ({
-      id, map: x.soort === "mappen", naam: x.data.naam, icoon: x.data.icoon, van: x.data.ledenInfo?.[x.data.eigenaar]?.naam || "iemand",
+      id, map: x.soort === "mappen", naam: String(x.data.naam || "").slice(0, 200), icoon: veiligIcoon(x.data.icoon), van: String(x.data.ledenInfo?.[x.data.eigenaar]?.naam || "iemand").slice(0, 200),
       aantal: x.soort === "mappen" ? boomVan(id).filter(y => wachtend.get(y)?.soort === "lijsten").length : 0,
     }));
     meld();
   }, () => {}));
 }
 function fout(e) { cloud.fout = e.message; meld(); }
+// Koersafspraken die bij een lijst of map horen en voor iedereen daarin zijn
+function volgKoers(soort, id) {
+  const k = soort + "/" + id;
+  if (koersSubs.has(k)) return;
+  koersSubs.set(k, F.onSnapshot(F.collection(db, soort, id, "koers"), (s) => {
+    for (const p of [...bekend.keys()]) if (p.startsWith(k + "/koers/")) bekend.delete(p);
+    koersDocs.set(k, s.docs.map(x => { bekend.set(`${k}/koers/${x.id}`, stabiel(x.data())); return { ...x.data(), id: x.id, gedeeld: true }; }));
+    bouwStraks();
+  }, () => {}));
+}
+function stopKoers(soort, id) {
+  const k = soort + "/" + id;
+  koersSubs.get(k)?.(); koersSubs.delete(k); koersDocs.delete(k);
+  for (const p of [...bekend.keys()]) if (p.startsWith(k + "/koers/")) bekend.delete(p);
+}
 
 
 function opnieuw() { stop(); if (auth.currentUser) aangemeld(auth.currentUser).catch(fout); }
@@ -305,7 +332,7 @@ function abonneerFamilie() {
       cloud.aliasInfo = x.aliasInfo || {}; cloud.hoofdInfo = x.profiel || null;
       abonneerFamilie();
     }
-    verhuisStraks(); meld();
+    verhuisStraks(); bouwStraks(); meld();
   }, () => { familieDocs.delete(u); if (u === cloud.hoofdUid) opnieuw(); }));
 }
 const accVan = (k) => String(k || "").match(/^(?:google|ms):([^|]+)/)?.[1]?.toLowerCase() || "";
@@ -329,7 +356,7 @@ export function familieAgenda() {
   const bezet = [], planning = [];
   for (const [u, x] of familieDocs) {
     const van = emailVan(u);
-    for (const e of x.bezet || []) bezet.push({ ...e, vanFamilie: van, soortF: x.agendas?.[e.bron]?.soort || "bezet", kleurF: x.agendas?.[e.bron]?.kleur || "" });
+    for (const e of x.bezet || []) bezet.push({ ...e, kleur: veiligeKleur(e.kleur, ""), vanFamilie: van, soortF: x.agendas?.[e.bron]?.soort || "bezet", kleurF: veiligeKleur(x.agendas?.[e.bron]?.kleur, "") });
     for (const b of x.planning || []) planning.push({ ...b, vanFamilie: van, titel: b.titel || "Gepland" });
   }
   return { bezet, planning };
@@ -450,7 +477,7 @@ function bouw() {
     mappen: [...mapDocs].sort(([a], [b]) => { const v = u.mapVolgorde || [], x = v.indexOf(a), y = v.indexOf(b); return (x < 0 ? 1e9 : x) - (y < 0 ? 1e9 : y); })
       .map(([id, m]) => ({ id, naam: m.naam, icoon: m.icoon, kleur: m.kleur, eigenaar: m.eigenaar, leden: m.leden || [], ledenInfo: m.ledenInfo || {}, uitgenodigd: m.uitgenodigd || [],
                            ouder: u.mapInst?.[id]?.ouder ?? (mapDocs.has(m.ouder) ? m.ouder : "") })),
-    koers: u.koers || [],
+    koers: [...(u.koers || []).filter(a => !a.gedeeld), ...[...koersDocs.values()].flat()],
     taken: items.filter(x => x.type === "taak"), projecten: items.filter(x => x.type === "project"), demo: false,
   }, { nieuweToevoegen: false });
   // titels van blokken uit schijflijsten terugzetten (de cloud kent alleen tijden)
@@ -459,9 +486,10 @@ function bouw() {
   opslag.vervang(d, { stil: true });
   verhuisStraks();
   inGeheugen = new Set([...d.overzichten.map(o => "lijsten/" + o.id), ...(d.mappen || []).map(m => "mappen/" + m.id),
-                        ...[...d.taken, ...d.projecten].map(x => `lijsten/${x.overzicht}/items/${x.id}`)]);
+                        ...[...d.taken, ...d.projecten].map(x => `lijsten/${x.overzicht}/items/${x.id}`),
+                        ...d.koers.filter(a => a.gedeeld).map(koersPad).filter(Boolean)]);
   // nieuw toegevoegd account nog niet overal lid? (bijv. net gekoppeld) → bijwerken
-  const fam = familie().filter(u => !exFamilie.has(u));
+  const fam = echteFamilie();
   if (fam.length > 1 && [...lijstDocs.values(), ...mapDocs.values()].some(x => fam.some(u => !(x.leden || []).includes(u)))) planSchrijven();
   laadOntbrekende(d);
 }
@@ -470,7 +498,23 @@ function bouw() {
 const PERSOONLIJK = ["modus", "locatie", "tijden", "doelAgenda", "map"];
 // Alle inlogs van dit Tijdkompas horen in elke lijst/map (zonder losgekoppelde: die staan niet meer in familie)
 const exFamilie = new Set();
-const metFamilie = (leden) => [...new Set([...(leden?.length ? leden : [sessie.ik]), ...familie()])].filter(u => !exFamilie.has(u));   // per gebruiker, ook bij gedeelde lijsten
+// Als hoofd: een gelinkt account pas toevoegen als het zelf ook naar mij wijst (wederzijds; zo eisen de regels het ook)
+const echteFamilie = () => familie().filter(u => !exFamilie.has(u) && (u === sessie.ik || !!cloud.hoofdUid || familieDocs.get(u)?.hoofd === sessie.ik));
+const metFamilie = (leden) => [...new Set([...(leden?.length ? leden : [sessie.ik]), ...echteFamilie()])].filter(u => !exFamilie.has(u));   // per gebruiker, ook bij gedeelde lijsten
+// ledenInfo: wat op de server staat blijft staan (de regel van een ander pas je niet aan); nieuwe leden krijgen hun regel erbij
+function infoNaar(server, lokaal, leden) {
+  const uit = {}, oudeLeden = new Set(server?.leden || []), info = server?.ledenInfo || {};
+  for (const u of leden) {
+    if (info[u]) uit[u] = info[u];
+    else if (lokaal?.[u] && (!oudeLeden.has(u) || u === sessie.ik)) uit[u] = lokaal[u];
+  }
+  if (!uit[sessie.ik] && leden.includes(sessie.ik) && !Object.keys(uit).length) uit[sessie.ik] = ikInfo();
+  return uit;
+}
+// Waar een gedeelde koersafspraak staat
+const koersPad = (a) => a.doel?.id && (a.doel.soort === "map" || a.doel.soort === "lijst") ? `${a.doel.soort === "map" ? "mappen" : "lijsten"}/${a.doel.id}/koers/${a.id}` : "";
+// Velden in je gebruikersdocument die alleen via het linken veranderen (nooit overschrijven met een oudere kopie)
+const BESCHERMD = ["aliassen", "aliasInfo", "hoofd", "profiel", "koppelcode"];
 function naarDocs(d) {
   const ik = sessie.ik, docs = new Map();
   const schijfLijst = new Set(d.overzichten.filter(o => o.opslag).map(o => o.id));
@@ -490,27 +534,48 @@ function naarDocs(d) {
     ...(gebruikerDoc?.hoofd ? { hoofd: gebruikerDoc.hoofd } : {}),
     lijstVolgorde: d.overzichten.map(o => o.id), mapVolgorde: (d.mappen || []).map(m => m.id),
     mapInst: Object.fromEntries((d.mappen || []).map(m => [m.id, { ouder: m.ouder || "" }])),
-    koers: d.koers || [],
+    koers: (d.koers || []).filter(a => !a.gedeeld || !koersPad(a)),
     lijstInst: Object.fromEntries(d.overzichten.map(o => [o.id, o.opslag
       ? { opslag: o.opslag, naam: o.naam || "", icoon: o.icoon || "", kleur: o.kleur || "", map: o.map || "" }
       : Object.fromEntries(PERSOONLIJK.map(k => [k, o[k] ?? null]))])),
   }));
+  // Andermans lijst of map (niet van jou of je gelinkte accounts): de instellingen zijn van de eigenaar en gaan
+  // ongewijzigd terug; jij past alleen leden (jezelf en je gelinkte accounts), je eigen ledenregel en 'mensen' aan.
   for (const o of d.overzichten) {
     if (o.opslag) continue;
+    const srv = lijstDocs.get(o.id), leden = metFamilie(o.leden);
+    if (srv && !isIk(srv.eigenaar)) {
+      docs.set("lijsten/" + o.id, schoon({ ...srv, leden, ledenInfo: infoNaar(srv, o.ledenInfo, leden), mensen: o.mensen || [] }));
+      continue;
+    }
     docs.set("lijsten/" + o.id, schoon({
-      naam: o.naam, kleur: o.kleur, icoon: o.icoon, eigenaar: lijstDocs.get(o.id)?.eigenaar || o.eigenaar || ik,   // eigenaar verandert alleen op de server
-      leden: metFamilie(o.leden), ledenInfo: o.ledenInfo && Object.keys(o.ledenInfo).length ? o.ledenInfo : { [ik]: ikInfo() },
+      naam: o.naam, kleur: o.kleur, icoon: o.icoon, eigenaar: srv?.eigenaar || o.eigenaar || ik,   // eigenaar verandert alleen op de server
+      leden, ledenInfo: infoNaar(srv, o.ledenInfo, leden),
       uitgenodigd: (o.uitgenodigd || []).map(e => e.toLowerCase()), mensen: o.mensen || [], verdeling: o.verdeling || "samen",
-      map: (o.eigenaar || ik) === ik ? o.map || "" : lijstDocs.get(o.id)?.map ?? "",        // indeling van de eigenaar (alleen die zet hem)
+      map: (o.eigenaar || ik) === ik ? o.map || "" : srv?.map ?? "",        // indeling van de eigenaar (alleen die zet hem)
     }));
   }
   for (const m of d.mappen || []) {
+    const srv = mapDocs.get(m.id), leden = metFamilie(m.leden);
+    if (srv && !isIk(srv.eigenaar)) {
+      docs.set("mappen/" + m.id, schoon({ ...srv, leden, ledenInfo: infoNaar(srv, m.ledenInfo, leden) }));
+      continue;
+    }
     docs.set("mappen/" + m.id, schoon({
-      naam: m.naam, icoon: m.icoon, kleur: m.kleur, eigenaar: mapDocs.get(m.id)?.eigenaar || m.eigenaar || ik,
-      ouder: (m.eigenaar || ik) === ik ? m.ouder || "" : mapDocs.get(m.id)?.ouder ?? "",
-      leden: metFamilie(m.leden), ledenInfo: m.ledenInfo && Object.keys(m.ledenInfo).length ? m.ledenInfo : { [ik]: ikInfo() },
+      naam: m.naam, icoon: m.icoon, kleur: m.kleur, eigenaar: srv?.eigenaar || m.eigenaar || ik,
+      ouder: (m.eigenaar || ik) === ik ? m.ouder || "" : srv?.ouder ?? "",
+      leden, ledenInfo: infoNaar(srv, m.ledenInfo, leden),
       uitgenodigd: (m.uitgenodigd || []).map(e => e.toLowerCase()),
     }));
+  }
+  // Koersafspraken voor iedereen in een lijst of map (alleen in de Tijdkompas-cloud, niet in een eigen schijf)
+  for (const a of d.koers || []) {
+    if (!a.gedeeld) continue;
+    const pad = koersPad(a); if (!pad) continue;
+    const [soort, id] = pad.split("/");
+    if (soort === "lijsten" ? schijfLijst.has(id) || !d.overzichten.some(o => o.id === id) : !(d.mappen || []).some(m => m.id === id)) continue;
+    const { gedeeld, ...rest } = a;
+    docs.set(pad, schoon({ ...rest, gedeeld: true }));
   }
   for (const x of [...d.taken, ...d.projecten]) {
     if (!d.overzichten.some(o => o.id === x.overzicht) || schijfLijst.has(x.overzicht)) continue;
@@ -546,20 +611,23 @@ function schrijf(gewenst, oud, opruimen = false) {
       const l = (delen[0] === "lijsten" ? lijstDocs : mapDocs).get(delen[1]);
       if (!l || isIk(l.eigenaar)) ops.push(["del", pad]);
       else ops.push(["verlaat", pad]);                                   // andermans lijst: alleen jezelf eruit halen
-    } else if (delen[0] === "lijsten" && delen.length === 4) {
-      const l = lijstDocs.get(delen[1]);
-      if (gewenst.has("lijsten/" + delen[1]) || isIk(l?.eigenaar)) ops.push(["del", pad]);
+    } else if ((delen[0] === "lijsten" || delen[0] === "mappen") && delen.length === 4) {
+      const l = (delen[0] === "lijsten" ? lijstDocs : mapDocs).get(delen[1]);
+      if (gewenst.has(delen[0] + "/" + delen[1]) || isIk(l?.eigenaar)) ops.push(["del", pad]);
     }
     bekend.delete(pad);
   }
   if (!ops.length) return ops.length === 0 && oud !== bekend ? Promise.resolve(0) : 0;
   cloud.bezig = true; meld();
   const klaar = [];
-  for (let i = 0; i < ops.length; i += 450) {
+  // Gedeelde koersafspraken apart: wordt zo'n schrijfactie geweigerd, dan blijft de rest (taken, lijsten) gewoon bewaard
+  const groepen = [ops.filter(o => !o[1].includes("/koers/")), ops.filter(o => o[1].includes("/koers/"))].filter(g => g.length);
+  for (const g of groepen) for (let i = 0; i < g.length; i += 450) {
     const b = F.writeBatch(db);
-    for (const [soort, pad, obj] of ops.slice(i, i + 450)) {
+    for (const [soort, pad, obj] of g.slice(i, i + 450)) {
       const ref = F.doc(db, pad);
-      if (soort === "set") b.set(ref, obj);
+      if (soort === "set" && pad.startsWith("gebruikers/")) b.set(ref, obj, { mergeFields: Object.keys(obj).filter(k => !BESCHERMD.includes(k)) });
+      else if (soort === "set") b.set(ref, obj);
       else if (soort === "del") b.delete(ref);
       else b.update(ref, { leden: F.arrayRemove(...familie()), ...Object.fromEntries(familie().map(u => [`ledenInfo.${u}`, F.deleteField()])) });
     }
@@ -594,3 +662,110 @@ export async function weiger(id) {
 export const ingelogd = () => !!cloud.gebruiker;
 /** Zijn de gegevens van het ingelogde Tijdkompas binnen (en niet meer die van daarvoor)? */
 export const cloudGeladen = () => !!cloud.gebruiker && geladen.gebruiker && geladen.lijsten;
+
+// ---------- koppelcode: twee accounts linken, ook als ze niet op hetzelfde apparaat ingelogd zijn ----------
+// 1. Account B vraagt een code aan (6 tekens, 10 minuten geldig). In Firestore staat die onder een hash van e-mail + code,
+//    zodat alleen wie allebei kent hem kan vinden.
+// 2. Het hoofdaccount A vult het e-mailadres van B en de code in → verzoek.
+// 3. B ziet wie wil linken en bevestigt (of weigert). Bij bevestigen zet B in één keer: de code op "klaar", zichzelf in
+//    A's lijst van gelinkte accounts en A als hoofd in zijn eigen document. De regels staan dat alleen in die combinatie toe.
+const TEKENS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";   // zonder 0/O, 1/I/L
+const KOPPEL = "tk_koppel";                          // + "_" + uid: per account op dit apparaat
+export const koppel = { b: null, a: null };            // b: mijn aangevraagde code · a: mijn verzoek met andermans code
+let koppelSubs = [];
+function koppelStop() { koppelSubs.forEach(f => f()); koppelSubs = []; koppel.a = koppel.b = null; }
+async function codeHash(email, code) {
+  const tekst = String(email || "").trim().toLowerCase() + "|" + String(code || "").replace(/[\s-]/g, "").toUpperCase();
+  const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(tekst));
+  return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, "0")).join("");
+}
+function bewaarKoppel() {
+  try { const x = { uid: sessie.ik, a: koppel.a?.id || "", b: koppel.b ? { id: koppel.b.id, code: koppel.b.code, verloopt: koppel.b.verloopt } : null };
+        if (x.a || x.b) localStorage.setItem(KOPPEL + "_" + sessie.ik, JSON.stringify(x)); else localStorage.removeItem(KOPPEL + "_" + sessie.ik); } catch {}
+}
+function volgCode(rol, id) {
+  koppelSubs.push(F.onSnapshot(F.doc(db, "koppelcodes", id), (s) => {
+    const x = s.data();
+    if (rol === "b") {
+      if (!koppel.b || koppel.b.id !== id) return;
+      if (!x || x.status === "klaar") { koppel.b = null; bewaarKoppel(); meld(); return; }
+      koppel.b.status = x.status; koppel.b.van = x.van || null; meld();
+    } else {
+      if (!koppel.a || koppel.a.id !== id) return;
+      if (!x) { koppel.a = null; bewaarKoppel(); meld(); return; }
+      koppel.a.status = x.status;
+      if (x.status === "klaar" || x.status === "geweigerd") {
+        cloud.koppelResultaat = { email: x.email, geweigerd: x.status === "geweigerd" };
+        koppel.a = null; bewaarKoppel();
+        F.deleteDoc(F.doc(db, "koppelcodes", id)).catch(() => {});
+      }
+      meld();
+    }
+  }, () => {}));
+}
+// Na herladen: lopende code of verzoek weer volgen
+function hervatKoppel() {
+  if (koppelSubs.length || koppel.a || koppel.b) return;
+  let x = null; try { x = JSON.parse(localStorage.getItem(KOPPEL + "_" + sessie.ik) || "null"); } catch {}
+  if (!x || x.uid !== sessie.ik) return;
+  if (x.b && x.b.verloopt + 40 * 60e3 > Date.now()) { koppel.b = { ...x.b, status: "open", van: null }; volgCode("b", x.b.id); }
+  if (x.a) { koppel.a = { id: x.a, status: "verzocht" }; volgCode("a", x.a); }
+}
+/** Account B: vraag een koppelcode aan om dit account aan een ander (hoofd)account te linken */
+export async function vraagKoppelcode() {
+  if (!cloud.gebruiker) throw new Error("Log eerst in");
+  if (cloud.hoofdUid) throw new Error(`Dit account is al gelinkt aan ${cloud.hoofdInfo?.email || "een ander account"}.`);
+  if ((gebruikerDoc?.aliassen || []).length) throw new Error("Aan dit account zijn zelf al andere accounts gelinkt. Gebruik dit account als hoofd: vul hier de code van het andere account in.");
+  const email = cloud.gebruiker.email;
+  if (!email) throw new Error("Dit account heeft geen e-mailadres; linken met een code kan dan niet.");
+  const r = crypto.getRandomValues(new Uint32Array(6)), code = [...r].map(x => TEKENS[x % TEKENS.length]).join("");
+  const id = await codeHash(email, code), verloopt = Date.now() + 10 * 60e3;
+  await F.setDoc(F.doc(db, "koppelcodes", id), { uid: sessie.ik, email, naam: cloud.gebruiker.naam, foto: cloud.gebruiker.foto || "",
+                                                  status: "open", verloopt: F.Timestamp.fromMillis(verloopt) });
+  koppelSubs.forEach(f => f()); koppelSubs = [];
+  koppel.b = { id, code, verloopt, status: "open", van: null };
+  bewaarKoppel(); volgCode("b", id); meld();
+  return koppel.b;
+}
+/** Hoofdaccount A: het e-mailadres en de code van account B invullen → B krijgt een verzoek om te bevestigen */
+export async function gebruikKoppelcode(email, code) {
+  if (!cloud.gebruiker) throw new Error("Log eerst in");
+  if (!isHoofd()) throw new Error("Accounts linken doe je vanuit het hoofdaccount.");
+  email = String(email || "").trim().toLowerCase(); code = String(code || "").replace(/[\s-]/g, "").toUpperCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("Vul het e-mailadres van het andere account in");
+  if (!/^[A-Z0-9]{6}$/.test(code)) throw new Error("De koppelcode heeft 6 tekens");
+  if (email === cloud.gebruiker.email) throw new Error("Dat is het account waarmee je nu bent ingelogd. Vraag de code aan op het andere account.");
+  const id = await codeHash(email, code), ref = F.doc(db, "koppelcodes", id);
+  const s = await F.getDoc(ref).catch(() => null);
+  const x = s?.exists() ? s.data() : null;
+  if (!x) throw new Error("Deze combinatie van e-mailadres en code klopt niet, of de code is verlopen.");
+  const tot = x.verloopt?.toMillis ? x.verloopt.toMillis() : (x.verloopt?.seconds ?? 0) * 1000;
+  if (x.status !== "open" || tot < Date.now()) throw new Error("Deze code is al gebruikt of verlopen. Vraag op het andere account een nieuwe aan.");
+  if (x.uid === sessie.ik || cloud.familie.includes(x.uid)) throw new Error("Dit account hoort al bij dit Tijdkompas.");
+  await F.updateDoc(ref, { status: "verzocht", van: { uid: sessie.ik, email: cloud.gebruiker.email, naam: cloud.gebruiker.naam, foto: cloud.gebruiker.foto || "" } });
+  koppel.a = { id, email: x.email, naam: x.naam, status: "verzocht" };
+  bewaarKoppel(); volgCode("a", id); meld();
+  return koppel.a;
+}
+/** Account B: het verzoek bevestigen (ja = linken) of weigeren */
+export async function beantwoordKoppel(ja) {
+  const k = koppel.b;
+  if (!k || k.status !== "verzocht" || !k.van?.uid) throw new Error("Er is geen verzoek om te bevestigen");
+  const ref = F.doc(db, "koppelcodes", k.id);
+  if (!ja) { await F.updateDoc(ref, { status: "geweigerd" }); koppel.b = null; bewaarKoppel(); meld(); return null; }
+  if ((gebruikerDoc?.aliassen || []).length || cloud.hoofdUid) throw new Error("Dit account is intussen al gelinkt.");
+  const A = k.van, b = F.writeBatch(db);
+  b.update(ref, { status: "klaar" });
+  b.set(F.doc(db, "gebruikers", sessie.ik), { hoofd: A.uid, aliassen: [A.uid] }, { merge: true });
+  b.update(F.doc(db, "gebruikers", A.uid), { aliassen: F.arrayUnion(sessie.ik), [`aliasInfo.${sessie.ik}`]: ikInfo(), koppelcode: k.id });
+  await b.commit();
+  koppel.b = null; bewaarKoppel();
+  cloud.koppelResultaat = { email: A.email };
+  opnieuw();   // nu als gelinkt account: lijsten, agenda en planning van het hoofd erbij
+  return A;
+}
+export function stopKoppelcode() {
+  const k = koppel.b; if (!k) return;
+  F.deleteDoc(F.doc(db, "koppelcodes", k.id)).catch(() => {});
+  koppelSubs.forEach(f => f()); koppelSubs = []; koppel.b = null; bewaarKoppel(); meld();
+}

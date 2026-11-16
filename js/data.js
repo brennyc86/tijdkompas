@@ -2,6 +2,8 @@
 // Altijd lokaal in localStorage; met een Google-login wordt dezelfde blob ook in je eigen
 // Google Drive (verborgen app-map) bewaard, zodat al je apparaten dezelfde planning zien.
 
+import { ontsmet } from "./veilig.js";
+
 const SLEUTEL = "tijdkompas_v1";
 
 // Wie is er ingelogd (Firebase-uid), of null in lokale modus.
@@ -103,7 +105,7 @@ function normaliseer(d) {
   }
   delete n.accounts;
   n.versie = 2;
-  return n;
+  return ontsmet(n);   // gedeelde en externe gegevens: alleen veilige id's, kleuren, iconen en links
 }
 
 let data = laad();
