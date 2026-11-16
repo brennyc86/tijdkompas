@@ -400,6 +400,19 @@ function snelInvoer(ph = "Nieuwe taak… bv. Offerte sturen ~45m !u ^vr #present
 }
 
 // ===== Vandaag =====
+// Afspraken: die van het account waarmee je nu inlogt vallen op (in hun eigen Google-/Outlook-kleur),
+// die uit je andere gekoppelde accounts staan er ook, gedimd in één rustige kleur — zo heb je het complete overzicht.
+function eigenAgendaEmail() {
+  const em = cloud.gebruiker?.email?.toLowerCase();
+  return em && verbindingen().some(v => v.email.toLowerCase() === em) ? em : "";
+}
+function afspraakStijl(ev) {
+  const k = d().agendas[ev.bron];
+  const kleur = ev.kleur || (k?.lijst ? ovKleur(k.lijst) : (k?.kleur || "var(--zacht)"));
+  const em = eigenAgendaEmail(), acc = String(ev.bron || "").match(/^(?:google|ms):([^|]+)\|/)?.[1]?.toLowerCase();
+  const ander = !!(em && acc && acc !== em);
+  return { k, kleur: ander ? "var(--zacht)" : kleur, ander };
+}
 function vandaag() {
   const nu = new Date(), vd = vandaagStr();
   const open = d().taken.filter(t => t.status !== "klaar" && zichtbaar(t));
@@ -427,8 +440,9 @@ function vandaag() {
       <h3>Focus — eerst dit</h3>
       <div class="lijst">${focus.map(t => itemRij(t)).join("") || `<div class="leeg">Niets dringends. Tijd voor kwadrant „Plannen”.</div>`}</div>
       <h3>Vandaag in je agenda</h3>
-      <div class="tijdlijn">${blokken.map(b => `<div class="tblok ${b.bezet ? "bezet" : ""}" style="--ok:${ovKleur(b.overzicht)}" ${b.bezet ? "" : `data-blok="${b.id}"`}>
-          <span class="tijd">${fmtTijd(b.start)}–${fmtTijd(b.eind)}</span><span>${b.bezet ? "📅 " : ""}${esc(b.titel)}</span></div>`).join("")
+      <div class="tijdlijn">${blokken.map(b => { const st = b.bezet ? afspraakStijl(b) : null;
+          return `<div class="tblok ${b.bezet ? "bezet" : ""}${st?.ander ? " ander" : ""}" style="--ok:${st ? st.kleur : ovKleur(b.overzicht)}" ${b.bezet ? "" : `data-blok="${b.id}"`}>
+          <span class="tijd">${fmtTijd(b.start)}–${fmtTijd(b.eind)}</span><span>${b.bezet ? "📅 " : ""}${esc(b.titel)}</span></div>`; }).join("")
         || `<div class="leeg">Nog niets ingepland. <a href="#agenda">Open de agenda</a> en laat Tijdkompas je dag vullen.</div>`}</div>
     </section>
     <aside>
@@ -631,9 +645,9 @@ function agenda() {
       band(r.a, r.b, r.terPlekke ? "reisband terplekke" : "reisband", "", r.terPlekke ? `Pauze ter plekke (${locatie(r.locatie)?.naam})` : `Reistijd ${r.richting} ${locatie(r.locatie)?.naam || ""}${r.afspraak ? " — " + r.afspraak : ""}`,
         r.terPlekke ? "" : `<span>🚗</span>`)).join("");
     const afspraken = d().bezet.filter(inDag).filter(ev => !ev.eigen && eventSoort(ev) === "bezet").map(ev => {
-      const k = d().agendas[ev.bron], kleur = k?.lijst ? ovKleur(k.lijst) : (k?.kleur || "var(--zacht)");
+      const { k, kleur, ander } = afspraakStijl(ev);
       const t = Math.max(0, y(ev.start)), h = Math.max(16, Math.min(hoogte, y(ev.eind)) - t);
-      return `<div class="wblok bezet" style="--ak:${kleur};top:${t}px;height:${h - 2}px" title="${esc(ev.titel)} ${fmtTijd(ev.start)}–${fmtTijd(ev.eind)}${k ? " · " + esc(k.naam) : ""}${ev.plaats ? " · " + esc(ev.plaats) : ""}">
+      return `<div class="wblok bezet${ander ? " ander" : ""}" style="--ak:${kleur};top:${t}px;height:${h - 2}px" title="${esc(ev.titel)} ${fmtTijd(ev.start)}–${fmtTijd(ev.eind)}${k ? " · " + esc(k.naam) : ""}${ev.plaats ? " · " + esc(ev.plaats) : ""}">
         <b>${esc(ev.titel)}</b>${h > 30 ? `${fmtTijd(ev.start)}–${fmtTijd(ev.eind)}` : ""}</div>`;
     }).join("");
     const blokken = d().planning.filter(b => act.includes(b.overzicht)).filter(inDag).map(b => {
@@ -671,7 +685,7 @@ function agenda() {
     ${kolommen}
   </div>
   <div class="legenda"><span><i class="lg venster"></i> vaste tijden van een lijst</span><span><i class="lg reisband"></i> reistijd</span><span><i class="lg beschikb"></i> beschikbaar (vrije tijd)</span>
-    <span><i class="lg bezet"></i> afspraak uit je agenda</span><span>📌 vastgezet · ✓ staat in je agenda</span>
+    <span><i class="lg bezet"></i> afspraak uit je agenda${eigenAgendaEmail() ? ` · gedimd: andere accounts dan ${esc(eigenAgendaEmail())}` : ""}</span><span>📌 vastgezet · ✓ staat in je agenda</span>
     ${d().bezet.some(b => !verbindingVanBron(b.bron)) ? `<span>${d().bezet.filter(b => !verbindingVanBron(b.bron)).length} afspraken uit .ics · <a href="#" data-actie="wisBezet">wissen</a></span>` : ""}</div>
   <div class="paneel" style="margin-top:16px;font-size:13px;color:var(--meta)">
     <b style="color:var(--tekst)">Zo werkt inplannen</b> — Taken gaan op volgorde van kwadrant en deadline/streefdatum.
@@ -1148,8 +1162,10 @@ function instKoppelingen() {
 
 // ---------- takenlijsten (Google Taken / Microsoft To Do) ----------
 // Een Tijdkompas-lijst voor een takenlijst uit Google/Microsoft (naam is daarna vrij te wijzigen)
-function maakTakenLijst(naam, soort) {
-  const o = { id: uid() + (sessie.ik ? uid() : ""), naam: naam || "Taken", kleur: soort === "ms" ? "#4f8fd8" : "#6fb38a", icoon: soort === "ms" ? "☑️" : "✅",
+function maakTakenLijst(naam, soort, email = "") {
+  naam ||= "Taken";
+  if (d().overzichten.some(o => o.naam.toLowerCase() === naam.toLowerCase())) naam += email ? ` (${email})` : ` (${soort === "ms" ? "Microsoft" : "Google"})`;   // geen twee met dezelfde naam
+  const o = { id: uid() + (sessie.ik ? uid() : ""), naam, kleur: soort === "ms" ? "#4f8fd8" : "#6fb38a", icoon: soort === "ms" ? "☑️" : "✅",
               map: "", mensen: [], verdeling: "samen", modus: "vrij", locatie: "", doelAgenda: null, tijden: [] };
   d().overzichten.push(o);
   if (actief) { actief = [...actief, o.id]; voorkeur.zet("actief", actief); }

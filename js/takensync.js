@@ -47,7 +47,9 @@ export async function syncTaken({ maakLijst } = {}) {
       for (const l of lijsten) {
         const k = takenSleutel(v, l.id), nieuw = !D.takenlijsten[k];
         D.takenlijsten[k] = { lijst: "", bekend: [], ...D.takenlijsten[k], naam: l.naam, standaard: !!l.standaard, account: v.email, accountSoort: v.soort };
-        if (nieuw && maakLijst) D.takenlijsten[k].lijst = maakLijst(l.naam, v.soort) || "";
+        // standaardlijst met de standaardnaam ("Mijn taken", "Tasks"…) → naam van het account; een eigen naam nemen we over
+        const standaardNaam = l.standaard && /^(my tasks|mijn taken|tasks|taken|to ?do|takenlijst)$/i.test(String(l.naam || "").trim());
+        if (nieuw && maakLijst && !l.gemarkeerd) D.takenlijsten[k].lijst = maakLijst(standaardNaam ? v.email.split("@")[0] : l.naam, v.soort, v.email) || "";
       }
       for (const k of Object.keys(D.takenlijsten)) if (k.startsWith(v.id + "|") && !lijsten.some(l => takenSleutel(v, l.id) === k)) delete D.takenlijsten[k];
 

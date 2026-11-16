@@ -129,7 +129,8 @@ Open in https://portal.azure.com de app-registratie `Tijdkompas` uit stap B.
    - Het Web-platform uit stap B blijft gewoon staan.
 2. **Machtigingen toevoegen**
    - Ga naar **API permissions** (API-machtigingen) → **Add a permission** (Een machtiging toevoegen) → **Microsoft Graph** → **Delegated permissions** (Gedelegeerde machtigingen).
-   - Vink `Files.ReadWrite.AppFolder`, `Calendars.ReadWrite` en `Tasks.ReadWrite` aan. `User.Read` staat er meestal al.
+   - Vink `Files.ReadWrite.AppFolder`, `Calendars.ReadWrite`, `Tasks.ReadWrite` en `MailboxSettings.Read` aan. `User.Read` staat er meestal al.
+     (`MailboxSettings.Read` is alleen om de kleuren van je Outlook-categorieën over te nemen.)
    - Klik op **Add permissions** (Machtigingen toevoegen).
 3. **ID kopiëren:** kopieer op **Overview** (Overzicht) de **Application (client) ID** (Toepassings-id (client)).
 

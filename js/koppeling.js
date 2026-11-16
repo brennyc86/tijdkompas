@@ -13,7 +13,8 @@ const G_SCOPES = {
   schijf: ["https://www.googleapis.com/auth/drive.appdata"],       // alleen de eigen verborgen app-map, niet je andere bestanden
   taken:  ["https://www.googleapis.com/auth/tasks"],               // Google Taken lezen en bijwerken
 };
-const M_SCOPES = { basis: ["User.Read"], agenda: ["Calendars.ReadWrite"], schijf: ["Files.ReadWrite.AppFolder"], taken: ["Tasks.ReadWrite"] };
+// MailboxSettings.Read: alleen om de kleuren van je Outlook-categorieën over te nemen
+const M_SCOPES = { basis: ["User.Read"], agenda: ["Calendars.ReadWrite", "MailboxSettings.Read"], schijf: ["Files.ReadWrite.AppFolder"], taken: ["Tasks.ReadWrite"] };
 const DOELNAAM = { agenda: "je agenda", schijf: "de Tijdkompas-map in je Drive", taken: "je takenlijsten" };
 const scopesVoor = (tabel, doelen) => [...new Set([...tabel.basis, ...doelen.flatMap(d => tabel[d] || [])])];
 /** Waarvoor is deze koppeling? Oudere koppelingen waren alleen voor de agenda. */
@@ -212,9 +213,23 @@ export async function agendaLijst(v) {
     info: /verjaardag|birthday|feestdag|holiday/i.test(c.name) }));
 }
 
-/** Afspraken in [van, tot): [{extId, start, eind, titel, plaats, eigen}] — herhalingen uitgeklapt, hele-dag-items overgeslagen */
+// Kleuren van losse afspraken, zoals je ze in Google of Outlook hebt gegeven
+const OUTLOOK_KLEUR = ["#d13438", "#ca5010", "#8e562e", "#c19c00", "#498205", "#038387", "#7a7a00", "#0078d4", "#8764b8", "#a4262c", "#69797e", "#4a5459", "#7a7574",
+  "#5d5a58", "#393939", "#750b1c", "#8e4002", "#5c2e10", "#986f0b", "#0b6a0b", "#005b70", "#4b5320", "#004e8c", "#5c2e91", "#6e0811"];
+const kleurCache = new Map();
+async function afspraakKleuren(v) {
+  if (kleurCache.has(v.id)) return kleurCache.get(v.id);
+  let k = {};
+  try {
+    if (v.soort === "google") { const r = await api(v, `${G}/colors`); k = Object.fromEntries(Object.entries(r.event || {}).map(([id, c]) => [id, c.background])); }
+    else { const r = await api(v, `${M}/me/outlook/masterCategories`); k = Object.fromEntries((r.value || []).map(c => [c.displayName, OUTLOOK_KLEUR[+String(c.color).replace("preset", "")] || ""]).filter(([, x]) => x)); }
+  } catch (e) { if (e instanceof VerlopenFout) throw e; }   // zonder kleuren gaat het ook
+  kleurCache.set(v.id, k); return k;
+}
+
+/** Afspraken in [van, tot): [{extId, start, eind, titel, plaats, eigen, kleur}] — herhalingen uitgeklapt, hele-dag-items overgeslagen */
 export async function haalAfspraken(v, agendaId, van, tot) {
-  const uit = [];
+  const uit = [], kleuren = await afspraakKleuren(v);
   if (v.soort === "google") {
     let pagina = "";
     do {
@@ -225,7 +240,7 @@ export async function haalAfspraken(v, agendaId, van, tot) {
         if (e.transparency === "transparent") continue;          // staat op "beschikbaar"
         if ((e.attendees || []).some(a => a.self && a.responseStatus === "declined")) continue;
         uit.push({ extId: e.id, start: new Date(e.start.dateTime).toISOString(), eind: new Date(e.end.dateTime).toISOString(),
-                   titel: e.summary || "Bezet", plaats: e.location || "", eigen: !!e.extendedProperties?.private?.tijdkompas });
+                   titel: e.summary || "Bezet", plaats: e.location || "", eigen: !!e.extendedProperties?.private?.tijdkompas, kleur: (e.colorId && kleuren[e.colorId]) || "" });
       }
       pagina = r.nextPageToken;
     } while (pagina);
@@ -238,7 +253,8 @@ export async function haalAfspraken(v, agendaId, van, tot) {
     for (const e of r.value || []) {
       if (e.isAllDay || e.isCancelled || e.showAs === "free") continue;
       uit.push({ extId: e.id, start: new Date(e.start.dateTime.replace(/Z?$/, "Z")).toISOString(), eind: new Date(e.end.dateTime.replace(/Z?$/, "Z")).toISOString(),
-                 titel: e.subject || "Bezet", plaats: e.location?.displayName || "", eigen: (e.categories || []).includes("Tijdkompas") });
+                 titel: e.subject || "Bezet", plaats: e.location?.displayName || "", eigen: (e.categories || []).includes("Tijdkompas"),
+                 kleur: (e.categories || []).map(c => kleuren[c]).find(Boolean) || "" });
     }
     url = r["@odata.nextLink"] || "";
   }
@@ -280,11 +296,11 @@ const zonderHtml = (s) => String(s || "").replace(/<br\s*\/?>/gi, "\n").replace(
 export async function takenlijsten(v) {
   if (v.soort === "google") {
     const r = await api(v, `${GT}/users/@me/lists?maxResults=100`);
-    return (r.items || []).map((l, i) => ({ id: l.id, naam: l.title, standaard: i === 0 }));
+    return (r.items || []).map((l, i) => ({ id: l.id, naam: l.title, standaard: i === 0 }));   // de eerste is je standaardlijst
   }
   const uit = [];
   let url = `${M}/me/todo/lists?$top=100`;
-  while (url) { const r = await api(v, url); for (const l of r.value || []) uit.push({ id: l.id, naam: l.displayName, standaard: l.wellknownListName === "defaultList" }); url = r["@odata.nextLink"] || ""; }
+  while (url) { const r = await api(v, url); for (const l of r.value || []) uit.push({ id: l.id, naam: l.displayName, standaard: l.wellknownListName === "defaultList", gemarkeerd: l.wellknownListName === "flaggedEmails" }); url = r["@odata.nextLink"] || ""; }
   return uit;
 }
 

@@ -406,6 +406,12 @@ details.meer .menu{position:absolute;right:0;top:calc(100% + 6px);z-index:15;dis
 .themaknop .staal{width:22px;height:22px;border-radius:50%;background:conic-gradient(var(--b) 0 33%,var(--c) 0 50%,var(--a) 0);border:1px solid rgba(128,128,128,.4)}
 @media (max-width:860px){.petnaam{display:none}}
 
+/* afspraken uit andere accounts: aanwezig maar rustig */
+.wblok.bezet.ander{opacity:.6;background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--zacht) 14%,var(--paneel)) 0 6px,var(--paneel) 6px 12px);border-left-width:2px;color:var(--meta)}
+.wblok.bezet.ander:hover{opacity:1}
+.tblok.bezet{border-left-color:var(--ok,var(--zacht))}
+.tblok.bezet.ander{opacity:.6}
+
 @media print{
   body.afdrukken > :not(#afdruk){display:none !important}
   body.afdrukken{display:block;background:#fff;color:#000}
