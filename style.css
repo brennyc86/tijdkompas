@@ -315,3 +315,35 @@ details.meer .menu{position:absolute;right:0;top:calc(100% + 6px);z-index:15;dis
 .wiechips button[aria-pressed="true"]{background:var(--accent);color:var(--accentTekst);border-color:var(--accent)}
 .wiechips button.plus{border-style:dashed;color:var(--meta)}
 @media (max-width:640px){.ovrij.kind{margin-left:12px}}
+
+/* ---- v6: mappen, koers ---- */
+.ovmap{display:inline-flex;align-items:center;border:1px solid color-mix(in srgb,var(--k) 45%,var(--rand));border-radius:999px;padding:1px}
+.ovmap .ovchip{border-color:transparent}
+.ovmap .ovchip.map{border-top-right-radius:0;border-bottom-right-radius:0;padding-right:8px}
+.ovmap .ovchip.pijl{border-top-left-radius:0;border-bottom-left-radius:0;padding:5px 9px;border-left:1px solid var(--rand)}
+.ovchip[aria-pressed="mixed"]{color:var(--tekst);border-style:dashed;border-color:var(--k)}
+.ovmap .ovchip[aria-pressed="true"]{background:var(--kaart2)}
+.ovmenu{position:fixed;z-index:60;min-width:240px;max-width:320px;max-height:70vh;overflow:auto;background:var(--kaart);border:1px solid var(--rand);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:6px}
+.mrij{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:8px}
+.mrij:hover{background:var(--kaart2)}
+.mrij.mkop{border-bottom:1px solid var(--rand);border-radius:0;margin-bottom:4px;padding-bottom:6px}
+.mrij .vinkje{width:22px;height:22px;flex:none;border:1px solid var(--k,var(--rand));border-radius:6px;background:transparent;color:var(--tekst);cursor:pointer;font-size:13px;line-height:1;padding:0}
+.mrij .vinkje[aria-pressed="true"]{background:color-mix(in srgb,var(--k,var(--accent)) 35%,transparent)}
+.mrij .mnaam{flex:1;text-align:left;border:0;background:none;color:var(--tekst);cursor:pointer;padding:5px 2px;font:inherit}
+.mvoet{display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--rand);margin-top:4px;padding:8px 6px 4px}
+.ovrij.maprij{background:color-mix(in srgb,var(--kaart) 80%,var(--bg2));border-style:dashed}
+.ovrij.maprij .lijstopties{grid-template-columns:auto 1fr auto}
+.kkaart .voorstel{border-top:1px dashed var(--rand);padding-top:8px;display:flex;flex-direction:column;gap:4px}
+.tag.kstatus.gehaald{color:var(--groen);border-color:var(--groen)}
+.tag.kstatus.deels{color:var(--oranje);border-color:var(--oranje)}
+.tag.kstatus.niet{color:var(--rood);border-color:var(--rood)}
+#toast .knop{margin-left:8px}
+.rapport h1{font-size:20px;margin:0 0 4px}.rapport h2{font-size:16px;margin:18px 0 4px}.rapport h3{font-size:13px;margin:10px 0 2px;color:var(--meta)}
+.rapport ul{margin:4px 0 0;padding-left:18px}.rapport section{border-top:1px solid var(--rand);margin-top:10px}
+#afdruk{display:none}
+@media print{
+  body.afdrukken > :not(#afdruk){display:none !important}
+  body.afdrukken{display:block;background:#fff;color:#000}
+  body.afdrukken #afdruk{display:block;padding:10mm}
+  body.afdrukken .rapport h3,body.afdrukken .hint{color:#444}
+}

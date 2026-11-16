@@ -34,7 +34,7 @@ const STANDAARD_INST = {
 };
 
 function leeg() {
-  return { versie: 2, overzichten: [], projecten: [], taken: [], bezet: [], planning: [],
+  return { versie: 2, mappen: [], koers: [], overzichten: [], projecten: [], taken: [], bezet: [], planning: [],
            locaties: basisLocaties(), beschikbaar: basisBeschikbaar(), agendas: {}, extern: {},
            instellingen: { ...STANDAARD_INST }, demo: false, gewijzigd: new Date().toISOString() };
 }
@@ -65,14 +65,35 @@ function normaliseer(d) {
     o.locatie ??= "";
     o.tijden ||= [];
     o.doelAgenda ??= null;
-    o.ouder ||= "";                      // groep: deze lijst valt onder een andere lijst (één niveau)
     o.mensen ||= [];                     // mensen zonder Tijdkompas aan wie je taken kunt toewijzen (alleen namen)
+    if (o.verdeling !== "verdelen") o.verdeling = "samen";   // samen: alles wordt bij iedereen ingepland · verdelen: pas als het aan jou is toegewezen
   }
-  // een groep mag geen groep in een groep worden, en niet naar zichzelf of een verdwenen lijst wijzen
+  // Mappen: een boom waarin lijsten staan (een lijst bevat nooit een lijst)
+  n.mappen = Array.isArray(d.mappen) ? d.mappen : [];
+  n.koers = Array.isArray(d.koers) ? d.koers : [];
+  // v5 had "lijst onder lijst" (ouder): die groep wordt een map met dezelfde naam, met de lijst zelf erin
   for (const o of n.overzichten) {
-    const ouder = n.overzichten.find(x => x.id === o.ouder);
-    if (!ouder || ouder === o || ouder.ouder) o.ouder = "";
+    if (!o.ouder) continue;
+    const g = n.overzichten.find(x => x.id === o.ouder);
+    if (g) {
+      const mid = "m_" + g.id;
+      if (!n.mappen.some(m => m.id === mid)) n.mappen.push({ id: mid, naam: g.naam, icoon: "📁", kleur: g.kleur, ouder: g.map || "" });
+      g.map = mid; o.map = mid;
+    }
   }
+  for (const o of n.overzichten) delete o.ouder;
+  const mapIds = new Set(n.mappen.map(m => m.id));
+  for (const m of n.mappen) {
+    m.ouder ||= ""; m.icoon ||= "📁"; m.kleur ||= "#8a978e";
+    if (!mapIds.has(m.ouder)) m.ouder = "";
+  }
+  for (const m of n.mappen) {                          // kringen breken (map in zijn eigen submap)
+    const gezien = new Set([m.id]); let x = n.mappen.find(y => y.id === m.ouder);
+    while (x) { if (gezien.has(x.id)) { m.ouder = ""; break; } gezien.add(x.id); x = n.mappen.find(y => y.id === x.ouder); }
+  }
+  for (const o of n.overzichten) if (!mapIds.has(o.map)) o.map = "";
+  for (const a of n.koers) { a.taken ||= []; a.nee ||= []; a.doel ||= { soort: "", id: "" }; a.status ||= "loopt";
+    if (a.doel.soort === "map" && !mapIds.has(a.doel.id) || a.doel.soort === "lijst" && !n.overzichten.some(o => o.id === a.doel.id)) a.doel = { soort: "", id: "" }; }
   for (const t of n.taken) {
     if (!Array.isArray(t.wie)) t.wie = t.toegewezen ? [t.toegewezen] : ["ik"];   // wie doet het (leeg = de hele groep)
     delete t.toegewezen;
@@ -109,9 +130,10 @@ export const opslag = {
   luister(f) { luisteraars.add(f); },
   vervang(nieuw, opties) { data = normaliseer(nieuw); bewaar(opties); },
   wis() { const ik = sessie.ik; const oud = data; data = leeg(); data.overzichten = basisOverzichten().map(o => ik ? { ...o, id: uid() + uid() } : o);
-          if (ik) { // gedeelde lijsten van anderen blijven gewoon staan
+          if (ik) { // gedeelde lijsten en mappen van anderen blijven gewoon staan
             const anders = oud.overzichten.filter(o => o.eigenaar && o.eigenaar !== ik), ids = new Set(anders.map(o => o.id));
             data.overzichten.push(...anders);
+            data.mappen = (oud.mappen || []).filter(m => m.eigenaar && m.eigenaar !== ik);
             data.taken = oud.taken.filter(t => ids.has(t.overzicht)); data.projecten = oud.projecten.filter(p => ids.has(p.overzicht));
           }
           bewaar(); },
@@ -158,6 +180,7 @@ export function nieuwProject(v = {}) {
 export function werkBij(item, v) { Object.assign(item, v); bewaar(); }
 
 export function verwijder(item) {
+  data.koers.forEach(a => { a.taken = a.taken.filter(x => x !== item.id); });
   data.taken.forEach(t => { if (t.wachtOp?.includes(item.id)) t.wachtOp = t.wachtOp.filter(x => x !== item.id); });
   if (item.type === "project") {
     data.taken.forEach(t => { if (t.project === item.id) t.project = null; }); // taken blijven los bestaan
@@ -185,16 +208,31 @@ export function rondAf(item, minuten, op = new Date()) {
 }
 export function heropen(item) { item.status = "open"; delete item.klaarOp; delete item.klaarDoor; bewaar(); }
 
-// ---------- groepen van lijsten ----------
-export const kinderen = id => data.overzichten.filter(o => o.ouder === id);
-/** Lijsten in weergavevolgorde: elke groep direct gevolgd door zijn onderdelen */
-export function lijstVolgorde() {
-  const uit = [];
-  for (const o of data.overzichten.filter(o => !o.ouder || !overzicht(o.ouder))) uit.push(o, ...kinderen(o.id));
+// ---------- mappen ----------
+export const map = id => data.mappen.find(m => m.id === id);
+export const submappen = (id = "") => data.mappen.filter(m => (m.ouder || "") === id);
+export const lijstenIn = (id = "") => data.overzichten.filter(o => (o.map || "") === id);
+/** Alle lijst-id's in deze map en alle mappen daaronder */
+export function lijstenOnder(id) {
+  const uit = lijstenIn(id).map(o => o.id);
+  for (const m of submappen(id)) uit.push(...lijstenOnder(m.id));
   return uit;
 }
-/** De lijst plus alles wat eronder valt */
-export const metKinderen = id => [id, ...kinderen(id).map(o => o.id)];
+export function mappenOnder(id) { return submappen(id).flatMap(m => [m.id, ...mappenOnder(m.id)]); }
+/** Pad van de hoofdmap tot en met deze map */
+export function mapPad(id) { const uit = []; let m = map(id); while (m && uit.length < 50) { uit.unshift(m); m = map(m.ouder); } return uit; }
+export const diepteVan = (mapId) => mapPad(mapId).length;
+/** Boom plat gemaakt: [{soort: "map"|"lijst", x, diepte}] — eerst mappen, dan lijsten */
+export function boom(id = "", diepte = 0) {
+  const uit = [];
+  for (const m of submappen(id)) uit.push({ soort: "map", x: m, diepte }, ...boom(m.id, diepte + 1));
+  for (const o of lijstenIn(id)) uit.push({ soort: "lijst", x: o, diepte });
+  return uit;
+}
+/** Lijsten in boomvolgorde */
+export const lijstVolgorde = () => boom().filter(r => r.soort === "lijst").map(r => r.x);
+/** Lijst-id's voor een sleutel uit de lijstkeuze: "m:<map>" of een lijst-id */
+export const idsVan = (sleutel) => sleutel.startsWith("m:") ? lijstenOnder(sleutel.slice(2)) : [sleutel];
 
 // ---------- wie doet wat ----------
 // Persoon-id's: Firebase-uid (lid van een gedeelde lijst), "ik" (zonder inloggen) of "~Naam" (iemand zonder Tijdkompas)
@@ -215,11 +253,12 @@ export function naamVanPersoon(id, o) {
 }
 const wieVan = t => Array.isArray(t.wie) ? t.wie : (t.toegewezen ? [t.toegewezen] : [mijnId()]);
 /** Is dit (ook) mijn taak? Een lijst zonder anderen is altijd van jou. */
+// Samen: alles wat niet uitdrukkelijk van een ander is. Verdelen: alleen wat (ook) aan jou is toegewezen.
 export function isMijn(t) {
   if (t.type === "project") return true;
   const w = wieVan(t);
   if (w.some(isIk)) return true;
-  return !w.length && personen(overzicht(t.overzicht)).length < 2;
+  return !w.length && overzicht(t.overzicht)?.verdeling !== "verdelen";
 }
 export const isTeam = t => t.type !== "project" && !wieVan(t).length;
 export const wie = wieVan;
@@ -310,5 +349,49 @@ function demoData() {
   T({ overzicht: "prive", titel: "Verjaardagscadeau regelen", schatting: 30, urgent: true, belangrijk: true, deadline: dagPlus(3) });
   T({ overzicht: "prive", titel: "Oude kabels uitzoeken", schatting: 45, urgent: false, belangrijk: false });
   T({ overzicht: "prive", titel: "Belastingaangifte voorbereiden", schatting: 90, werkelijk: 150, status: "klaar", belangrijk: true });
+  const jaar = new Date().getFullYear();
+  d.koers.push({ id: "k1", titel: "Sterker presenteren voor klanten", toelichting: "Twee klantdemo's zelfstandig voorbereiden en geven.", trefwoorden: "presentatie demo klant slides",
+                 van: jaar + "-01-01", tot: jaar + "-12-31", doel: { soort: "lijst", id: "werk" }, status: "loopt", evaluatie: "", taken: [], nee: [] },
+               { id: "k2", titel: "Website op orde", toelichting: "Tweetalige site met actueel portfolio.", trefwoorden: "website portfolio teksten",
+                 van: jaar + "-01-01", tot: jaar + "-12-31", doel: { soort: "lijst", id: "werk" }, status: "loopt", evaluatie: "", taken: [], nee: [] });
   return normaliseer(d);
+}
+
+// ---------- koers: afspraken voor een periode (POP/PAP), met de taken die eraan bijdragen ----------
+export const afspraak = id => data.koers.find(a => a.id === id);
+export const koersVan = t => data.koers.find(a => a.taken.includes(t.id));
+/** Valt deze lijst onder het doel (lijst of map) van de afspraak? */
+export function binnenDoel(a, lijstId) {
+  if (!a.doel?.id) return true;
+  return a.doel.soort === "map" ? lijstenOnder(a.doel.id).includes(lijstId) : a.doel.id === lijstId;
+}
+const STOP = new Set(("de het een en van voor met op in te aan bij naar om over uit tot door als dat die dit is zijn wordt worden ik je we wij mijn jouw onze ons ook nog niet wel " +
+  "maar of dan meer meest veel nieuw nieuwe goed beter maken doen gaan komen hebben kunnen moet moeten willen per jaar the and for with").split(" "));
+const stam = w => w.length > 5 ? w.replace(/(heden|heid|ingen|ing|en|es|s|e)$/, "") : w.replace(/(en|s)$/, "");
+export function woorden(s) {
+  return [...new Set(String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/[^\p{L}\p{N}]+/u)
+    .filter(w => w.length >= 3 && !STOP.has(w)).map(stam).filter(w => w.length >= 3))];
+}
+const lijkt = (a, b) => a === b || (a.length >= 4 && b.length >= 4 && (a.startsWith(b) || b.startsWith(a)));
+/** Hoe goed past een taak bij een afspraak? 0 = niet. Trefwoorden tellen dubbel, binnen de lijst/map van de afspraak telt mee. */
+export function koersScore(t, a) {
+  const p = t.project ? project(t.project) : null;
+  const tw = woorden([t.titel, t.notitie, p?.titel].join(" "));
+  const tref = woorden(a.trefwoorden), aw = woorden(a.titel + " " + (a.toelichting || ""));
+  let s = 0;
+  for (const w of tw) { if (tref.some(x => lijkt(w, x))) s += 2; else if (aw.some(x => lijkt(w, x))) s += 1; }
+  if (!s) return 0;
+  if (a.doel?.id) s += binnenDoel(a, t.overzicht) ? 0.5 : -0.5;
+  return s;
+}
+/** Afspraken die bij deze taak lijken te horen (lopende periode, nog niet gekoppeld of afgewezen), beste eerst */
+export function koersSuggesties(t, min = 1.5) {
+  if (!t || t.type !== "taak" || koersVan(t)) return [];
+  const dag = (t.klaarOp || new Date().toISOString()).slice(0, 10);
+  return data.koers.filter(a => !a.nee.includes(t.id) && (!a.van || a.van <= dag) && (!a.tot || a.tot >= dag))
+    .map(a => [a, koersScore(t, a)]).filter(([, s]) => s >= min).sort((x, y) => y[1] - x[1]).map(([a]) => a);
+}
+export function koppelKoers(t, aId) {
+  for (const a of data.koers) a.taken = a.taken.filter(x => x !== t.id);
+  const a = afspraak(aId); if (a) { a.taken.push(t.id); a.nee = a.nee.filter(x => x !== t.id); }
 }

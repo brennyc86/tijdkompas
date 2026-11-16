@@ -5,6 +5,10 @@
 //                                    plus per lijst je eigen manier van inplannen (lijstInst)
 //   lijsten/{lijstId}                gedeeld: naam, kleur, icoon, eigenaar, leden[], ledenInfo{}, uitgenodigd[] (e-mails)
 //   lijsten/{lijstId}/items/{id}     taken en projecten van die lijst (zichtbaar voor alle leden)
+//   mappen/{mapId}                   gedeeld zoals lijsten: naam, icoon, kleur, ouder (indeling van de eigenaar), leden…
+//   Waar een lijst of map bij jóu staat (map/ouder) is persoonlijk (lijstInst.map, mapInst.ouder); zonder eigen keuze
+//   geldt de indeling van de eigenaar, zodat een gedeelde map bij de ander met dezelfde inhoud verschijnt.
+//   Koers-afspraken (POP/PAP) zijn persoonlijk: gebruikers/{uid}.koers
 //
 // Lijsten die in je eigen Drive/OneDrive staan (schijf.js) staan hier alleen als verwijzing in lijstInst
 // (naam, icoon, kleur, welk account). Titels en plaatsen van agenda-afspraken, en titels van ingeplande blokken
@@ -92,15 +96,17 @@ let subs = [];
 const itemSubs = new Map();     // lijstId → unsubscribe
 const lijstDocs = new Map();    // lijstId → data
 const itemDocs = new Map();     // lijstId → [items]
+const mapDocs = new Map();      // mapId → data
+let wachtend = new Map();       // id → {soort, data}: uitnodigingen (lijsten en mappen) waar ik nog niet in zit
 let gebruikerDoc = null;
 const bekend = new Map();       // pad → stabiele JSON zoals laatst gezien/geschreven
-let geladen = { gebruiker: false, lijsten: false };
+let geladen = { gebruiker: false, lijsten: false, mappen: false };
 
 function stop() {
   subs.forEach(f => f()); subs = [];
   itemSubs.forEach(f => f()); itemSubs.clear();
-  lijstDocs.clear(); itemDocs.clear(); bekend.clear(); gebruikerDoc = null;
-  geladen = { gebruiker: false, lijsten: false };
+  lijstDocs.clear(); itemDocs.clear(); mapDocs.clear(); wachtend = new Map(); bekend.clear(); gebruikerDoc = null;
+  geladen = { gebruiker: false, lijsten: false, mappen: false };
   clearTimeout(schrijfTimer); schrijfTimer = null;
 }
 
@@ -144,7 +150,10 @@ async function eersteKeer() {
   const kaart = {}; start.overzichten.forEach(o => kaart[o.id] = nieuwId() + nieuwId());
   start.overzichten.forEach(o => { o.id = kaart[o.id]; o.eigenaar = sessie.ik; o.leden = [sessie.ik]; o.ledenInfo = { [sessie.ik]: ikInfo() }; o.uitgenodigd = []; });
   for (const x of [...start.taken, ...start.projecten, ...start.planning]) if (kaart[x.overzicht]) x.overzicht = kaart[x.overzicht];
-  start.overzichten.forEach(o => { if (kaart[o.ouder]) o.ouder = kaart[o.ouder]; });
+  (start.mappen || []).forEach(m => kaart[m.id] = nieuwId() + nieuwId());
+  (start.mappen || []).forEach(m => { m.id = kaart[m.id]; m.ouder = kaart[m.ouder] || ""; m.eigenaar = sessie.ik; m.leden = [sessie.ik]; m.ledenInfo = { [sessie.ik]: ikInfo() }; m.uitgenodigd = []; });
+  start.overzichten.forEach(o => { o.map = kaart[o.map] || ""; });
+  (start.koers || []).forEach(a => { if (a.doel?.id && kaart[a.doel.id]) a.doel.id = kaart[a.doel.id]; });
   for (const x of start.taken) { x.wie = (x.wie || ["ik"]).map(w => w === "ik" ? sessie.ik : w); if (x.klaarDoor === "ik") x.klaarDoor = sessie.ik; }
   for (const a of Object.values(start.agendas || {})) if (kaart[a.lijst]) a.lijst = kaart[a.lijst];
   start.demo = false;
@@ -174,10 +183,21 @@ function abonneer() {
     }
     geladen.lijsten = true; bouwStraks();
   }, fout));
-  if (email) subs.push(F.onSnapshot(F.query(F.collection(db, "lijsten"), F.where("uitgenodigd", "array-contains", email)), (s) => {
-    cloud.uitnodigingen = s.docs.filter(x => !(x.data().leden || []).includes(ik)).map(x => {
-      const l = x.data(); return { id: x.id, naam: l.naam, icoon: l.icoon, van: l.ledenInfo?.[l.eigenaar]?.naam || "iemand" };
-    });
+  subs.push(F.onSnapshot(F.query(F.collection(db, "mappen"), F.where("leden", "array-contains", ik)), (s) => {
+    const nu = new Set();
+    s.forEach(doc => { nu.add(doc.id); mapDocs.set(doc.id, doc.data()); bekend.set("mappen/" + doc.id, stabiel(doc.data())); });
+    for (const id of [...mapDocs.keys()]) if (!nu.has(id)) { mapDocs.delete(id); bekend.delete("mappen/" + id); }
+    geladen.mappen = true; bouwStraks();
+  }, fout));
+  // Uitnodigingen: per lijst en per map. Een gedeelde map nodigt ook uit voor alles erin; toon alleen de bovenste.
+  if (email) for (const soort of ["lijsten", "mappen"]) subs.push(F.onSnapshot(F.query(F.collection(db, soort), F.where("uitgenodigd", "array-contains", email)), (s) => {
+    for (const [id, x] of [...wachtend]) if (x.soort === soort) wachtend.delete(id);
+    s.docs.filter(x => !(x.data().leden || []).includes(ik)).forEach(x => wachtend.set(x.id, { soort, data: x.data() }));
+    const ouderVan = (x) => x.soort === "lijsten" ? x.data.map : x.data.ouder;
+    cloud.uitnodigingen = [...wachtend].filter(([, x]) => !wachtend.has(ouderVan(x))).map(([id, x]) => ({
+      id, map: x.soort === "mappen", naam: x.data.naam, icoon: x.data.icoon, van: x.data.ledenInfo?.[x.data.eigenaar]?.naam || "iemand",
+      aantal: x.soort === "mappen" ? boomVan(id).filter(y => wachtend.get(y)?.soort === "lijsten").length : 0,
+    }));
     meld();
   }, () => {}));
 }
@@ -187,7 +207,7 @@ function fout(e) { cloud.fout = e.message; meld(); }
 let bouwTimer = null;
 function bouwStraks() { clearTimeout(bouwTimer); bouwTimer = setTimeout(bouw, 30); }
 function bouw() {
-  if (!geladen.gebruiker || !geladen.lijsten) return;
+  if (!geladen.gebruiker || !geladen.lijsten || !geladen.mappen) return;
   // eigen wijzigingen die nog niet weg zijn eerst versturen; de snapshots daarvan bouwen daarna opnieuw
   if (schrijfTimer) { clearTimeout(schrijfTimer); schrijfTimer = null; if (schrijfVerschil() > 0) return; }
   const u = gebruikerDoc || {}, volgorde = u.lijstVolgorde || [];
@@ -205,11 +225,15 @@ function bouw() {
     bezet: (u.bezet || []).map(e => ({ ...e, titel: titels.bezet?.[e.id]?.titel || e.titel || "Bezet", plaats: titels.bezet?.[e.id]?.plaats || e.plaats || "" })),
     overzichten: ids.map(id => {
       const l = lijstDocs.get(id);
-      if (!l) { const s = u.lijstInst[id]; return { id, naam: s.naam || "Lijst", kleur: s.kleur || "#8a978e", icoon: s.icoon || "🔒", opslag: s.opslag, slot: true, ouder: s.ouder || "", mensen: [],
+      if (!l) { const s = u.lijstInst[id]; return { id, naam: s.naam || "Lijst", kleur: s.kleur || "#8a978e", icoon: s.icoon || "🔒", opslag: s.opslag, slot: true, map: s.map || "", mensen: [],
                                                     eigenaar: sessie.ik, leden: [sessie.ik], ledenInfo: {}, uitgenodigd: [], modus: "vrij", locatie: "", tijden: [], doelAgenda: null }; }
       return { id, naam: l.naam, kleur: l.kleur, icoon: l.icoon, eigenaar: l.eigenaar, leden: l.leden || [], ledenInfo: l.ledenInfo || {},
-               uitgenodigd: l.uitgenodigd || [], mensen: l.mensen || [], modus: "vrij", locatie: "", tijden: [], doelAgenda: null, ...(u.lijstInst?.[id] || {}) };
+               uitgenodigd: l.uitgenodigd || [], mensen: l.mensen || [], verdeling: l.verdeling || "samen", map: mapDocs.has(l.map) ? l.map : "", modus: "vrij", locatie: "", tijden: [], doelAgenda: null, ...(u.lijstInst?.[id] || {}) };
     }),
+    mappen: [...mapDocs].sort(([a], [b]) => { const v = u.mapVolgorde || [], x = v.indexOf(a), y = v.indexOf(b); return (x < 0 ? 1e9 : x) - (y < 0 ? 1e9 : y); })
+      .map(([id, m]) => ({ id, naam: m.naam, icoon: m.icoon, kleur: m.kleur, eigenaar: m.eigenaar, leden: m.leden || [], ledenInfo: m.ledenInfo || {}, uitgenodigd: m.uitgenodigd || [],
+                           ouder: u.mapInst?.[id]?.ouder ?? (mapDocs.has(m.ouder) ? m.ouder : "") })),
+    koers: u.koers || [],
     taken: items.filter(x => x.type === "taak"), projecten: items.filter(x => x.type === "project"), demo: false,
   }, { nieuweToevoegen: false });
   // titels van blokken uit schijflijsten terugzetten (de cloud kent alleen tijden)
@@ -220,7 +244,7 @@ function bouw() {
 }
 
 // ---------- van het geheugen naar Firestore ----------
-const PERSOONLIJK = ["modus", "locatie", "tijden", "doelAgenda", "ouder"];   // per gebruiker, ook bij gedeelde lijsten
+const PERSOONLIJK = ["modus", "locatie", "tijden", "doelAgenda", "map"];   // per gebruiker, ook bij gedeelde lijsten
 function naarDocs(d) {
   const ik = sessie.ik, docs = new Map();
   const schijfLijst = new Set(d.overzichten.filter(o => o.opslag).map(o => o.id));
@@ -231,9 +255,11 @@ function naarDocs(d) {
     planning: (d.planning || []).map(b => schijfLijst.has(b.overzicht) && b.soort !== "reis" ? { ...b, titel: "" } : b),
     bezet: (d.bezet || []).map(e => ({ ...e, titel: "", plaats: "", loc: e.loc ?? (herkenLocatie(e.plaats) || "") })),
     agendaSync: d.agendaSync || "", gewijzigd: d.gewijzigd || "",
-    lijstVolgorde: d.overzichten.map(o => o.id),
+    lijstVolgorde: d.overzichten.map(o => o.id), mapVolgorde: (d.mappen || []).map(m => m.id),
+    mapInst: Object.fromEntries((d.mappen || []).map(m => [m.id, { ouder: m.ouder || "" }])),
+    koers: d.koers || [],
     lijstInst: Object.fromEntries(d.overzichten.map(o => [o.id, o.opslag
-      ? { opslag: o.opslag, naam: o.naam || "", icoon: o.icoon || "", kleur: o.kleur || "", ouder: o.ouder || "" }
+      ? { opslag: o.opslag, naam: o.naam || "", icoon: o.icoon || "", kleur: o.kleur || "", map: o.map || "" }
       : Object.fromEntries(PERSOONLIJK.map(k => [k, o[k] ?? null]))])),
   }));
   for (const o of d.overzichten) {
@@ -241,7 +267,16 @@ function naarDocs(d) {
     docs.set("lijsten/" + o.id, schoon({
       naam: o.naam, kleur: o.kleur, icoon: o.icoon, eigenaar: o.eigenaar || ik,
       leden: o.leden?.length ? o.leden : [ik], ledenInfo: o.ledenInfo && Object.keys(o.ledenInfo).length ? o.ledenInfo : { [ik]: ikInfo() },
-      uitgenodigd: (o.uitgenodigd || []).map(e => e.toLowerCase()), mensen: o.mensen || [],
+      uitgenodigd: (o.uitgenodigd || []).map(e => e.toLowerCase()), mensen: o.mensen || [], verdeling: o.verdeling || "samen",
+      map: (o.eigenaar || ik) === ik ? o.map || "" : lijstDocs.get(o.id)?.map ?? "",        // indeling van de eigenaar
+    }));
+  }
+  for (const m of d.mappen || []) {
+    docs.set("mappen/" + m.id, schoon({
+      naam: m.naam, icoon: m.icoon, kleur: m.kleur, eigenaar: m.eigenaar || ik,
+      ouder: (m.eigenaar || ik) === ik ? m.ouder || "" : mapDocs.get(m.id)?.ouder ?? "",
+      leden: m.leden?.length ? m.leden : [ik], ledenInfo: m.ledenInfo && Object.keys(m.ledenInfo).length ? m.ledenInfo : { [ik]: ikInfo() },
+      uitgenodigd: (m.uitgenodigd || []).map(e => e.toLowerCase()),
     }));
   }
   for (const x of [...d.taken, ...d.projecten]) {
@@ -272,8 +307,8 @@ function schrijf(gewenst, oud, opruimen = false) {
   if (opruimen) for (const pad of [...bekend.keys()]) {
     if (gewenst.has(pad)) continue;
     const delen = pad.split("/");
-    if (delen[0] === "lijsten" && delen.length === 2) {
-      const l = lijstDocs.get(delen[1]);
+    if ((delen[0] === "lijsten" || delen[0] === "mappen") && delen.length === 2) {
+      const l = (delen[0] === "lijsten" ? lijstDocs : mapDocs).get(delen[1]);
       if (!l || l.eigenaar === ik) ops.push(["del", pad]);
       else ops.push(["verlaat", pad]);                                   // andermans lijst: alleen jezelf eruit halen
     } else if (delen[0] === "lijsten" && delen.length === 4) {
@@ -302,11 +337,21 @@ function schrijf(gewenst, oud, opruimen = false) {
 }
 
 // ---------- delen ----------
+// Een uitnodiging plus (bij een map) alles daaronder waarvoor je ook bent uitgenodigd
+function boomVan(id) {
+  const uit = [id];
+  for (let i = 0; i < uit.length; i++)
+    for (const [x, w] of wachtend) if (!uit.includes(x) && (w.soort === "lijsten" ? w.data.map : w.data.ouder) === uit[i]) uit.push(x);
+  return uit;
+}
 export async function accepteer(id) {
   const ik = sessie.ik;
-  await F.updateDoc(F.doc(db, "lijsten", id), { leden: F.arrayUnion(ik), uitgenodigd: F.arrayRemove(cloud.gebruiker.email), [`ledenInfo.${ik}`]: ikInfo() });
+  for (const x of boomVan(id)) {
+    const soort = wachtend.get(x)?.soort || "lijsten";
+    await F.updateDoc(F.doc(db, soort, x), { leden: F.arrayUnion(ik), uitgenodigd: F.arrayRemove(cloud.gebruiker.email), [`ledenInfo.${ik}`]: ikInfo() });
+  }
 }
 export async function weiger(id) {
-  await F.updateDoc(F.doc(db, "lijsten", id), { uitgenodigd: F.arrayRemove(cloud.gebruiker.email) });
+  for (const x of boomVan(id)) await F.updateDoc(F.doc(db, wachtend.get(x)?.soort || "lijsten", x), { uitgenodigd: F.arrayRemove(cloud.gebruiker.email) });
 }
 export const ingelogd = () => !!cloud.gebruiker;

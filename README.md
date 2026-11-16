@@ -11,6 +11,8 @@ Planner voor werk, privé en hobby's: projecten en taken, de Eisenhower-matrix (
 | Projecten opdelen in taken (ook in één keer: één taak per regel) | ✅ |
 | Losse taken; later aan een project koppelen en er weer uithalen | ✅ |
 | Taken toewijzen (mij, collega's, hele groep) en afhankelijkheden („wacht op”) | ✅ |
+| Mappen met lijsten (onbeperkt diep), map of lijst delen | ✅ |
+| Koers: periode-afspraken (POP/PAP) met gekoppelde taken en gespreksoverzicht | ✅ |
 | Deadline én eigen streefdatum op taken en projecten | ✅ |
 | Geschatte tijd vooraf, werkelijke tijd achteraf (gevraagd bij afronden) | ✅ |
 | Urgent/belangrijk-matrix op projecten én taken, verslepen tussen kwadranten | ✅ |
@@ -22,11 +24,21 @@ Planner voor werk, privé en hobby's: projecten en taken, de Eisenhower-matrix (
 | Inzicht: schatfactor, tijd per kwadrant | ✅ |
 | Back-up downloaden/terugzetten | ✅ |
 
-## Lijsten kiezen en groeperen
+## Mappen en lijsten
 
-- Bovenin: **klik** = alleen die lijst (of groep met alles eronder), nog eens klikken = weer alles. **Ctrl/⌘+klik** (telefoon: lang indrukken) = lijst erbij of eraf — bv. *Alles* en dan Ctrl+klik op Werk = alles behalve werk.
-- **＋** bovenin maakt direct een nieuwe lijst.
-- **Groeperen**: een lijst kan *onderdeel van* een andere zijn (bv. Team en Werkgroep onder Werk). De groep aan/uit zet alles eronder mee; losse onderdelen blijven apart te kiezen. Groeperen is per persoon, ook bij gedeelde lijsten.
+- Lijsten staan in **mappen**, zo diep als je wilt (📁 Werk → 💼 Team, 🌱 Werkgroep, 📁 Projecten 2027 → …). Een lijst bevat nooit een lijst.
+- Verplaatsen met „In map”, hernoemen in het naamveld (Instellingen → Mappen & lijsten). Map verwijderen = de inhoud schuift een niveau omhoog.
+- Bovenin: **klik** = alleen die lijst of map, nog eens = weer alles. **Ctrl/⌘+klik** (telefoon: lang indrukken) = erbij of eraf. **▾** naast een map = de lijsten erin los aan/uit vinken. **＋** = nieuwe lijst of map.
+- **Delen**: een hele map (met alles erin, ook wat er later bij komt) of één lijst. Waar je een gedeelde lijst of map bij jezelf neerzet is persoonlijk; zonder eigen keuze zie je de indeling van de eigenaar.
+- **Verdeling** per lijst: 🙌 *Samen* — alles wordt bij iedereen ingepland (privé, of in het begin); 🧩 *Verdelen* — pas ingepland bij wie het is toegewezen, „hele groep” blijft liggen tot iemand het oppakt.
+
+## Koers (POP/PAP)
+
+- Leg aan het begin van een periode (bv. een jaar) **koersafspraken** vast: wat je wilt bereiken, waaraan je merkt dat het gelukt is, trefwoorden, en bij welke lijst of map het hoort (of algemeen).
+- Taken die erop lijken worden **voorgesteld** (bij snelinvoer, in de taak, bij afronden en op de Koers-pagina); koppelen kan ook met de hand.
+- Verhuist een lijst naar een map, dan kun je de afspraken meenemen naar de hele map.
+- **Overzicht voor het gesprek**: per afspraak de afgeronde taken met datum en tijd, wat nog open staat en je terugblik — af te drukken als PDF of te kopiëren als tekst.
+- Koers is persoonlijk: collega's in gedeelde lijsten zien het niet.
 
 ## Samenwerken: wie doet wat, en wie wacht op wie
 
