@@ -6,7 +6,7 @@ import { opslag, bewaar, KWADRANTEN, kwadrant, overzicht, project, taak, takenVa
 import { familieHaak, planAutomatisch, werkGeplandBij, doelDatum, harde, prioriteit, googleLink, outlookLink, maakIcs, leesIcs, dagStr, dagIndeling, eventSoort, SOORTEN } from "./plan.js";
 import { ids, verbindingen as alleVerbindingen, heeft, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, zonderDoel, koppelHaak, neemGedeeldeOver } from "./koppeling.js";
 import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroniseerAlles, naamVan, lijstWeg } from "./schijf.js";
-import { verversAgendas, zetNaarAgendas } from "./sync.js";
+import { verversAgendas, zetNaarAgendas, verversLinks, linkBron } from "./sync.js";
 import { syncTaken, takenVerbindingen, koppelTakenlijst, takenlijstVan, takenVerbindingVan } from "./takensync.js";
 import { kiesEmoji, voorstellen } from "./emoji.js";
 import { cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda, gelinkteInfo } from "./cloud.js";
@@ -340,7 +340,7 @@ function render() {
   main.innerHTML = sessieBanner() + weergaves[v]();
   markeerFocus(main);
   if (v === "matrix") activeerSlepen();
-  if (v === "agenda" && verbindingen().length && !doeOphalen.bezig && Date.now() - new Date(d().agendaSync || 0) > 15 * 60e3) {
+  if ((v === "agenda" || v === "vandaag") && (verbindingen().length || (d().agendaLinks || []).length) && !doeOphalen.bezig && Date.now() - new Date(d().agendaSync || 0) > 15 * 60e3) {
     doeOphalen.bezig = true; doeOphalen(true).finally(() => { doeOphalen.bezig = false; });
   }
   if (takenVerbindingen().length && !doeTakenSync.bezig && Object.values(d().takenlijsten || {}).some(x => x.lijst)
@@ -1152,6 +1152,8 @@ function instKoppelingen() {
 
   ${kanAgenda ? takenBlok(id) : ""}
 
+  ${linkBlok()}
+
   ${kanAgenda ? `<h3>Opslag in je eigen Drive of OneDrive</h3>
   <p class="hint">Je kunt per lijst kiezen om hem in je eigen Google Drive of OneDrive te bewaren (Instellingen → Lijsten → Opslag), bijvoorbeeld je werklijst in je zakelijke OneDrive.
     Tijdkompas krijgt dan alleen toegang tot een eigen verborgen map, niet tot je andere bestanden. Zulke lijsten zijn persoonlijk: delen kan alleen vanuit de Tijdkompas-cloud.
@@ -1166,12 +1168,32 @@ function instKoppelingen() {
   <p class="hint"><b>Bezet</b>: Tijdkompas plant eromheen (kies optioneel bij welke lijst ze horen, voor de kleur). <b>Rooster van lijst</b>: de afspraken zíjn de vaste tijden van die lijst (handig bij wisselende diensten). <b>Niet meetellen</b>: alleen ter info.
   Afspraken met een plaats die overeenkomt met een van je locaties krijgen automatisch reistijd.</p>
   ${lijst.map(v => { const r = agendasVan(v.id + "|"); return r.length ? `<div class="paneel agendagroep"><div class="hint" style="margin-bottom:6px">${v.soort === "ms" ? "Outlook" : "Google"} · ${esc(v.email)}</div>${r.map(agendaRij).join("")}</div>` : ""; }).join("")}
-  ${icsBronnen.length ? `<div class="paneel agendagroep"><div class="hint" style="margin-bottom:6px">Geïmporteerde .ics-bestanden</div>${icsBronnen.map(b => agendaRij([b, d().agendas[b]])).join("")}</div>` : ""}
+  ${icsBronnen.length ? `<div class="paneel agendagroep"><div class="hint" style="margin-bottom:6px">Agenda's via link en .ics-bestanden</div>${icsBronnen.map(b => agendaRij([b, d().agendas[b]])).join("")}</div>` : ""}
   ${lijst.length ? `<div style="margin-top:8px"><button class="knop" data-actie="ophalen">🔄 Agenda's ophalen</button>
     <span class="hint">${d().agendaSync ? "Laatst: " + new Date(d().agendaSync).toLocaleString("nl-NL", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}</span></div>` : ""}` : ""}`;
 }
 
 // ---------- takenlijsten (Google Taken / Microsoft To Do) ----------
+// Agenda via een link (alleen lezen): bv. een gepubliceerde Outlook-agenda, zonder Microsoft-koppeling
+function linkBlok() {
+  const links = d().agendaLinks || [];
+  return `<h3>Agenda via een link (alleen lezen)</h3>
+  <p class="hint">Voor een agenda die je niet rechtstreeks kunt koppelen, zoals je Outlook-agenda: publiceer hem in Outlook als link en plak die hier.
+    Tijdkompas toont de afspraken en plant eromheen (elk kwartier bijgewerkt). Blokken in die agenda zetten kan zo niet.
+    <a href="https://github.com/brennyc86/tijdkompas/blob/main/SETUP.md#d-outlook-agenda-via-een-link-alleen-lezen" target="_blank" rel="noopener">Hoe publiceer ik mijn Outlook-agenda?</a></p>
+  ${links.length ? `<div class="lijst">${links.map(l => `<div class="accrij" data-link="${esc(l.id)}">
+    <span class="avatar" style="background:${esc(l.kleur || "#4f8fd8")}">📅</span>
+    <div class="ibody"><div class="ititel">${esc(l.naam)}</div>
+      <div class="imeta">${l.fout ? `<span style="color:var(--rood)">${esc(l.fout)}</span>` : l.laatst ? `${l.aantal ?? 0} afspraken · bijgewerkt ${new Date(l.laatst).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })}` : "nog niet opgehaald"}</div></div>
+    <input type="color" value="${esc(l.kleur || "#4f8fd8")}" data-linkkleur aria-label="Kleur">
+    <button type="button" class="knop klein gevaar" data-actie="linkWeg">Weghalen</button></div>`).join("")}</div>` : ""}
+  <form class="rij linkform" data-actie="linkBij" style="margin-top:8px;align-items:end">
+    <label class="veld">Naam<input name="naam" placeholder="bv. Outlook werk" required></label>
+    <label class="veld" style="flex:2">Agendalink (.ics)<input name="url" type="url" placeholder="https://outlook.office365.com/owa/calendar/…/calendar.ics" required></label>
+    <button class="knop">＋ Toevoegen</button>
+  </form>`;
+}
+
 // Een Tijdkompas-lijst voor een takenlijst uit Google/Microsoft (naam is daarna vrij te wijzigen)
 function maakTakenLijst(naam, soort, email = "") {
   naam ||= "Taken";
@@ -1373,8 +1395,10 @@ async function doeVernieuw(v) {
   render();
 }
 async function doeOphalen(stil = false) {
-  if (!verbindingen().length) return;
-  const r = await verversAgendas();
+  const links = d().agendaLinks || [];
+  if (!verbindingen().length && !links.length) return;
+  const r = verbindingen().length ? await verversAgendas() : { verlopen: [], fouten: [] };
+  if (links.length) { r.fouten.push(...await verversLinks()); d().agendaSync = new Date().toISOString(); bewaar(); }
   r.verlopen.forEach(v => verlopenSessies.set(v.id, v));
   if (r.fouten.length) toast(r.fouten[0]);
   else if (!stil) toast(`Agenda's opgehaald (${d().bezet.filter(b => verbindingVanBron(b.bron)).length} afspraken)`);
@@ -1945,6 +1969,12 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
     }
     else if (a === "ophalen") { el.disabled = true; await doeOphalen(); render(); }
     else if (a === "eersteLijst") nieuweLijst();
+    else if (a === "linkWeg") {
+      const id = el.closest("[data-link]").dataset.link, l = d().agendaLinks.find(x => x.id === id);
+      if (confirm(`Agenda „${l.naam}” weghalen uit Tijdkompas? In Outlook verandert niets.`)) {
+        d().agendaLinks = d().agendaLinks.filter(x => x !== l); d().bezet = d().bezet.filter(e => e.bron !== linkBron(l)); delete d().agendas[linkBron(l)]; bewaar();
+      }
+    }
     else if (a === "takenOphalen") { el.disabled = true; await doeTakenSync(false); }
     else if (a === "takenWeg") {
       const v = takenVerbindingen().find(x => x.id === el.closest("[data-verb]").dataset.verb);
@@ -2010,7 +2040,17 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
   const rij = e.target.closest("[data-id]");
   if (rij) { const it = rij.dataset.type === "project" ? project(rij.dataset.id) : taak(rij.dataset.id); if (it) openEditor(it); }
 }
-main.addEventListener("submit", (e) => {
+main.addEventListener("submit", async (e) => {
+  if (e.target.dataset.actie === "linkBij") {
+    e.preventDefault();
+    const f = e.target, naam = f.querySelector("[name=naam]").value.trim(), url = f.querySelector("[name=url]").value.trim();
+    if (!naam || !url) return;
+    d().agendaLinks = [...(d().agendaLinks || []), { id: uid(), naam, url, kleur: "#4f8fd8" }]; bewaar();
+    toast("Agenda ophalen…");
+    const fouten = await verversLinks(); render();
+    toast(fouten.length ? fouten[0] : `„${naam}” toegevoegd`);
+    return;
+  }
   if (e.target.dataset.actie !== "snel") return;
   e.preventDefault();
   const inv = e.target.t, t = verwerkSnel(inv.value);
@@ -2022,6 +2062,10 @@ main.addEventListener("submit", (e) => {
   }
 });
 function hoofdWijzig(e) {
+  if (e.target.matches?.("[data-linkkleur]")) {
+    const l = d().agendaLinks.find(x => x.id === e.target.closest("[data-link]").dataset.link);
+    l.kleur = e.target.value; if (d().agendas[linkBron(l)]) d().agendas[linkBron(l)].kleur = l.kleur; bewaar(); return;
+  }
   if (e.target.matches?.("[data-tlijst],[data-tlijstvan]")) {
     let k, lijstId;
     if (e.target.dataset.tlijstvan !== undefined) {           // vanuit de lijst: kies de takenlijst

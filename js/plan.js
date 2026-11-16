@@ -353,26 +353,90 @@ function leesIcsDatum(waarde, params) {
   return new Date(+j, mo - 1, +d, +h, +mi, +s); // TZID/zwevend: als lokale tijd lezen
 }
 
-export function leesIcs(tekst, bron = "agenda") {
+// .ics lezen, met herhalende afspraken (RRULE: dagelijks/wekelijks/maandelijks/jaarlijks, INTERVAL, COUNT, UNTIL, BYDAY,
+// BYMONTHDAY), uitzonderingen (EXDATE), verplaatste losse keren (RECURRENCE-ID) en afgezegde afspraken.
+// Alleen afspraken met een tijd (geen hele dagen), van gisteren tot 60 dagen vooruit.
+const ICS_DAG = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+export function leesIcs(tekst, bron = "agenda", { van = new Date(Date.now() - 864e5), tot = new Date(Date.now() + 60 * 864e5) } = {}) {
   const regels = tekst.replace(/\r?\n[ \t]/g, "").split(/\r?\n/);
-  const uit = []; let ev = null;
-  const nu = new Date(), grens = new Date(Date.now() + 60 * 864e5);
+  const evs = []; let ev = null;
+  const ontsnap = (w) => w.replace(/\\([,;\\])/g, "$1").replace(/\\n/gi, " ");
   for (const regel of regels) {
-    if (regel === "BEGIN:VEVENT") ev = {};
-    else if (regel === "END:VEVENT") {
-      if (ev?.start instanceof Date && ev.eind instanceof Date && ev.eind > nu && ev.start < grens && ev.transp !== "TRANSPARENT")
-        uit.push({ id: uid(), start: ev.start.toISOString(), eind: ev.eind.toISOString(), titel: ev.titel || "Bezet", plaats: ev.plaats || "", bron, herhalend: !!ev.rrule });
-      ev = null;
-    } else if (ev) {
+    if (regel === "BEGIN:VEVENT") ev = { ex: [] };
+    else if (regel === "END:VEVENT") { if (ev) evs.push(ev); ev = null; }
+    else if (ev) {
       const i = regel.indexOf(":"); if (i < 0) continue;
       const [naam, ...params] = regel.slice(0, i).split(";"); const waarde = regel.slice(i + 1);
       if (naam === "DTSTART") ev.start = leesIcsDatum(waarde, params);
       else if (naam === "DTEND") ev.eind = leesIcsDatum(waarde, params);
-      else if (naam === "SUMMARY") ev.titel = waarde.replace(/\\([,;\\])/g, "$1").replace(/\\n/g, " ");
+      else if (naam === "DURATION") ev.duur = waarde;
+      else if (naam === "SUMMARY") ev.titel = ontsnap(waarde);
       else if (naam === "TRANSP") ev.transp = waarde;
-      else if (naam === "LOCATION") ev.plaats = waarde.replace(/\\([,;\\])/g, "$1");
+      else if (naam === "STATUS") ev.status = waarde;
+      else if (naam === "LOCATION") ev.plaats = ontsnap(waarde);
       else if (naam === "RRULE") ev.rrule = waarde;
+      else if (naam === "UID") ev.uid = waarde;
+      else if (naam === "RECURRENCE-ID") ev.rid = leesIcsDatum(waarde, params);
+      else if (naam === "EXDATE") for (const w of waarde.split(",")) { const x = leesIcsDatum(w, params); if (x instanceof Date) ev.ex.push(x.getTime()); }
     }
+  }
+  const uit = [];
+  const neem = (e, start, eind, herhalend) => {
+    if (e.transp === "TRANSPARENT" || e.status === "CANCELLED") return;
+    if (eind <= van || start >= tot) return;
+    uit.push({ id: uid(), start: start.toISOString(), eind: eind.toISOString(), titel: e.titel || "Bezet", plaats: e.plaats || "", bron, herhalend });
+  };
+  // verplaatste of aangepaste losse keren van een herhaling
+  const vervangen = new Set(evs.filter(e => e.rid instanceof Date && e.uid).map(e => e.uid + "|" + e.rid.getTime()));
+  for (const e of evs) {
+    if (!(e.start instanceof Date)) continue;                       // hele dag of onleesbaar
+    let duur = e.eind instanceof Date ? e.eind - e.start : leesDuurIcs(e.duur);
+    if (!(duur > 0)) duur = 30 * 60000;
+    if (e.rid instanceof Date || !e.rrule) { neem(e, e.start, new Date(e.start.getTime() + duur), !!e.rid); continue; }
+    for (const t of herhalingen(e.start, e.rrule, tot)) {
+      if (e.ex.includes(t.getTime()) || vervangen.has(e.uid + "|" + t.getTime())) continue;
+      neem(e, t, new Date(t.getTime() + duur), true);
+    }
+  }
+  return uit;
+}
+function leesDuurIcs(w) {
+  const m = String(w || "").match(/^-?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/);
+  if (!m) return 0;
+  const [, wk, d, h, mi, s] = m.map(x => +x || 0);
+  return ((((wk * 7 + d) * 24 + h) * 60 + mi) * 60 + s) * 1000;
+}
+// Alle begintijden van een herhaling, vanaf start tot 'tot' (lokale kloktijd blijft gelijk, ook over zomer-/wintertijd)
+function herhalingen(start, rrule, tot) {
+  const r = Object.fromEntries(rrule.split(";").map(x => x.split("=")));
+  const freq = r.FREQ, iv = Math.max(1, +r.INTERVAL || 1), max = r.COUNT ? +r.COUNT : Infinity;
+  let eindT = tot;
+  if (r.UNTIL) { const u = leesIcsDatum(r.UNTIL, []); if (u instanceof Date && u < eindT) eindT = u; else if (u?.datum) { const m = r.UNTIL.match(/^(\d{4})(\d{2})(\d{2})/); const x = new Date(+m[1], m[2] - 1, +m[3], 23, 59, 59); if (x < eindT) eindT = x; } }
+  const byday = (r.BYDAY || "").split(",").filter(Boolean).map(x => { const m = x.match(/^([+-]?\d+)?(SU|MO|TU|WE|TH|FR|SA)$/); return m ? { n: m[1] ? +m[1] : 0, dag: ICS_DAG[m[2]] } : null; }).filter(Boolean);
+  const bymd = (r.BYMONTHDAY || "").split(",").filter(Boolean).map(Number);
+  const uit = []; let n = 0;
+  const op = (j, mo, d) => new Date(j, mo, d, start.getHours(), start.getMinutes(), start.getSeconds());
+  const voeg = (t) => { if (t < start || t > eindT || n >= max) return; n++; uit.push(t); };
+  for (let k = 0; k < 5000 && n < max; k++) {
+    let kandidaten = [];
+    if (freq === "DAILY") kandidaten = [op(start.getFullYear(), start.getMonth(), start.getDate() + k * iv)];
+    else if (freq === "WEEKLY") {
+      const ma = op(start.getFullYear(), start.getMonth(), start.getDate() - ((start.getDay() + 6) % 7) + k * 7 * iv);   // maandag van die week
+      const dagen = byday.length ? byday.map(b => b.dag) : [start.getDay()];
+      kandidaten = dagen.map(dg => op(ma.getFullYear(), ma.getMonth(), ma.getDate() + ((dg + 6) % 7)));
+    } else if (freq === "MONTHLY" || freq === "YEARLY") {
+      const j = freq === "YEARLY" ? start.getFullYear() + k * iv : start.getFullYear(), mo = freq === "YEARLY" ? start.getMonth() : start.getMonth() + k * iv;
+      const eerste = new Date(j, mo, 1), jj = eerste.getFullYear(), mm = eerste.getMonth(), lengte = new Date(jj, mm + 1, 0).getDate();
+      if (byday.length) for (const b of byday) {
+        const dagen = []; for (let d = 1; d <= lengte; d++) if (new Date(jj, mm, d).getDay() === b.dag) dagen.push(d);
+        const d = b.n > 0 ? dagen[b.n - 1] : b.n < 0 ? dagen[dagen.length + b.n] : null;
+        if (d) kandidaten.push(op(jj, mm, d)); else if (!b.n) dagen.forEach(x => kandidaten.push(op(jj, mm, x)));
+      }
+      else for (const d of bymd.length ? bymd : [start.getDate()]) { const dd = d < 0 ? lengte + d + 1 : d; if (dd >= 1 && dd <= lengte) kandidaten.push(op(jj, mm, dd)); }
+    } else break;
+    kandidaten.sort((a, b) => a - b);
+    if (kandidaten.length && kandidaten[0] > eindT) break;
+    kandidaten.forEach(voeg);
   }
   return uit;
 }

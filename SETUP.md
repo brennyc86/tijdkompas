@@ -12,6 +12,7 @@ Gebruikers merken er niets van. Zij klikken alleen in de app op „Inloggen met 
 | **B** Microsoft-omgeving + app | inloggen met Microsoft (B0: eenmalig een gratis eigen omgeving) | nog doen |
 | **C-Google** | Google Agenda, Google Taken en Google Drive koppelen | Client ID ✅ ingevuld; controleer de rest van stap C-Google |
 | **C-Microsoft** | Outlook-agenda, Microsoft To Do (Outlook-taken) en OneDrive koppelen | nog doen; stuur daarna de **Microsoft client-ID** |
+| **D** Outlook-agenda via een link | Outlook-agenda zien en eromheen plannen (alleen lezen), zonder Microsoft-registratie | nog doen; stuur daarna de **Worker-URL** |
 
 **Over de knoppen in deze handleiding:** de Firebase-console is altijd Engels. Google Cloud en Microsoft tonen soms Nederlands, afhankelijk van je instellingen.
 Daarom staat elke knop er zo: **English label** (Nederlandse vertaling). Kijk dus naar wat jouw scherm toont.
@@ -196,6 +197,43 @@ Een **verified publisher** (geverifieerde uitgever) in Microsoft maakt dat makke
 - Ben je ingelogd, dan kent de cloud van zo'n lijst alleen de naam, het icoon en de kleur; de taken staan er niet in.
 - Agenda-afspraken (met titel) en welke koppelingen je hebt, staan wél in je Tijdkompas in de cloud. Zo zie je met elk van je
   gekoppelde accounts en op elk apparaat dezelfde agenda's en takenlijsten. De toegangssleutels zelf blijven op het apparaat.
+
+## D. Outlook-agenda via een link (alleen lezen)
+
+Zonder Microsoft-registratie (stap B/C) kan Tijdkompas een Outlook-agenda toch **lezen**: Outlook kan een agenda publiceren als link,
+en Tijdkompas haalt die elk kwartier op. Je ziet de afspraken in Tijdkompas en de planner plant eromheen.
+Wat níet kan: blokken in Outlook zetten en Microsoft To Do synchroniseren (daarvoor is stap B/C nodig).
+
+Een browser mag zo'n link niet zelf ophalen; daarom zet je één keer een klein **doorgeefluik** neer op Cloudflare (gratis, zonder kaart).
+Het slaat niets op en geeft alleen links van Outlook, Google en iCloud door.
+
+### D1. Het doorgeefluik (eenmalig, ± 5 minuten)
+
+1. Ga naar https://dash.cloudflare.com en log in met je bestaande Cloudflare-account.
+2. Ga links naar **Compute (Workers)** → **Workers & Pages** en klik op **Create** (Maken) → **Create Worker** / **Start with Hello World!**.
+3. **Worker name**: `tijdkompas-agenda` → **Deploy** (Implementeren).
+4. Klik op **Edit code** (Code bewerken). Selecteer links alle code (Ctrl+A) en vervang die door de inhoud van
+   [`worker/agenda-doorgeef.js`](worker/agenda-doorgeef.js) (open het bestand, klik op **Raw**, Ctrl+A, Ctrl+C).
+5. Klik rechtsboven op **Deploy** (Implementeren).
+6. Bovenaan staat het adres, iets als `https://tijdkompas-agenda.<jouwnaam>.workers.dev`. **Stuur dat adres naar Claude**
+   (of zet het zelf in `js/config.js` bij `icsProxy`).
+
+### D2. Je Outlook-agenda publiceren (per agenda, ± 2 minuten)
+
+1. Open Outlook op het web: **outlook.live.com** (privé/Outlook.com) of **outlook.office.com** (werk).
+2. Klik rechtsboven op het tandwiel **Settings** (Instellingen) → **Calendar** (Agenda) → **Shared calendars** (Gedeelde agenda's).
+3. Bij **Publish a calendar** (Een agenda publiceren): kies de agenda, kies **Can view all details** (Kan alle details weergeven) en klik op **Publish** (Publiceren).
+4. Je krijgt twee links. Kopieer de **ICS**-link (eindigt op `.ics`), niet de HTML-link.
+
+Let op: iedereen die deze link heeft, kan je agenda zien. Bewaar hem dus alleen in Tijdkompas. Bij een zakelijk account kan IT het publiceren
+hebben uitgezet; dan zie je de optie niet. Spijt? Klik daar op **Unpublish** (Publicatie ongedaan maken) of **Reset links**: de oude link werkt dan niet meer.
+
+### D3. In Tijdkompas
+
+1. **⚙️ Instellingen → Koppelingen → Agenda via een link (alleen lezen)**.
+2. Vul een naam in (bv. *Outlook werk*), plak de ICS-link en klik op **＋ Toevoegen**.
+3. De afspraken verschijnen in de agenda en op Vandaag, en worden elk kwartier bijgewerkt. Kies eventueel een kleur bij de link,
+   en bij **Agenda's — wat staat erin?** of hij „bezet” is, een rooster, of alleen ter info.
 
 ### Beveiligingsregels bijwerken
 

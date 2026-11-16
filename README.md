@@ -72,6 +72,7 @@ Planner voor werk, privé en hobby's: projecten en taken, de Eisenhower-matrix (
 Eenmalige setup door de eigenaar: zie [SETUP.md](SETUP.md).
 
 ## Agenda's
+- Outlook zonder Microsoft-koppeling: publiceer je Outlook-agenda als link en voeg die toe (alleen lezen; SETUP.md stap D).
 
 - Bestaande afspraken komen uit Google/Outlook (rechtstreeks, zodra ingesteld) of uit een .ics-bestand.
 - Per agenda: *Bezet* (er wordt omheen gepland), *Rooster van lijst* (de afspraken zijn de vaste tijden van bijv. werk) of *Niet meetellen*.

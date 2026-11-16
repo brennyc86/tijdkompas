@@ -1,7 +1,32 @@
 // Tijdkompas — afstemming met externe agenda's (ophalen + ingeplande blokken wegschrijven)
 import { opslag, bewaar, overzicht, locatie } from "./data.js";
 import { verbindingen as alleVerbindingen, heeft, VerlopenFout, agendaLijst, haalAfspraken, zetAfspraak, verwijderAfspraak } from "./koppeling.js";
-import { omschrijving } from "./plan.js";
+import { omschrijving, leesIcs } from "./plan.js";
+import { CONFIG } from "./config.js";
+
+// ---------- agenda's via een link (.ics), bv. een gepubliceerde Outlook-agenda: alleen lezen ----------
+// Gaat via het doorgeefluik (CONFIG.icsProxy), omdat de browser zo'n link niet zelf mag ophalen.
+export const linkBron = (l) => "link:" + l.id;
+export async function verversLinks() {
+  const fouten = [];
+  for (const l of d().agendaLinks || []) {
+    try {
+      const url = CONFIG.icsProxy ? `${CONFIG.icsProxy.replace(/\/$/, "")}/?url=${encodeURIComponent(l.url)}` : l.url.replace(/^webcals?:\/\//i, "https://");
+      const r = await fetch(url);
+      const tekst = await r.text();
+      if (!r.ok || !tekst.includes("BEGIN:VCALENDAR")) throw new Error(tekst.slice(0, 120) || "geen agenda (" + r.status + ")");
+      const k = linkBron(l), ev = leesIcs(tekst, k);
+      d().bezet = d().bezet.filter(e => e.bron !== k).concat(ev);
+      d().agendas[k] = { soort: "bezet", lijst: "", ...d().agendas[k], naam: l.naam, kleur: l.kleur || d().agendas[k]?.kleur || "#4f8fd8", link: true };
+      l.laatst = new Date().toISOString(); l.fout = ""; l.aantal = ev.length;
+    } catch (e) {
+      l.fout = CONFIG.icsProxy ? e.message : "Het doorgeefluik is nog niet ingesteld (SETUP.md stap D)";
+      fouten.push(`${l.naam}: ${l.fout}`);
+    }
+  }
+  bewaar();
+  return fouten;
+}
 
 const d = () => opslag.d;
 const verbindingen = () => alleVerbindingen().filter(v => heeft(v, "agenda"));

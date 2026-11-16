@@ -394,7 +394,7 @@ function bouw() {
   const titels = leesTitels();
   const d = aanvullen({
     locaties: u.locaties, beschikbaar: u.beschikbaar, instellingen: u.instellingen, agendas: u.agendas || {}, extern: u.extern || {},
-    planning: u.planning || [], agendaSync: u.agendaSync, gewijzigd: u.gewijzigd, takenlijsten: u.takenlijsten || {}, takenSync: u.takenSync || "", koppelingen: u.koppelingen,
+    planning: u.planning || [], agendaSync: u.agendaSync, gewijzigd: u.gewijzigd, takenlijsten: u.takenlijsten || {}, takenSync: u.takenSync || "", koppelingen: u.koppelingen, agendaLinks: u.agendaLinks || [],
     bezet: (u.bezet || []).map(e => ({ ...e, titel: titels.bezet?.[e.id]?.titel || e.titel || "Bezet", plaats: titels.bezet?.[e.id]?.plaats || e.plaats || "" })),
     overzichten: ids.map(id => {
       const l = lijstDocs.get(id);
@@ -438,7 +438,7 @@ function naarDocs(d) {
     // afspraken mét titel: zo ziet elke inlog en elk apparaat van dit Tijdkompas dezelfde agenda
     bezet: (d.bezet || []).map(e => ({ ...e, loc: e.loc ?? (herkenLocatie(e.plaats) || "") })),
     agendaSync: d.agendaSync || "", gewijzigd: d.gewijzigd || "",
-    takenlijsten: d.takenlijsten || {}, takenSync: d.takenSync || "",
+    takenlijsten: d.takenlijsten || {}, takenSync: d.takenSync || "", agendaLinks: d.agendaLinks || [],
     ...(Array.isArray(d.koppelingen) ? { koppelingen: d.koppelingen } : {}),
     // beheerd buiten naarDocs (meerdere inlogs): ongewijzigd laten staan
     ...(gebruikerDoc?.aliassen ? { aliassen: gebruikerDoc.aliassen, aliasInfo: gebruikerDoc.aliasInfo || {} } : {}),
