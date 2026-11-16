@@ -52,8 +52,10 @@ export function koppelTakenlijst(k, lijstId) {
   const x = D.takenlijsten[k]; if (!x) return;
   if (x.lijst !== lijstId) { x.lijst = lijstId; x.bekend = []; }
   x.uit = !lijstId;          // bewust losgekoppeld: niet vanzelf opnieuw een lijst maken
-  // oude koppelingen loslaten: er wordt niets weggegooid, de taken staan dan gewoon aan beide kanten
-  for (const t of alles()) if (t.ext && !Object.entries(D.takenlijsten).some(([k2, y]) => k2 === t.ext.bron && y.lijst === t.overzicht)) delete t.ext;
+  // oude koppelingen loslaten: er wordt niets weggegooid, de taken staan dan gewoon aan beide kanten.
+  // Alleen van je eigen koppelingen: taken die een gelinkt account met zíjn takenlijst bijhoudt, blijven van hem.
+  const eigen = (bron) => takenVerbindingen().some(v => bron.startsWith(v.id + "|"));
+  for (const t of alles()) if (t.ext && eigen(t.ext.bron) && !Object.entries(D.takenlijsten).some(([k2, y]) => k2 === t.ext.bron && y.lijst === t.overzicht)) delete t.ext;
   bewaar();
 }
 export const takenlijstVan = (lijstId) => Object.entries(d().takenlijsten || {}).find(([, x]) => x.lijst === lijstId)?.[0] || "";

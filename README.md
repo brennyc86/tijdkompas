@@ -90,17 +90,16 @@ Eenmalige setup door de eigenaar: zie [SETUP.md](SETUP.md).
 ## Starten
 - Je begint zonder lijsten: maak er zelf een (Werk, Thuis, je hobby…) of koppel een takenlijst van Google of Microsoft.
 
-## Meerdere accounts, één Tijdkompas
-- Log in met je hoofdaccount en voeg bij Account → „Accounts in dit Tijdkompas” je andere Google- of Microsoft-accounts toe (werk, hobby…).
-- Daarna kom je met elk van die accounts in hetzelfde Tijdkompas, met de pet (kleuren en focus) die bij dat account hoort.
-- Koppelingen (agenda's, takenlijsten) gelden voor het hele Tijdkompas: koppel je iets vanuit het ene account, dan zie je het ook in de andere.
-- Wat het toegevoegde account al had, wordt samengevoegd (lege standaardlijsten worden opgeruimd). Loskoppelen kan altijd; de lijsten blijven staan.
+## Gelinkte accounts (bijv. privé en werk)
+- Elk account is zelfstandig: eigen koppelingen (agenda, takenlijsten, Drive), eigen planning en eigen kleuren.
+- Link ze vanuit het hoofdaccount: Account → „Gelinkte accounts” → ＋ Google-/Microsoft-account toevoegen.
+- Daarna zie je met elk account ook de lijsten (en taken) van de ander, en hun agenda en planning gedimd op de achtergrond.
+  De planner plant om alles heen; lijsten van het andere account plant dat account zelf in, in zijn eigen agenda.
+- Loskoppelen kan altijd: ieder houdt zijn eigen lijsten.
 
-## Petten en kleuren
-- Welke pet heb je op? Een pet (bijv. 🏡 Privé, 💼 Werk) bepaalt de kleuren en welke lijsten opvallen; de rest blijft zichtbaar maar gedimd.
-- Wissel met de knop naast het logo. Instellen bij ⚙️ Instellingen → Overig: kleuren (Bos, Perkament, Aubergine & cyaan, Aubergine licht, Nachtzee, Herfst, Grafiet, Lente),
-  wat opvalt (alles / alleen deze / alles behalve deze) en een e-mailadres waarmee de pet vanzelf opgaat bij inloggen.
-- Per account onthoudt elk apparaat welke pet je het laatst ophad.
+## Kleuren
+- Kies per account de kleuren bij ⚙️ Instellingen → Overig (Bos, Perkament, Aubergine & cyaan, Aubergine licht, Nachtzee, Herfst, Grafiet, Lente).
+  Een gelinkt account zonder eigen keuze krijgt aubergine & cyaan, zodat je meteen ziet met welk account je kijkt.
 
 ## Snelinvoer
 

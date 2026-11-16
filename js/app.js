@@ -3,13 +3,14 @@ import { opslag, bewaar, KWADRANTEN, kwadrant, overzicht, project, taak, takenVa
          nieuweTaak, nieuwProject, werkBij, verwijder, koppel, rondAf, heropen, linkInfo, kalibratie, uid, locatie, effectieveLocatie, sessie,
          map, submappen, lijstenIn, lijstenOnder, mappenOnder, mapPad, boom, lijstVolgorde, idsVan,
          afspraak, koersVan, binnenDoel, koersScore, koersSuggesties, koppelKoers, mijnId, isIk, personen, naamVanPersoon, isMijn, isTeam, wie, wachtNogOp, wachtenOp, maaktKring, anderen as andereLeden } from "./data.js";
-import { planAutomatisch, werkGeplandBij, doelDatum, harde, prioriteit, googleLink, outlookLink, maakIcs, leesIcs, dagStr, dagIndeling, eventSoort, SOORTEN } from "./plan.js";
+import { familieHaak, planAutomatisch, werkGeplandBij, doelDatum, harde, prioriteit, googleLink, outlookLink, maakIcs, leesIcs, dagStr, dagIndeling, eventSoort, SOORTEN } from "./plan.js";
 import { ids, verbindingen as alleVerbindingen, heeft, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, zonderDoel, koppelHaak, neemGedeeldeOver } from "./koppeling.js";
 import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroniseerAlles, naamVan, lijstWeg } from "./schijf.js";
 import { verversAgendas, zetNaarAgendas } from "./sync.js";
 import { syncTaken, takenVerbindingen, koppelTakenlijst, takenlijstVan, takenVerbindingVan } from "./takensync.js";
 import { kiesEmoji, voorstellen } from "./emoji.js";
-import { cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen } from "./cloud.js";
+import { cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda } from "./cloud.js";
+familieHaak.agenda = familieAgenda;
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -25,8 +26,8 @@ const voorkeur = {
 };
 let actief = voorkeur.lees("actief", null);
 
-// ---------- thema's en petten ("welke pet heb je op?") ----------
-// Een pet = kleuren + welke lijsten opvallen. Wissel bovenin; per account onthoudt dit apparaat welke pet je ophad.
+// ---------- kleuren ----------
+// Elk account heeft zijn eigen kleuren (in zijn eigen instellingen), zodat je meteen ziet met welk account je kijkt.
 const THEMAS = {
   donker:         { naam: "Bos",               bg: "#0f2419", accent: "#d8c48e", accent2: "#7cc495" },
   licht:          { naam: "Perkament",         bg: "#f4efe2", accent: "#2f5e45", accent2: "#b8861f" },
@@ -37,54 +38,10 @@ const THEMAS = {
   grafiet:        { naam: "Grafiet",           bg: "#17191d", accent: "#7aa2f7", accent2: "#9ece6a" },
   lente:          { naam: "Lente (licht)",     bg: "#f3f7f0", accent: "#3f7d4f", accent2: "#d9668a" },
 };
-const FOCUS = { alles: "Alles even opvallend", deze: "Alleen deze opvallend", behalve: "Alles behalve deze" };
-const WERKACHTIG = /werk|kantoor|team|baan|zakelijk|bedrijf|klant/i;
-function standaardPetten() {
-  const top = [...submappen("").map(m => ["m:" + m.id, m.naam]), ...lijstenIn("").map(o => [o.id, o.naam])];
-  const werk = top.filter(([, n]) => WERKACHTIG.test(n)).map(([k]) => k);
-  return [
-    { id: "prive", naam: "Privé", icoon: "🏡", thema: voorkeur.lees("thema", "donker"), focusSoort: werk.length ? "behalve" : "alles", focus: werk, account: "" },
-    { id: "werk",  naam: "Werk",  icoon: "💼", thema: "aubergine", focusSoort: werk.length ? "deze" : "alles", focus: werk, account: "" },
-  ];
-}
-function petten() {
-  const i = d().instellingen;
-  if (!Array.isArray(i.petten) || !i.petten.length) i.petten = standaardPetten();
-  return i.petten;
-}
-const pet = () => { const l = petten(); return l.find(p => p.id === voorkeur.lees("pet", "")) || l[0]; };
-function zetPet(id) {
-  voorkeur.zet("pet", id);
-  const em = cloud.gebruiker?.email?.toLowerCase();
-  if (em) { const m = voorkeur.lees("petPerAccount", {}); m[em] = id; voorkeur.zet("petPerAccount", m); }
-  zetThema(); render();
-}
-// Bij inloggen (of wisselen van account) vanzelf de bijbehorende pet opzetten
-let petEmail;
-// Elk account van dit Tijdkompas krijgt vanzelf een eigen pet (en dus eigen kleuren): het hoofdaccount de eerste,
-// het eerste toegevoegde account de tweede, enz. Zo zie je meteen met welk account je kijkt. Aanpassen kan bij Petten.
-function petBijAccount() {
-  const em = cloud.gebruiker?.email?.toLowerCase() || "";
-  if (em === petEmail) return;
-  if (!em) { petEmail = em; return; }
-  if (!cloudGeladen()) return;                                   // eerst de gegevens (en petten) van dit Tijdkompas
-  let p = petten().find(p => (p.account || "").toLowerCase() === em);
-  if (!p) {
-    const fam = familieEmails(), i = fam.indexOf(em);
-    if (i < 0) return;                                           // familie nog niet bekend: straks opnieuw
-    const vrij = petten().filter(x => !x.account || !fam.includes(x.account));
-    p = vrij[Math.min(i, vrij.length - 1)] || null;
-    if (p && fam.length > 1) { p.account = em; bewaar(); }      // vastleggen, zodat het overal hetzelfde is
-  }
-  petEmail = em;
-  if (p && p.id !== voorkeur.lees("pet", "")) { voorkeur.zet("pet", p.id); zetThema(); }
-}
-/** Valt deze lijst op onder de huidige pet? */
+/** Lijsten van een gelinkt account (privé ↔ werk) blijven zichtbaar maar vallen minder op; die van jou vallen op. */
 function inFocus(ovId) {
-  const p = pet();
-  if (!p || p.focusSoort === "alles" || !p.focus?.length) return true;
-  const ids = new Set(p.focus.flatMap(k => idsVan(k)));
-  return p.focusSoort === "deze" ? ids.has(ovId) : !ids.has(ovId);
+  const o = overzicht(ovId), fam = sessie.familie || [];
+  return !(o?.eigenaar && fam.length > 1 && o.eigenaar !== sessie.ik && fam.includes(o.eigenaar));
 }
 function markeerFocus(root) {
   for (const el of root.querySelectorAll("[data-id][data-type], [data-sub]")) {
@@ -95,13 +52,6 @@ function markeerFocus(root) {
     const b = d().planning.find(b => b.id === el.dataset.blok);
     if (b) el.classList.toggle("elders", !inFocus(b.overzicht));
   }
-}
-function renderPet() {
-  const k = $("#petKnop"); if (!k) return;
-  zetThema();
-  const l = petten(), p = pet(), volgende = l[(l.indexOf(p) + 1) % l.length];
-  k.innerHTML = `<span>${esc(p.icoon)}</span><span class="petnaam">${esc(p.naam)}</span>`;
-  k.title = l.length > 1 ? `Je hebt je ${p.naam}-pet op. Klik voor ${volgende.naam}.` : `Pet: ${p.naam}`;
 }
 let weekVerschuiving = 0;
 let laatsteWaarschuwingen = [];
@@ -381,7 +331,6 @@ function render() {
   const v = huidige();
   $$("#nav a").forEach(a => a.classList.toggle("actief", a.dataset.v === v));
   const scroll = window.scrollY;
-  petBijAccount();
   main.innerHTML = sessieBanner() + weergaves[v]();
   markeerFocus(main);
   if (v === "matrix") activeerSlepen();
@@ -392,7 +341,7 @@ function render() {
       && Date.now() - new Date(d().takenSync || 0) > 10 * 60e3) setTimeout(() => doeTakenSync(true), 50);
   window.scrollTo(0, scroll);
   renderAccount();
-  renderPet();
+  zetThema();
   if (dlg3.open && instOpen) tekenInst();
 }
 window.addEventListener("hashchange", () => { render(); window.scrollTo(0, 0); });
@@ -411,19 +360,14 @@ function snelInvoer(ph = "Nieuwe taak… bv. Offerte sturen ~45m !u ^vr #present
 }
 
 // ===== Vandaag =====
-// Afspraken: die van het account waarmee je nu inlogt vallen op (in hun eigen Google-/Outlook-kleur),
-// die uit je andere gekoppelde accounts staan er ook, gedimd in één rustige kleur — zo heb je het complete overzicht.
-function eigenAgendaEmail() {
-  const em = cloud.gebruiker?.email?.toLowerCase();
-  return em && verbindingen().some(v => v.email.toLowerCase() === em) ? em : "";
-}
+// Afspraken: die van dit account vallen op (in hun eigen Google-/Outlook-kleur); die van je gelinkte account(s)
+// staan er ook, gedimd in één rustige kleur — zo heb je het complete overzicht.
 function afspraakStijl(ev) {
+  if (ev.vanFamilie) return { k: { naam: ev.vanFamilie }, kleur: "var(--zacht)", ander: true };
   const k = d().agendas[ev.bron];
-  const kleur = ev.kleur || (k?.lijst ? ovKleur(k.lijst) : (k?.kleur || "var(--zacht)"));
-  const em = eigenAgendaEmail(), acc = String(ev.bron || "").match(/^(?:google|ms):([^|]+)\|/)?.[1]?.toLowerCase();
-  const ander = !!(em && acc && acc !== em);
-  return { k, kleur: ander ? "var(--zacht)" : kleur, ander };
+  return { k, kleur: ev.kleur || (k?.lijst ? ovKleur(k.lijst) : (k?.kleur || "var(--zacht)")), ander: false };
 }
+const famAgenda = () => ingelogd() ? familieAgenda() : { bezet: [], planning: [] };
 function vandaag() {
   const nu = new Date(), vd = vandaagStr();
   const open = d().taken.filter(t => t.status !== "klaar" && zichtbaar(t));
@@ -432,8 +376,10 @@ function vandaag() {
   const blokken = [
     ...d().planning.filter(b => dagStr(new Date(b.start)) === vd).filter(b => actieveOverzichten().includes(b.overzicht)),
     ...d().bezet.filter(b => dagStr(new Date(b.start)) === vd).map(b => ({ ...b, bezet: true })),
+    ...(() => { const f = famAgenda(); return [...f.bezet.filter(b => !b.eigen && b.soortF !== "negeer"), ...f.planning.filter(b => b.soort !== "reis")]
+      .filter(b => dagStr(new Date(b.start)) === vd).map(b => ({ ...b, bezet: true, fam: true })); })(),
   ].sort((a, b) => a.start.localeCompare(b.start));
-  const geplandMin = blokken.filter(b => !b.bezet).reduce((s, b) => s + (new Date(b.eind) - new Date(b.start)) / 60000, 0);
+  const geplandMin = blokken.filter(b => !b.bezet && !b.fam).reduce((s, b) => s + (new Date(b.eind) - new Date(b.start)) / 60000, 0);
   const binnenWeek = [...open, ...d().projecten.filter(p => p.status !== "klaar" && zichtbaar(p))]
     .filter(i => { const x = harde(i.type === "taak" ? i : { ...i, project: null }) || i.streef; return x && dagenTot(x) <= 7; })
     .sort((a, b) => (doelDatum(a) || "").localeCompare(doelDatum(b) || ""));
@@ -655,7 +601,13 @@ function agenda() {
     const reis = [...I.reis, ...I.terPlekke.map(x => ({ ...x, terPlekke: true }))].filter(r => !r.lijst || act.includes(r.lijst)).map(r =>
       band(r.a, r.b, r.terPlekke ? "reisband terplekke" : "reisband", "", r.terPlekke ? `Pauze ter plekke (${locatie(r.locatie)?.naam})` : `Reistijd ${r.richting} ${locatie(r.locatie)?.naam || ""}${r.afspraak ? " — " + r.afspraak : ""}`,
         r.terPlekke ? "" : `<span>🚗</span>`)).join("");
-    const afspraken = d().bezet.filter(inDag).filter(ev => !ev.eigen && eventSoort(ev) === "bezet").map(ev => {
+    const fam = famAgenda();
+    const famBlokken = fam.planning.filter(b => b.soort !== "reis").filter(inDag).map(b => {
+      const t = Math.max(0, y(b.start)), h = Math.max(14, Math.min(hoogte, y(b.eind)) - t);
+      return `<div class="wblok ander famblok" style="--ok:var(--zacht);top:${t}px;height:${h - 2}px" title="${esc(b.titel)} ${fmtTijd(b.start)}–${fmtTijd(b.eind)} · planning van ${esc(b.vanFamilie)}">
+        <b>${esc(b.titel)}</b>${h > 30 ? `${fmtTijd(b.start)}–${fmtTijd(b.eind)}` : ""}</div>`;
+    }).join("");
+    const afspraken = [...d().bezet.filter(ev => eventSoort(ev) === "bezet"), ...fam.bezet.filter(ev => ev.soortF === "bezet")].filter(inDag).filter(ev => !ev.eigen).map(ev => {
       const { k, kleur, ander } = afspraakStijl(ev);
       const t = Math.max(0, y(ev.start)), h = Math.max(16, Math.min(hoogte, y(ev.eind)) - t);
       return `<div class="wblok bezet${ander ? " ander" : ""}" style="--ak:${kleur};top:${t}px;height:${h - 2}px" title="${esc(ev.titel)} ${fmtTijd(ev.start)}–${fmtTijd(ev.eind)}${k ? " · " + esc(k.naam) : ""}${ev.plaats ? " · " + esc(ev.plaats) : ""}">
@@ -668,7 +620,7 @@ function agenda() {
         <b>${b.soort === "reis" ? "🚗 " : ""}${esc(b.titel)}</b>${h > 30 ? `${fmtTijd(b.start)}–${fmtTijd(b.eind)}${inAgenda ? " ✓" : ""}` : ""}</div>`;
     }).join("");
     const nulijn = ds === dagStr(nu) && nu.getHours() >= UUR_VAN && nu.getHours() < UUR_TOT ? `<div class="nulijn" style="top:${y(nu)}px"></div>` : "";
-    return `<div class="wdag ${ds === dagStr(nu) ? "vandaag" : ""}" style="height:${hoogte}px;--uurH:${UUR_H}px">${beschikb}${vast}${reis}${afspraken}${blokken}${nulijn}</div>`;
+    return `<div class="wdag ${ds === dagStr(nu) ? "vandaag" : ""}" style="height:${hoogte}px;--uurH:${UUR_H}px">${beschikb}${vast}${reis}${afspraken}${famBlokken}${blokken}${nulijn}</div>`;
   }).join("");
 
   const toekomst = d().planning.filter(b => new Date(b.eind) > nu && act.includes(b.overzicht));
@@ -696,7 +648,7 @@ function agenda() {
     ${kolommen}
   </div>
   <div class="legenda"><span><i class="lg venster"></i> vaste tijden van een lijst</span><span><i class="lg reisband"></i> reistijd</span><span><i class="lg beschikb"></i> beschikbaar (vrije tijd)</span>
-    <span><i class="lg bezet"></i> afspraak uit je agenda${eigenAgendaEmail() ? ` · gedimd: andere accounts dan ${esc(eigenAgendaEmail())}` : ""}</span><span>📌 vastgezet · ✓ staat in je agenda</span>
+    <span><i class="lg bezet"></i> afspraak uit je agenda${(sessie.familie || []).length > 1 ? " · gedimd: agenda en planning van je gelinkte account" : ""}</span><span>📌 vastgezet · ✓ staat in je agenda</span>
     ${d().bezet.some(b => !verbindingVanBron(b.bron)) ? `<span>${d().bezet.filter(b => !verbindingVanBron(b.bron)).length} afspraken uit .ics · <a href="#" data-actie="wisBezet">wissen</a></span>` : ""}</div>
   <div class="paneel" style="margin-top:16px;font-size:13px;color:var(--meta)">
     <b style="color:var(--tekst)">Zo werkt inplannen</b> — Taken gaan op volgorde van kwadrant en deadline/streefdatum.
@@ -1211,29 +1163,6 @@ function takenBlok(id) {
     <span class="hint">${d().takenSync ? "Laatst: " + new Date(d().takenSync).toLocaleString("nl-NL", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}</span></div>` : ""}`;
 }
 
-function petRij(p) {
-  const top = [...submappen("").map(m => ["m:" + m.id, m.icoon, m.naam]), ...lijstenIn("").map(o => [o.id, o.icoon, o.naam])];
-  const op = pet().id === p.id;
-  return `<div class="paneel petrij ${op ? "op" : ""}" data-pet="${esc(p.id)}">
-    <div class="petkop">
-      <button type="button" class="emojiknop" data-emoji="pet" aria-label="Icoon kiezen">${esc(p.icoon)}</button>
-      <input type="text" value="${esc(p.naam)}" data-petveld="naam" aria-label="Naam" style="font-weight:600">
-      ${op ? `<span class="tag">opgezet</span>` : `<button type="button" class="knop klein prim" data-actie="petOp">Opzetten</button>`}
-      ${petten().length > 1 ? `<button type="button" class="knop klein gevaar" data-actie="petWeg">Weg</button>` : ""}
-    </div>
-    <div class="themas" role="group" aria-label="Kleuren">${Object.entries(THEMAS).map(([k, t]) =>
-      `<button type="button" class="themaknop" data-actie="petThema" data-w="${k}" aria-pressed="${p.thema === k}" title="${esc(t.naam)}"
-        style="--a:${t.bg};--b:${t.accent};--c:${t.accent2}"><span class="staal"></span>${esc(t.naam)}</button>`).join("")}</div>
-    <div class="segment" role="group" aria-label="Wat valt op">${Object.entries(FOCUS).map(([k, n]) =>
-      `<button type="button" data-actie="petFocusSoort" data-w="${k}" aria-pressed="${(p.focusSoort || "alles") === k}">${n}</button>`).join("")}</div>
-    ${(p.focusSoort || "alles") === "alles" ? "" : `<div class="chips">${top.map(([k, i, n]) =>
-      `<button type="button" data-actie="petFocus" data-w="${esc(k)}" aria-pressed="${(p.focus || []).includes(k)}">${esc(i)} ${esc(n)}</button>`).join("")}</div>`}
-    <label class="veld">Vanzelf opzetten bij inloggen met${familieEmails().length
-      ? `<select data-petveld="account"><option value="">— geen vast account —</option>${[...new Set([...familieEmails(), p.account].filter(Boolean))].map(e => `<option value="${esc(e)}" ${p.account === e ? "selected" : ""}>${esc(e)}</option>`).join("")}</select>`
-      : `<input type="email" value="${esc(p.account || "")}" data-petveld="account" placeholder="e-mailadres (mag leeg)">`}</label>
-  </div>`;
-}
-
 function instOverig() {
   const bm = `javascript:(()=>{let t=document.title.replace(/ - [^-]*(Gmail|Outlook)[^-]*$/,'').replace(/^(Mail|E-mail) - /,'');window.open('${location.origin + location.pathname}?nieuw=1&titel='+encodeURIComponent(t)+'&url='+encodeURIComponent(location.href),'tijdkompas','width=720,height=820')})()`;
   return `<h3 style="margin-top:0">Mails koppelen</h3>
@@ -1242,11 +1171,11 @@ function instOverig() {
     <div><a class="bookmarklet" href="${esc(bm)}" onclick="event.preventDefault();alert('Sleep deze knop naar je bladwijzerbalk.')">＋ Tijdkompas</a></div>
     <div class="hint">Op je telefoon: installeer Tijdkompas (menu → „Toevoegen aan startscherm”) en gebruik <b>Delen</b> vanuit je mail-app. Of plak gewoon de link van een mail in een taak.</div>
   </div>
-  <h3>Petten en kleuren</h3>
-  <p class="hint">Welke pet heb je op? Een pet bepaalt de kleuren en welke lijsten opvallen; de rest blijft zichtbaar maar valt minder op.
-    Wissel bovenin met de knop naast het logo. Ben je ingelogd, dan zet Tijdkompas vanzelf de pet op die bij dat account hoort.</p>
-  ${petten().map(petRij).join("")}
-  <button type="button" class="knop klein" data-actie="petBij">＋ Nog een pet</button>
+  <h3>Kleuren</h3>
+  <p class="hint">${ingelogd() ? `Deze kleuren horen bij ${esc(cloud.gebruiker.email)}. Kies voor je gelinkte account(s) andere kleuren, dan zie je meteen met welk account je kijkt.` : "Kies de kleuren van Tijdkompas."}</p>
+  <div class="themas" role="group" aria-label="Kleuren">${Object.entries(THEMAS).map(([k, t]) =>
+    `<button type="button" class="themaknop" data-actie="themaKies" data-w="${k}" aria-pressed="${huidigThema() === k}" title="${esc(t.naam)}"
+      style="--a:${t.bg};--b:${t.accent};--c:${t.accent2}"><span class="staal"></span>${esc(t.naam)}</button>`).join("")}</div>
   <h3>Gegevens</h3>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     <button class="knop" data-actie="exportJson">⬇ Back-up downloaden</button>
@@ -1282,14 +1211,14 @@ function familieEmails() {
 function familieBlok() {
   const g = cloud.gebruiker; if (!g) return "";
   const hoofd = isHoofd() ? { email: g.email, naam: g.naam, foto: g.foto } : (cloud.hoofdInfo || { email: "hoofdaccount", naam: "Hoofdaccount" });
-  const rij = (x, uid, isH) => { const p = petten().find(p => p.account && p.account === x.email);
+  const rij = (x, uid, isH) => {
     return `<div class="accrij">${x.foto ? `<img class="avatar" src="${esc(x.foto)}" alt="" referrerpolicy="no-referrer">` : `<span class="avatar">${esc((x.naam || x.email || "?")[0].toUpperCase())}</span>`}
     <div class="ibody"><div class="ititel">${esc(x.email)}${x.email === g.email ? ` <span class="tag">nu ingelogd</span>` : ""}</div>
-      <div class="imeta">${isH ? "hoofdaccount" : "toegevoegd account"}${p ? ` · ${esc(p.icoon)} ${esc(p.naam)}-pet` : ""}</div></div>
+      <div class="imeta">${isH ? "hoofdaccount" : "gelinkt account"}</div></div>
     ${!isH && isHoofd() ? `<button type="button" class="knop klein gevaar" data-actie="inlogWeg" data-w="${esc(uid)}">Loskoppelen</button>` : ""}</div>`; };
-  return `<h3>Accounts in dit Tijdkompas</h3>
-    <p class="hint">Log in met welk account je wilt: je komt steeds in hetzelfde Tijdkompas, met de pet (kleuren en focus) die bij dat account hoort.</p>
-    <div class="lijst">${rij(hoofd, sessie.ik, true)}${Object.entries(cloud.aliasInfo || {}).map(([u, x]) => rij(x, u, false)).join("")}</div>
+  return `<h3>Gelinkte accounts</h3>
+    <p class="hint">Elk account houdt zijn eigen agenda's, takenlijsten, koppelingen en kleuren. Gelinkt zie je met elk account ook de lijsten, agenda en planning van de andere (rustig, in de achtergrond).</p>
+    <div class="lijst">${rij(hoofd, cloud.hoofdUid || sessie.ik, true)}${Object.entries(cloud.aliasInfo || {}).map(([u, x]) => rij(x, u, false)).join("")}</div>
     ${isHoofd() ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
       <button type="button" class="knop klein" data-actie="inlogBij" data-w="google">${googleLogo} ＋ Google-account toevoegen</button>
       <button type="button" class="knop klein" data-actie="inlogBij" data-w="microsoft">${msLogo} ＋ Microsoft-account toevoegen</button></div>`
@@ -1301,7 +1230,6 @@ function renderAccount() {
   k.querySelector(".avatar").innerHTML = g?.foto ? `<img src="${esc(g.foto)}" alt="" referrerpolicy="no-referrer">` : g ? esc(g.naam[0].toUpperCase()) : "⌂";
   k.title = g ? `${g.email}${cloud.fout ? " · " + cloud.fout : ""}` : "Inloggen";
 }
-$("#petKnop").addEventListener("click", () => { const l = petten(); if (l.length > 1) { zetPet(l[(l.indexOf(pet()) + 1) % l.length].id); toast(`${pet().icoon} ${pet().naam}-pet op`); } else { voorkeur.zet("instTab", "overig"); location.hash = "#instellingen"; } });
 $("#accountKnop").addEventListener("click", () => {
   const g = cloud.gebruiker;
   dlg.innerHTML = `<form method="dialog"><div class="dkop"><h2>${g ? "Je account" : "Inloggen bij Tijdkompas"}</h2><button type="button" class="sluit" data-sluit aria-label="Sluiten">×</button></div>
@@ -1334,7 +1262,7 @@ function accountActie(a, w, klaar) {
   } else if (a === "inlogBij") {
     voegInlogToe(w).then(r => {
       const mee = [r.lijsten ? `${r.lijsten} lijsten` : "", r.extra ? "agenda's, takenlijsten en koppelingen" : ""].filter(Boolean).join(" en ");
-      toast(`${r.email} hoort nu bij dit Tijdkompas${mee ? ` — ${mee} zijn meegekomen` : ""}. Kies bij Petten welke pet daarbij hoort.`);
+      toast(`${r.email} is nu gelinkt${mee ? ` — ${mee} zijn meegekomen` : ""}. Geef dat account bij Instellingen → Overig eigen kleuren.`);
       render(); if (dlg.open) $("#accountKnop").click();
     }).catch(e => toast(foutTekst(e)));
   } else if (a === "inlogWeg") {
@@ -1827,8 +1755,6 @@ function kiesBestand(accept) {
 async function hoofdKlik(e) {
   const ek = e.target.closest("[data-emoji]");
   if (ek) {
-    const prij = ek.closest("[data-pet]");
-    if (prij) { const p = petten().find(x => x.id === prij.dataset.pet); kiesEmoji(ek, { naam: p.naam, soort: "map", huidig: p.icoon }, (v) => { p.icoon = v; bewaar(); }); return; }
     const orij = ek.closest("[data-ov]"), mrij = ek.closest("[data-map]"), lrij = ek.closest("[data-loc]");
     const x = orij ? overzicht(orij.dataset.ov) : mrij ? map(mrij.dataset.map) : lrij ? locatie(lrij.dataset.loc) : null;
     if (x) kiesEmoji(ek, { naam: x.naam, soort: orij ? "lijst" : mrij ? "map" : "locatie", huidig: x.icoon }, (v) => { x.icoon = v; bewaar(); });
@@ -1860,13 +1786,13 @@ async function hoofdKlik(e) {
     if (a === "leeg") {
       if (!confirm(`Alles wissen en opnieuw beginnen, alsof je nieuw bent?
 
-Weg gaan: lijsten, mappen, taken, projecten, planning, koersafspraken, petten en koppelingen${ingelogd() ? " — voor al je gekoppelde accounts en apparaten" : ""}.
+Weg gaan: lijsten, mappen, taken, projecten, planning, koersafspraken, kleuren en koppelingen${ingelogd() ? " — voor al je gekoppelde accounts en apparaten" : ""}.
 Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit Tijdkompas horen" : ""}. Wat in Google of Outlook staat blijft daar staan; alleen de blokken die Tijdkompas in je agenda had gezet worden weggehaald.`)) return;
       el.disabled = true; toast("Bezig met wissen…");
       try { if (verbindingen().length) { d().planning = []; await zetNaarAgendas(); } } catch {}   // ingeplande blokken uit je agenda halen
       for (const v of alleVerbindingen()) { try { await ontkoppel(v); } catch {} }
       d().overzichten.forEach(o => lijstWeg(o.id)); opslag.wis();
-      actief = null; for (const k of ["actief", "pet", "petPerAccount", "instTab"]) voorkeur.zet(k, null);
+      actief = null; for (const k of ["actief", "instTab"]) voorkeur.zet(k, null);
       zetThema(); toast("Alles gewist — je begint opnieuw"); location.hash = "#vandaag"; render();
     }
     else if (a === "demo") { if (confirm("Huidige gegevens vervangen door voorbeelddata?")) opslag.demo(); }
@@ -1875,16 +1801,7 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
     else if (a === "koersRapport") koersRapport();
     else if (a === "matrixToon" && w) { voorkeur.zet("matrixToon", w); render(); }
     else if (a === "thema" && w) { voorkeur.zet("thema", w); zetThema(); render(); }
-    else if (a === "pet") { const l = petten(); zetPet(l[(l.indexOf(pet()) + 1) % l.length].id); }
-    else if (a === "petBij") { const p = { id: uid(), naam: "Nieuwe pet", icoon: "🎩", thema: "grafiet", focusSoort: "alles", focus: [], account: "" }; petten().push(p); bewaar(); }
-    else if (a?.startsWith("pet") && el.closest("[data-pet]")) {
-      const p = petten().find(x => x.id === el.closest("[data-pet]").dataset.pet);
-      if (a === "petOp") zetPet(p.id);
-      else if (a === "petWeg") { if (confirm(`Pet „${p.naam}” weghalen?`)) { d().instellingen.petten = petten().filter(x => x !== p); bewaar(); zetThema(); } }
-      else if (a === "petThema") { p.thema = w; bewaar(); if (pet() === p) zetThema(); }
-      else if (a === "petFocusSoort") { p.focusSoort = w; bewaar(); }
-      else if (a === "petFocus") { p.focus = (p.focus || []).includes(w) ? p.focus.filter(x => x !== w) : [...(p.focus || []), w]; bewaar(); }
-    }
+    else if (a === "themaKies" && w) { d().instellingen.thema = w; voorkeur.zet("thema", w); bewaar(); zetThema(); }
     else if (a === "week") { weekVerschuiving = w === "0" ? 0 : weekVerschuiving + +w; render(); }
     else if (a === "plan") {
       const r = planAutomatisch(actieveOverzichten()); laatsteWaarschuwingen = r.waarschuwingen; bewaar();
@@ -2056,12 +1973,6 @@ main.addEventListener("submit", (e) => {
   }
 });
 function hoofdWijzig(e) {
-  if (e.target.dataset?.petveld) {
-    const p = petten().find(x => x.id === e.target.closest("[data-pet]").dataset.pet), k = e.target.dataset.petveld;
-    p[k] = k === "account" ? e.target.value.trim().toLowerCase() : e.target.value.trim() || p[k];
-    if (k === "account" && p[k]) for (const q of petten()) if (q !== p && q.account === p[k]) q.account = "";   // één pet per account
-    bewaar(); renderPet(); return;
-  }
   if (e.target.matches?.("[data-tlijst],[data-tlijstvan]")) {
     let k, lijstId;
     if (e.target.dataset.tlijstvan !== undefined) {           // vanuit de lijst: kies de takenlijst
@@ -2144,9 +2055,15 @@ document.addEventListener("keydown", (e) => {
 
 $$("dialog").forEach(dl => dl.addEventListener("click", (e) => { if (e.target.closest("[data-sluit]")) dl.close(); }));
 
+// Kleuren van dit account; een gelinkt account zonder eigen keuze krijgt aubergine, zodat het verschil meteen opvalt
+function huidigThema() {
+  let t = voorkeur.lees("thema", "donker");
+  try { if (ingelogd()) t = d().instellingen?.thema || (cloud.hoofdUid ? "aubergine" : t); } catch {}
+  return THEMAS[t] ? t : "donker";
+}
 function zetThema() {
   let t = voorkeur.lees("thema", "donker");
-  try { t = pet()?.thema || t; } catch {}            // vóór het laden van de data is er nog geen pet
+  t = huidigThema();
   document.documentElement.dataset.theme = THEMAS[t] ? t : "donker";
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", THEMAS[t]?.bg || "#0f2419");
 }

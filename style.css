@@ -411,6 +411,8 @@ details.meer .menu{position:absolute;right:0;top:calc(100% + 6px);z-index:15;dis
 .wblok.bezet.ander:hover{opacity:1}
 .tblok.bezet{border-left-color:var(--ok,var(--zacht))}
 .tblok.bezet.ander{opacity:.6}
+.wblok.famblok{opacity:.55;background:color-mix(in srgb,var(--zacht) 16%,var(--paneel));border-color:var(--zacht);border-left:2px dashed var(--zacht);color:var(--meta);cursor:default;z-index:1}
+.wblok.famblok:hover{opacity:1}
 
 @media print{
   body.afdrukken > :not(#afdruk){display:none !important}

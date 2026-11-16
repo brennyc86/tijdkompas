@@ -6,7 +6,13 @@
 //  • "vrij"  — alles wat overblijft binnen je beschikbaarheid, na aftrek van vaste tijden, reistijd en afspraken.
 //              Staat de lijst (of taak) op een locatie met reistijd, dan krijgt elke sessie reis heen + terug;
 //              taken op dezelfde locatie worden achter elkaar gezet zodat je maar één keer reist.
-import { opslag, kwadrant, kalibratie, project, overzicht, locatie, effectieveLocatie, uid, linkInfo, isMijn, taak } from "./data.js";
+import { opslag, kwadrant, kalibratie, project, overzicht, locatie, effectieveLocatie, uid, linkInfo, isMijn, taak, sessie } from "./data.js";
+
+// Agenda en planning van gelinkte accounts (privé ↔ werk): je bent één mens, dus daar plannen we omheen.
+// De app vult dit (cloud.familieAgenda); zonder gelinkte accounts is het leeg.
+export const familieHaak = { agenda: () => ({ bezet: [], planning: [] }) };
+// Lijsten van een gelinkt account plant dat account zelf in (in zijn eigen agenda); hier niet nog eens.
+const vanGelinkt = (ovId) => { const o = overzicht(ovId), f = sessie.familie || []; return !!(o?.eigenaar && f.length > 1 && o.eigenaar !== sessie.ik && f.includes(o.eigenaar)); };
 
 const MIN = 60000;
 const rondOp = (d, stap = 15) => new Date(Math.ceil(d.getTime() / (stap * MIN)) * stap * MIN);
@@ -130,6 +136,10 @@ export function planAutomatisch(actieveOverzichten) {
   const bezet = [
     ...d.bezet.filter(ev => eventSoort(ev) === "bezet" && !ev.eigen).map(ev => ({ a: new Date(ev.start), b: new Date(ev.eind), ref: "ev" })),
     ...d.planning.map(b => ({ a: new Date(b.start), b: new Date(b.eind), ref: b.id, reis: b.soort === "reis" })),
+    ...(() => { const f = familieHaak.agenda(); return [
+      ...f.bezet.filter(ev => ev.soortF === "bezet" && !ev.eigen).map(ev => ({ a: new Date(ev.start), b: new Date(ev.eind), ref: "fam" })),
+      ...f.planning.map(b => ({ a: new Date(b.start), b: new Date(b.eind), ref: "fam", reis: b.soort === "reis" })),
+    ]; })(),
   ];
   const indeling = {};
   const ind = (dag) => {
@@ -155,6 +165,7 @@ export function planAutomatisch(actieveOverzichten) {
     ...d.taken.filter(t => t.status !== "klaar"),
     ...d.projecten.filter(p => p.status !== "klaar" && p.schatting > 0 && !d.taken.some(t => t.project === p.id && t.status !== "klaar")),
   ].filter(i => actieveOverzichten.includes(i.overzicht))
+   .filter(i => !vanGelinkt(i.overzicht))
    .filter(isMijn)                                                   // gedeelde lijst: alleen wat (ook) aan jou is toegewezen
    .filter(i => inst.schrappenInplannen || kwadrant(i) !== "schrappen" || d.taken.some(x => x.status !== "klaar" && (x.wachtOp || []).includes(i.id)));
   // Waar een ander op wacht, krijgt minstens de prioriteit van die wachtende taak; en komt er vóór
