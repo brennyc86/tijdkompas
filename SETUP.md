@@ -12,7 +12,7 @@ Gebruikers merken er niets van. Zij klikken alleen in de app op „Inloggen met 
 | **B** Microsoft-omgeving + app | inloggen met Microsoft (B0: eenmalig een gratis eigen omgeving) | nog doen |
 | **C-Google** | Google Agenda, Google Taken en Google Drive koppelen | Client ID ✅ ingevuld; controleer de rest van stap C-Google |
 | **C-Microsoft** | Outlook-agenda, Microsoft To Do (Outlook-taken) en OneDrive koppelen | nog doen; stuur daarna de **Microsoft client-ID** |
-| **D** Outlook-agenda via een link | Outlook-agenda zien en eromheen plannen (alleen lezen), zonder Microsoft-registratie | nog doen; stuur daarna de **Worker-URL** |
+| **D** Outlook-agenda via een link | Outlook-agenda zien en eromheen plannen (alleen lezen), zonder Microsoft-registratie | ✅ doorgeefluik staat (tijdkompas-agenda.brennycc86.workers.dev); per agenda D2 + D3 |
 
 **Over de knoppen in deze handleiding:** de Firebase-console is altijd Engels. Google Cloud en Microsoft tonen soms Nederlands, afhankelijk van je instellingen.
 Daarom staat elke knop er zo: **English label** (Nederlandse vertaling). Kijk dus naar wat jouw scherm toont.
