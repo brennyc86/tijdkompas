@@ -4,17 +4,24 @@ import { opslag, bewaar, KWADRANTEN, kwadrant, overzicht, project, taak, takenVa
          map, submappen, lijstenIn, lijstenOnder, mappenOnder, mapPad, boom, lijstVolgorde, idsVan,
          afspraak, koersVan, binnenDoel, koersScore, koersSuggesties, koppelKoers, mijnId, isIk, personen, naamVanPersoon, isMijn, isTeam, wie, wachtNogOp, wachtenOp, maaktKring, anderen as andereLeden } from "./data.js";
 import { familieHaak, planAutomatisch, werkGeplandBij, doelDatum, harde, prioriteit, googleLink, outlookLink, maakIcs, leesIcs, dagStr, dagIndeling, eventSoort, SOORTEN,
-  AFWIJKING, standaardTijden, afwijkingOp, afwijkingDatums, zetAfwijking, dagTijden, tijdenZonder, tijdenMet, effLijst, rolBotsingen, planStatus, grootsteGat, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, volgendeMomenten, plaatsVanaf, vrijkomend, vrijeTijd, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
+  AFWIJKING, regelVoor, afspraakSleutel, standaardTijden, afwijkingOp, afwijkingDatums, zetAfwijking, dagTijden, tijdenZonder, tijdenMet, effLijst, rolBotsingen, planStatus, grootsteGat, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, volgendeMomenten, plaatsVanaf, vrijkomend, vrijeTijd, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
 import { ids, verbindingen as alleVerbindingen, heeft, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, zonderDoel, koppelHaak, neemGedeeldeOver } from "./koppeling.js";
 import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroniseerAlles, naamVan, lijstWeg } from "./schijf.js";
 import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD, eigenAgenda, viaEigenaar, vingerafdruk } from "./sync.js";
 import { syncTaken, takenVerbindingen, koppelTakenlijst, takenlijstVan, takenVerbindingVan } from "./takensync.js";
 import { kiesEmoji, voorstellen } from "./emoji.js";
 import { veiligeUrl, veiligeFoto } from "./veilig.js";
-import { familieLijstInst, familieVoorMij, emailVan, feedsLater, feedsBijwerken, feedStand, feedUrl, feedWeg, nieuweFeedSleutel, feedBlokken, cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda, gelinkteInfo, stuurInlogLink,
+import { familieRegels, familieLijstInst, familieVoorMij, emailVan, feedsLater, feedsBijwerken, feedStand, feedUrl, feedWeg, nieuweFeedSleutel, feedBlokken, cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda, gelinkteInfo, stuurInlogLink,
          koppel as koppelStaat, vraagKoppelcode, gebruikKoppelcode, beantwoordKoppel, stopKoppelcode, stuurBevestiging, controleerBevestiging } from "./cloud.js";
 familieHaak.agenda = familieAgenda;
 familieHaak.instVan = (o) => (ingelogd() && gelinkteInfo(o)?.inst) || null;
+// (kort onthouden: dit wordt per afspraak per dag gevraagd)
+let regelsCache = { t: 0, v: null };
+familieHaak.regels = () => {
+  if (!ingelogd()) return { regels: [], verborgen: {} };
+  if (Date.now() - regelsCache.t > 300 || !regelsCache.v) regelsCache = { t: Date.now(), v: familieRegels() };
+  return regelsCache.v;
+};
 familieHaak.instAlle = (id) => ingelogd() && id ? familieLijstInst(id) : [];
 familieHaak.voorMij = () => ingelogd() ? familieVoorMij() : { blokken: [], klaar: false };
 familieHaak.eigenaar = (o) => { const gl = o && gelinkteInfo(o); return gl ? { email: gl.email, agenda: gl.inst?.doelAgenda || "" } : null; };
@@ -477,7 +484,7 @@ function vandaag() {
       <h3>Vandaag in je agenda</h3>
       <div class="tijdlijn">${blokken.map(b => { const st = b.bezet ? afspraakStijl(b) : null;
           const gel = !b.bezet && doorGelinktIngepland({ overzicht: b.overzicht });
-          return `<div class="tblok ${b.bezet || gel ? "bezet" : ""}${st?.ander || gel ? " ander" : ""}" style="--ok:${st ? esc(st.kleur) : gel ? "var(--zacht)" : ovKleur(b.overzicht)}" ${b.bezet ? "" : `data-blok="${b.id}"`}>
+          return `<div class="tblok ${b.bezet || gel ? "bezet" : ""}${st?.ander || gel ? " ander" : ""}" style="--ok:${st ? esc(st.kleur) : gel ? "var(--zacht)" : ovKleur(b.overzicht)}" ${b.bezet ? `data-ev="${esc(b.id)}" data-evfam="${b.fam ? 1 : ""}"` : `data-blok="${b.id}"`}>
           <span class="tijd">${fmtTijd(b.start)}–${fmtTijd(b.eind)}</span><span>${b.bezet ? "📅 " : ""}${esc(b.titel)}</span></div>`; }).join("")
         || `<div class="leeg">Nog niets ingepland. <a href="#agenda">Open de agenda</a> en laat Tijdkompas je dag vullen.</div>`}</div>
     </section>
@@ -702,7 +709,7 @@ function agenda() {
     const afspraken = [...d().bezet.filter(ev => eventSoort(ev) === "bezet" && afspraakZichtbaar(ev)), ...fam.bezet.filter(ev => ev.soortF === "bezet")].filter(inDag).filter(ev => !ev.eigen).map(ev => {
       const { k, kleur, ander } = afspraakStijl(ev);
       const t = Math.max(0, y(ev.start)), h = Math.max(16, Math.min(hoogte, y(ev.eind)) - t);
-      return `<div class="wblok bezet${ander ? " ander" : ""}" style="--ak:${esc(kleur)};top:${t}px;height:${h - 2}px" title="${esc(ev.titel)} ${fmtTijd(ev.start)}–${fmtTijd(ev.eind)}${k ? " · " + esc(k.naam) : ""}${ev.plaats ? " · " + esc(ev.plaats) : ""}">
+      return `<div class="wblok bezet${ander ? " ander" : ""}" data-ev="${esc(ev.id)}" data-evfam="${ev.vanFamilie ? 1 : ""}" style="--ak:${esc(kleur)};top:${t}px;height:${h - 2}px" title="${esc(ev.titel)} ${fmtTijd(ev.start)}–${fmtTijd(ev.eind)}${k ? " · " + esc(k.naam) : ""}${ev.plaats ? " · " + esc(ev.plaats) : ""}">
         <b>${esc(ev.titel)}</b>${h > 30 ? `<span class="btijd">${fmtTijd(ev.start)}–${fmtTijd(ev.eind)}</span>` : ""}</div>`;
     }).join("");
     const blokken = d().planning.filter(b => act.includes(b.overzicht)).filter(inDag).map(b => {
@@ -1355,6 +1362,7 @@ function instKoppelingen() {
     ${id.microsoft ? `<button class="knop" data-actie="koppelMs" data-w="schijf">${msLogo} OneDrive koppelen</button>` : ""}
   </div>` : ""}
 
+  ${regelsBlok()}
   ${Object.keys(d().agendas).length ? `<h3>Agenda's — wat staat erin?</h3>
   <p class="hint"><b>Bezet</b>: Tijdkompas plant eromheen (kies optioneel bij welke lijst ze horen, voor de kleur). <b>Rooster van lijst</b>: de afspraken zíjn de vaste tijden van die lijst (handig bij wisselende diensten). <b>Niet meetellen</b>: alleen ter info.
   Afspraken met een plaats die overeenkomt met een van je locaties krijgen automatisch reistijd.</p>
@@ -2487,6 +2495,56 @@ function vrijeTijdVenster(it, v, na) {
   if (!dlg2.open) dlg2.showModal();
 }
 
+// ---------- een afspraak uit je agenda: altijd, alleen op werkdagen, of deze keer niet ----------
+function afspraakRegel(ev, soort, lijst) {
+  if (soort === "verberg") { d().verborgen = { ...(d().verborgen || {}), [afspraakSleutel(ev)]: new Date().toISOString() }; return; }
+  if (soort === "werkdag") {
+    d().afspraakRegels = [...(d().afspraakRegels || []).filter(r => !(r.bron === ev.bron && r.titel.trim().toLowerCase() === String(ev.titel || "").trim().toLowerCase())),
+      { id: uid(), bron: ev.bron, titel: String(ev.titel || "").slice(0, 200), lijst, soort: "werkdag" }];
+  }
+  if (soort === "altijd") {
+    const t = String(ev.titel || "").trim().toLowerCase();
+    d().afspraakRegels = (d().afspraakRegels || []).filter(r => !(r.bron === ev.bron && r.titel.trim().toLowerCase() === t));
+  }
+}
+function afspraakVenster(ev) {
+  const a = new Date(ev.start), titel = ev.titel || "Afspraak", r = regelVoor(ev);
+  const vast = vasteLijsten();
+  const bron = ev.vanFamilie ? `agenda van ${ev.vanFamilie}` : (d().agendas?.[ev.bron] ? agendaNaam(ev.bron) || d().agendas[ev.bron].naam : "agenda");
+  const standaardLijst = r?.lijst || d().agendas?.[ev.bron]?.lijst || (vast.find(o => (o.eigenaar || sessie.ik) === (ev.vanUid || sessie.ik)) || vast[0])?.id || "";
+  dlg2.innerHTML = `<form method="dialog"><div class="dkop"><span class="soort">📅 Afspraak</span><button type="button" class="sluit" data-sluit aria-label="Sluiten">×</button></div>
+    <div class="dlijf">
+      <h2 style="margin:0">${esc(titel)}</h2>
+      <div class="hint">${DAGLANG[a.getDay()]} ${a.getDate()} ${MAAND[a.getMonth()]} · ${fmtTijd(ev.start)}–${fmtTijd(ev.eind)}${ev.plaats ? " · " + esc(ev.plaats) : ""} · ${esc(bron)}</div>
+      ${r ? `<div class="planstand">🗓 Alle „${esc(r.titel)}” uit deze agenda tellen alleen op werkdagen van ${esc(overzicht(r.lijst)?.naam || "je werk")}.</div>` : ""}
+      <p class="hint" style="margin:0">Tijdkompas plant om je afspraken heen. Is dit een reservering (zoals lunch) die niet op elk moment hoort, kies dan hier:</p>
+      <div class="keuzes">
+        ${vast.length ? `<button type="button" class="keuzeknop" data-akeuze="werkdag"><b>🗓 Alleen meetellen op werkdagen</b><small>Geldt voor alle „${esc(titel)}” uit deze agenda. Op dagen zonder werk staan ze er niet en zitten ze niet in de weg.</small></button>
+        ${vast.length > 1 ? `<label class="veld" style="margin-left:10px">Werkdagen van<select name="alijst">${vast.map(o => `<option value="${o.id}" ${o.id === standaardLijst ? "selected" : ""}>${esc(o.icoon)} ${esc(o.naam)}</option>`).join("")}</select></label>` : ""}` : `<div class="hint">„Alleen op werkdagen” kan zodra je een lijst met vaste tijden hebt (zoals Werk).</div>`}
+        <button type="button" class="keuzeknop" data-akeuze="verberg"><b>🙈 Deze keer niet meetellen</b><small>Alleen deze afspraak; hij verdwijnt hier en er mag doorheen gepland worden.</small></button>
+        ${r ? `<button type="button" class="keuzeknop" data-akeuze="altijd"><b>↩ Weer altijd meetellen</b><small>De regel voor „${esc(r.titel)}” vervalt.</small></button>` : ""}
+      </div>
+      <p class="hint" style="margin:0">In je ${esc(ev.vanFamilie ? "andere inlog" : "agenda")} zelf verandert niets. Terugdraaien kan bij Instellingen → Agenda's &amp; accounts.</p>
+    </div></form>`;
+  dlg2.onclick = (e) => {
+    const k = e.target.closest("[data-akeuze]")?.dataset.akeuze; if (!k) return;
+    if (k === "altijd" && r && !(d().afspraakRegels || []).some(x => x.bron === r.bron && x.titel === r.titel)) { toast("Deze regel is gezet in je andere inlog; haal hem daar weg"); return; }
+    const lijst = $("[name=alijst]", dlg2)?.value || standaardLijst;
+    afspraakRegel(ev, k, lijst); bewaar(); dlg2.close();
+    toast(k === "werkdag" ? `„${titel}” telt voortaan alleen op werkdagen` : k === "verberg" ? "Deze afspraak telt niet meer mee" : `„${titel}” telt weer altijd`);
+  };
+  dlg2.onchange = null; dlg2.onclose = () => { dlg2.onclick = null; dlg2.onclose = null; };
+  if (!dlg2.open) dlg2.showModal();
+}
+function regelsBlok() {
+  const regels = d().afspraakRegels || [], n = Object.keys(d().verborgen || {}).length;
+  if (!regels.length && !n) return "";
+  return `<h3>Afspraken die niet altijd meetellen</h3>
+  <div class="lijst">${regels.map(r => `<div class="linkrij"><span>🗓</span><span>„${esc(r.titel)}” <span class="hint">· ${esc(d().agendas?.[r.bron]?.naam || "agenda van je andere inlog")} · alleen op werkdagen van ${esc(overzicht(r.lijst)?.naam || "?")}</span></span>
+    <button type="button" class="x" data-regelweg="${esc(r.id)}" title="Weer altijd meetellen">✕</button></div>`).join("")}
+  ${n ? `<div class="linkrij"><span>🙈</span><span>${n} losse ${n === 1 ? "afspraak" : "afspraken"} niet meegeteld</span><button type="button" class="knop klein" data-actie="verborgenWeg">Weer meetellen</button></div>` : ""}</div>`;
+}
+
 // ---------- werk en privé door elkaar: melden en zelf kiezen ----------
 let laatsteBotsingen = [];
 function botsingBlok() {
@@ -2534,6 +2592,8 @@ function botsingVenster(c) {
         : `<button type="button" class="keuzeknop" data-keuze="compenseren"><b>⏱ Elders minder werken</b><small>De ${fmtDuur(c.min)} gaan op een ander moment (hieronder) van je werktijd af.</small></button>
         <button type="button" class="keuzeknop" data-keuze="dagvrij"><b>🔀 Een hele werkdag vrij in ruil</b><small>Kies hieronder welke dag.</small></button>`}
         <button type="button" class="keuzeknop" data-keuze="laten"><b>${prive ? "✓ Niets aanpassen" : "✓ Extra gewerkt — laat maar"}</b><small>Deze melding komt niet meer terug.</small></button>
+        ${prive ? "" : `<button type="button" class="keuzeknop" data-keuze="werkdag"><b>🗓 „${esc(titel)}” telt alleen op werkdagen</b><small>Bijv. een lunch-reservering: op dagen zonder werk staat hij er niet en zit hij niet in de weg (alle „${esc(titel)}” uit deze agenda).</small></button>`}
+        <button type="button" class="keuzeknop" data-keuze="verberg"><b>🙈 Deze afspraak niet meetellen</b><small>Alleen deze keer; hij staat er dan niet meer en er wordt doorheen gepland.</small></button>
       </div>
       <div class="paneel"><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">Ander moment</div>
         <div class="rij" style="align-items:end">
@@ -2555,6 +2615,7 @@ function botsingVenster(c) {
     if (nodigAnder && dag2 === c.ds) { toast("Kies een andere dag dan die van de afspraak"); return; }
     const bij = [c.sleutel], kort = `${titel} (${fmtDatum(c.ds)})`;
     const zet = (ds, tijden, reden) => zetAfwijking(o, ds, tijden.length ? { soort: "anders", tijden, reden, bij } : { soort: "vrij", tijden: [], reden, bij });
+    if (keuze === "werkdag" || keuze === "verberg") { afspraakRegel(c.ev, keuze, o.id); bewaar(); dlg2.close(); toast(keuze === "werkdag" ? `„${titel}” telt voortaan alleen op werkdagen` : "Deze afspraak telt niet meer mee"); return; }
     if (keuze === "laten") { o.genegeerd = { ...(o.genegeerd || {}), [c.sleutel]: new Date().toISOString() }; }
     else if (keuze === "inkorten" || keuze === "inhalen") {
       zet(c.ds, tijdenZonder(dagTijden(o, c.ds), ea, eb), `Vrij voor ${titel}`);
@@ -2956,6 +3017,7 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
     else if (a?.startsWith("feed")) feedActie(a, el);
     else if (a === "herplanAlles") { const r = planAutomatisch(actieveOverzichten()); laatsteWaarschuwingen = r.waarschuwingen; bewaar(); toast(`${r.blokken} blokken ingepland`); }
     else if (a === "herplanWis") { zetHerplan([]); render(); }
+    else if (a === "verborgenWeg") { d().verborgen = {}; bewaar(); toast("Alles telt weer mee"); }
     else if (a === "famToggle" && w) { const l = famUit(); voorkeur.zet("famUit", l.includes(w) ? l.filter(x => x !== w) : [...l, w]); render(); }
     else if (a === "botsing") { const c = laatsteBotsingen[+w]; if (c) botsingVenster(c); }
     else if (a === "werkweek") openWeek(w || "");
@@ -3099,6 +3161,10 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
     }
     return;
   }
+  const rw = e.target.closest("[data-regelweg]");
+  if (rw) { d().afspraakRegels = (d().afspraakRegels || []).filter(r => r.id !== rw.dataset.regelweg); bewaar(); return; }
+  const evk = e.target.closest("[data-ev]");
+  if (evk) { const ev = (evk.dataset.evfam ? familieAgenda().bezet : d().bezet).find(x => x.id === evk.dataset.ev); if (ev) afspraakVenster(ev); return; }
   const blok = e.target.closest("[data-blok]");
   if (blok) { openBlok(blok.dataset.blok); return; }
   const rij = e.target.closest("[data-id]");

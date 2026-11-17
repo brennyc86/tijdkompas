@@ -15,7 +15,8 @@ export const familieHaak = { agenda: () => ({ bezet: [], planning: [] }),
   eigenaar: () => null,     // eigenaar(lijst) → { email, agenda } als de lijst van een gelinkt account is
   voorMij: () => ({ blokken: [], klaar: false }),
   instVan: () => null,      // instVan(lijst) → de instellingen (soort, tijden, plek) van het account van wie de lijst is
-  instAlle: () => [] };     // instAlle(lijstId) → de instellingen van die lijst bij je gelinkte accounts (hun afwijkingen e.d.)   // blokken die een gelinkt account voor míjn lijsten plande (ik zet ze in mijn agenda)
+  instAlle: () => [],
+  regels: () => ({ regels: [], verborgen: {} }) };   // afspraakregels en verborgen afspraken van je gelinkte accounts     // instAlle(lijstId) → de instellingen van die lijst bij je gelinkte accounts (hun afwijkingen e.d.)   // blokken die een gelinkt account voor míjn lijsten plande (ik zet ze in mijn agenda)
 // Lijsten van een gelinkt account plant dat account zelf in (in zijn eigen agenda); hier niet nog eens.
 const vanGelinkt = (ovId) => { const o = overzicht(ovId), f = sessie.familie || []; return !!(o?.eigenaar && f.length > 1 && o.eigenaar !== sessie.ik && f.includes(o.eigenaar)); };
 
@@ -59,7 +60,25 @@ export const SOORTEN = {
   rooster: { naam: "Rooster van lijst", uitleg: "Afspraken bepalen de vaste tijden van een lijst (bv. wisselende diensten)" },
   negeer:  { naam: "Niet meetellen",   uitleg: "Alleen ter info (verjaardagen, feestdagen…)" },
 };
-export const eventSoort = (ev) => opslag.d.agendas[ev.bron]?.soort || "bezet";
+export const eventSoort = (ev) => telt(ev) ? (opslag.d.agendas[ev.bron]?.soort || "bezet") : "negeer";
+// ---------- afspraken die niet altijd meetellen ----------
+// d.afspraakRegels: [{ bron, titel, lijst, soort: "werkdag" }] — alle afspraken met die naam uit die agenda tellen alleen op dagen
+// dat de lijst (bijv. Werk) vaste tijden heeft (bijv. "Lunch" als reservering); d.verborgen: { "bron|start|hash": wanneer } — losse keer.
+// Ook die van je gelinkte accounts gelden (familieHaak.regels).
+const normT = (s) => String(s || "").trim().toLowerCase();
+export const afspraakSleutel = (ev) => `${ev.bron}|${ev.start}|${hashT(ev.titel)}`;
+const hashT = (s) => { let h = 5381; for (const c of String(s ?? "")) h = (h * 33 + c.codePointAt(0)) >>> 0; return h.toString(36); };
+export function regelVoor(ev) {
+  const f = familieHaak.regels();
+  return [...(opslag.d.afspraakRegels || []), ...f.regels].find(r => r.bron === ev.bron && normT(r.titel) === normT(ev.titel)) || null;
+}
+export function telt(ev) {
+  const d = opslag.d, f = familieHaak.regels(), k = afspraakSleutel(ev);
+  if (d.verborgen?.[k] || f.verborgen?.[k]) return false;
+  const r = regelVoor(ev);
+  if (r?.soort === "werkdag") { const o = overzicht(r.lijst); if (o && !dagTijden(o, dagStr(new Date(ev.start))).length) return false; }
+  return true;
+}
 export const eventLijst = (ev) => opslag.d.agendas[ev.bron]?.lijst || "";
 
 const reisVan = (locId) => locatie(locId)?.reistijd || 0;

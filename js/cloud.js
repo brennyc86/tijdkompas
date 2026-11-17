@@ -26,7 +26,7 @@
 import { CONFIG } from "./config.js";
 import { opslag, sessie, uid as nieuwId, startData, isIk, bewaar } from "./data.js";
 import { aanvullen, haak, laadOntbrekende, vergeet } from "./schijf.js";
-import { herkenLocatie, maakFeedIcs } from "./plan.js";
+import { herkenLocatie, maakFeedIcs, telt } from "./plan.js";
 import { vingerafdruk } from "./sync.js";
 import { veiligIcoon, veiligeKleur, veiligId } from "./veilig.js";
 import { vergeetSleutels } from "./koppeling.js";
@@ -388,6 +388,15 @@ export function familieVoorMij() {
   const andere = cloud.familie.filter(u => u !== sessie.ik);
   return { blokken, klaar: cloudGeladen() && !cloud.familieFout.size && andere.every(u => familieDocs.has(u)) };
 }
+/** Afspraakregels en verborgen afspraken van je gelinkte accounts (gelden ook hier) */
+export function familieRegels() {
+  const regels = [], verborgen = {};
+  for (const [, x] of familieDocs) {
+    for (const r of Array.isArray(x.afspraakRegels) ? x.afspraakRegels : []) if (r && typeof r.bron === "string" && r.soort === "werkdag" && veiligId(r.lijst)) regels.push({ bron: r.bron, titel: String(r.titel || ""), lijst: r.lijst, soort: "werkdag", id: String(r.id || "") });
+    for (const [k, v] of Object.entries(x.verborgen && typeof x.verborgen === "object" ? x.verborgen : {})) if (typeof k === "string") verborgen[k] = v;
+  }
+  return { regels, verborgen };
+}
 /** De instellingen van een lijst bij je gelinkte accounts (o.a. hun afwijkingen en wat ze hebben laten zo) */
 export function familieLijstInst(lijstId) {
   const uit = [];
@@ -399,7 +408,7 @@ export function familieAgenda() {
   const bezet = [], planning = [];
   for (const [u, x] of familieDocs) {
     const van = emailVan(u);
-    for (const e of x.bezet || []) bezet.push({ ...e, kleur: veiligeKleur(e.kleur, ""), vanFamilie: van, vanUid: u, soortF: x.agendas?.[e.bron]?.soort || "bezet", kleurF: veiligeKleur(x.agendas?.[e.bron]?.kleur, "") });
+    for (const e of x.bezet || []) bezet.push({ ...e, kleur: veiligeKleur(e.kleur, ""), vanFamilie: van, vanUid: u, soortF: telt(e) ? (x.agendas?.[e.bron]?.soort || "bezet") : "negeer", kleurF: veiligeKleur(x.agendas?.[e.bron]?.kleur, "") });
     for (const b of x.planning || []) planning.push({ ...b, vanFamilie: van, vanUid: u, titel: b.titel || "Gepland" });
   }
   return { bezet, planning };
@@ -507,7 +516,7 @@ function bouw() {
   const items = ids.flatMap(id => (itemDocs.get(id) || []).map(x => ({ ...x, overzicht: id })));
   const titels = leesTitels();
   const d = aanvullen({
-    locaties: u.locaties, beschikbaar: u.beschikbaar, afwezig: u.afwezig || {}, feeds: u.feeds || [], instellingen: u.instellingen, agendas: u.agendas || {}, extern: u.extern || {},
+    locaties: u.locaties, beschikbaar: u.beschikbaar, afwezig: u.afwezig || {}, afspraakRegels: u.afspraakRegels || [], verborgen: u.verborgen || {}, feeds: u.feeds || [], instellingen: u.instellingen, agendas: u.agendas || {}, extern: u.extern || {},
     planning: u.planning || [], agendaSync: u.agendaSync, gewijzigd: u.gewijzigd, takenlijsten: u.takenlijsten || {}, takenSync: u.takenSync || "", koppelingen: u.koppelingen, agendaLinks: u.agendaLinks || [],
     bezet: (u.bezet || []).map(e => ({ ...e, titel: titels.bezet?.[e.id]?.titel || e.titel || "Bezet", plaats: titels.bezet?.[e.id]?.plaats || e.plaats || "" })),
     overzichten: ids.map(id => {
@@ -563,7 +572,7 @@ function naarDocs(d) {
   const schijfLijst = new Set(d.overzichten.filter(o => o.opslag).map(o => o.id));
   onthoudTitels(d);
   docs.set("gebruikers/" + ik, schoon({
-    locaties: d.locaties, beschikbaar: d.beschikbaar, afwezig: d.afwezig || {}, feeds: d.feeds || [], instellingen: d.instellingen, agendas: d.agendas || {},
+    locaties: d.locaties, beschikbaar: d.beschikbaar, afwezig: d.afwezig || {}, afspraakRegels: d.afspraakRegels || [], verborgen: d.verborgen || {}, feeds: d.feeds || [], instellingen: d.instellingen, agendas: d.agendas || {},
     extern: Object.fromEntries(Object.entries(d.extern || {}).map(([k, x]) => { const { titel, ...r } = x; return [k, titel !== undefined && !r.th ? { ...r, th: vingerafdruk(titel) } : r]; })),
     planning: (d.planning || []).map(b => schijfLijst.has(b.overzicht) && b.soort !== "reis" ? { ...b, titel: "" } : b),
     // afspraken mét titel: zo ziet elke inlog en elk apparaat van dit Tijdkompas dezelfde agenda

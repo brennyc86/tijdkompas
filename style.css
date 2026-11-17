@@ -635,3 +635,4 @@ a.koersitem{text-decoration:none;color:inherit}
 .venster.licht{opacity:.55}
 .faminlog{font:inherit;font-size:11.5px;padding:1px 7px;border-radius:999px;border:1px solid var(--rand);background:var(--kaart);color:var(--meta);cursor:pointer;margin-left:4px}
 .faminlog[aria-pressed="false"]{opacity:.6;text-decoration:line-through}
+.wblok.bezet[data-ev],.tblok[data-ev]{cursor:pointer}
