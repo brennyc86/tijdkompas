@@ -383,7 +383,7 @@ opCloud(() => {
 opSchijf(() => { if (document.activeElement?.matches?.("input,select,textarea")) renderAccount(); else render(); });
 
 function demoBanner() {
-  return d().demo ? `<div class="banner">🧭 Je kijkt naar <b>voorbeelddata</b>. Speel ermee — en begin schoon zodra je zover bent.
+  return d().demo ? `<div class="banner"><span>🧭 Je kijkt naar <b>voorbeelddata</b>. Speel ermee — en begin schoon zodra je zover bent.</span>
     <button class="knop klein" data-actie="leeg">Begin met lege planner</button></div>` : "";
 }
 function snelInvoer(ph = "Nieuwe taak… bv. Offerte sturen ~45m !u ^vr #presentatie") {
@@ -679,7 +679,7 @@ function agenda() {
     <span class="chips"><button type="button" data-actie="week" data-w="-1">◀</button><button type="button" data-actie="week" data-w="0">Nu</button><button type="button" data-actie="week" data-w="1">▶</button></span>
     <span class="sub">${titel}</span>
     <div class="rechts">
-      <button class="knop prim" data-actie="plan">⚡ Automatisch inplannen</button>
+      <button class="knop prim" data-actie="plan" title="Automatisch inplannen">⚡ <span><span class="breed">Automatisch i</span><span class="smal">I</span>nplannen</span></button>
       <button class="knop" data-actie="werkweek" data-w="${dagStr(dagen[0])}" title="Vakantie, cursus, geruilde dag of dagdeel vrij voor deze week">🗓️ Week aanpassen</button>
       ${gekoppeld ? `<button class="knop" data-actie="ophalen" title="${d().agendaSync ? "Laatst opgehaald " + new Date(d().agendaSync).toLocaleString("nl-NL", { weekday: "short", hour: "2-digit", minute: "2-digit" }) : ""}">🔄 Agenda's ophalen</button>` : ""}
       ${gekoppeld && metDoel ? `<button class="knop" data-actie="naarAgenda" ${toekomst.length || Object.keys(d().extern || {}).length ? "" : "disabled"}>📤 In mijn agenda zetten</button>` : ""}
@@ -2491,7 +2491,7 @@ function openWeek(begin) {
     const dagRij = (dag) => {
       const ds = dagStr(dag), wd = dag.getDay(), weg = d().afwezig?.[ds];
       return `<div class="wdagrij${weg ? " weg" : ""}${ds === vandaag ? " vandaag" : ""}${ds < vandaag ? " voorbij" : ""}" data-ds="${ds}">
-        <div class="wdkop"><b>${DAGLANG[wd]} ${dag.getDate()} ${MAAND[dag.getMonth()]}</b>
+        <div class="wdkop"><b>${DAGLANG[wd][0].toUpperCase() + DAGLANG[wd].slice(1)} ${dag.getDate()} ${MAAND[dag.getMonth()]}</b>
           <label class="schakel" title="Vakantie of anders weg: die dag wordt niets ingepland, ook niet uit andere lijsten"><input type="checkbox" data-weg ${weg ? "checked" : ""}> ✈️ Hele dag weg</label>
           ${weg ? `<input type="text" data-wegreden value="${esc(weg.reden || "")}" placeholder="Reden, bijv. vakantie" maxlength="100" aria-label="Reden">` : ""}</div>
         ${weg ? "" : lijsten.map(o => {

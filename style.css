@@ -217,7 +217,8 @@ dialog form{display:flex;flex-direction:column;max-height:calc(100vh - 40px)}
 
 /* ---------- mobiel ---------- */
 @media (max-width:860px){
-  body{grid-template-columns:1fr}
+  body{grid-template-columns:minmax(0,1fr)}
+  .kop{min-width:0}
   .kop{padding:8px 16px;gap:10px}
   .merknaam,.accountTekst{display:none}
   .account{padding:3px}
@@ -530,7 +531,7 @@ a.koersitem{text-decoration:none;color:inherit}
 .wdagrij.voorbij{opacity:.6}
 .wdagrij.weg{background:repeating-linear-gradient(-45deg,color-mix(in srgb,var(--zacht) 10%,var(--kaart)) 0 8px,var(--kaart) 8px 16px)}
 .wdkop{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.wdkop b{text-transform:capitalize;min-width:150px}
+.wdkop b{min-width:150px}
 .wdkop input[type=text]{flex:1;min-width:140px;width:auto}
 .wdlijst{display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-left:3px solid var(--ok);padding-left:8px}
 .wdnaam{font-size:13px;min-width:90px}
@@ -556,3 +557,61 @@ a.koersitem{text-decoration:none;color:inherit}
 .keuzeknop:hover{border-color:var(--accent)}
 .keuzeknop small{color:var(--meta);font-size:12px}
 .wblok.uitloop{background:repeating-linear-gradient(45deg,color-mix(in srgb,var(--ok) 10%,var(--paneel)) 0 6px,var(--paneel) 6px 12px);border-style:dotted;color:var(--meta)}
+
+/* ===== Klein scherm (telefoon) ===== */
+.smal{display:none}
+@media (max-width:640px){
+  body{overflow-x:clip}
+  main{padding:12px 12px 140px}
+  h1{font-size:24px}
+  .titelbalk{gap:8px;margin-bottom:12px}
+  /* knoppen bovenaan een scherm: één rij die je opzij schuift, in plaats van een stapel */
+  .titelbalk .rechts{margin-left:0;width:100%;gap:6px}
+  .titelbalk .rechts select{width:auto;max-width:100%;flex:1 1 auto;padding:6px 10px;font-size:14px}
+  .titelbalk .rechts .knop{padding:6px 10px;font-size:13.5px}
+  .knop{max-width:100%}
+  .knop.wrap,.dlijf .knop{white-space:normal;text-align:left}
+  .banner{flex-wrap:wrap;gap:8px;font-size:13.5px}
+  .banner .knop{margin-left:0}
+  .snel input{min-width:0;font-size:16px}
+  /* taken: compacter */
+  .item{gap:10px;padding:9px 10px}
+  .imeta{gap:5px 8px}
+  .plantag,.tag{font-size:11px}
+  .kaartje{overflow:hidden}
+  /* vensters: (bijna) schermvullend, knoppen onderaan over de hele breedte */
+  dialog{width:calc(100vw - 12px);max-height:calc(100dvh - 12px);border-radius:14px}
+  dialog form{max-height:calc(100dvh - 12px)}
+  .dkop{padding:10px 14px}
+  .dlijf{padding:12px 14px;gap:12px}
+  .dvoet{padding:10px 14px;gap:6px}
+  .dvoet .rechts{margin-left:0;width:100%;flex-wrap:wrap}
+  .dvoet .rechts > .knop{flex:1 1 auto;justify-content:center}
+  .dvoet > .knop{flex:1 1 auto;justify-content:center}
+  .rij{gap:8px}
+  /* inplannen: voorstellen als lijst, per dag één regel */
+  .voorstellen{grid-template-columns:1fr;gap:6px}
+  .vdag{flex-direction:row;flex-wrap:wrap;align-items:center;padding:6px 8px;gap:6px}
+  .vdag > b{flex:0 0 74px;font-size:12.5px}
+  .voorstel{flex:1 1 120px;padding:5px 9px;font-size:14px}
+  /* week aanpassen */
+  .weeknav{flex-wrap:nowrap;gap:6px}
+  .weeknav b{flex:1;min-width:0;font-size:14px;text-align:center}
+  .wdagrij{padding:8px}
+  .wdkop b{min-width:0;flex:1}
+  .wdlijst{padding-left:6px;gap:6px}
+  .wdlijst > select{flex:1 1 100%;font-size:14px}
+  /* weekrooster: tijden + ✕ op één regel, plek eronder */
+  .rslot select{order:5;flex:1 1 100%}
+  .rslot .x{order:4}
+  /* agenda: iets smallere urenkolom */
+  .week{grid-template-columns:36px repeat(var(--dagen,3),minmax(0,1fr))}
+  .uren div{font-size:10px;right:3px;left:auto}
+  .voorstel{flex-direction:row;flex-wrap:wrap;align-items:baseline;gap:2px 8px}
+  .legenda{font-size:11.5px;gap:6px 12px}
+  .breed{display:none}
+  .smal{display:inline}
+  .tabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin-bottom:12px}
+  .tabs::-webkit-scrollbar{display:none}
+  .tabs button{flex:none;padding:6px 11px;font-size:13.5px}
+}
