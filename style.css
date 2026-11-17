@@ -605,8 +605,18 @@ a.koersitem{text-decoration:none;color:inherit}
   .rslot select{order:5;flex:1 1 100%}
   .rslot .x{order:4}
   /* agenda: iets smallere urenkolom */
-  .week{grid-template-columns:36px repeat(var(--dagen,3),minmax(0,1fr))}
-  .uren div{font-size:10px;right:3px;left:auto}
+  /* hele week op een telefoon: smalle kolommen, kleine letters, alleen de titel in een blok */
+  .week{grid-template-columns:30px repeat(var(--dagen,7),minmax(0,1fr))}
+  .uren div{font-size:9.5px;right:2px;left:auto}
+  .wkop{padding:5px 1px;font-size:11px}
+  .wkop b{font-size:14px}
+  .afwlabel{font-size:10px;padding:1px 3px}
+  .wblok{left:1px;right:1px;padding:1px 2px;font-size:9.5px;line-height:1.15;border-radius:4px}
+  .wblok b{font-weight:600;white-space:normal;overflow-wrap:anywhere;hyphens:auto}
+  .wblok.vast::after{font-size:8px;right:1px;top:0}
+  .vlabel{font-size:9px;right:1px}
+  .eldersband .vlabel{left:1px}
+  .wblok .btijd{display:none}
   .voorstel{flex-direction:row;flex-wrap:wrap;align-items:baseline;gap:2px 8px}
   .legenda{font-size:11.5px;gap:6px 12px}
   .breed{display:none}

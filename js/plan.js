@@ -445,6 +445,16 @@ export function voorstellen(it, minDuur, { aantal = 16, dagen = 28, vanaf = new 
   return uit;
 }
 
+/**
+ * Het grootste echt beschikbare gat (in minuten) voor dit item tussen van en tot: binnen je beschikbaarheid of de vaste
+ * tijden van de lijst, na aftrek van afspraken, wat al gepland staat, reistijd en afwijkingen. Telt pas vanaf nu.
+ */
+export function grootsteGat(it, van, tot) {
+  const dagen = Math.ceil((tot - van) / 864e5) + 1;
+  return voorstellen(it, 5, { vanaf: van, dagen, aantal: 500 }).filter(v => v.a < tot)
+    .reduce((m, v) => Math.max(m, Math.floor(minuten(v.a, v.b < tot ? v.b : tot) / 5) * 5), 0);
+}
+
 /** Wat botst er met dit tijdvak (afspraken, andere blokken, en of het buiten je beschikbaarheid valt) */
 export function botsingen(it, a, b) {
   const uit = bezetBehalve(it.id).filter(x => !x.reis && x.a < b && x.b > a).map(x => `${x.titel} ${tijdStr(x.a)}–${tijdStr(x.b)}`);

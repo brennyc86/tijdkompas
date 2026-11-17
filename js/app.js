@@ -4,7 +4,7 @@ import { opslag, bewaar, KWADRANTEN, kwadrant, overzicht, project, taak, takenVa
          map, submappen, lijstenIn, lijstenOnder, mappenOnder, mapPad, boom, lijstVolgorde, idsVan,
          afspraak, koersVan, binnenDoel, koersScore, koersSuggesties, koppelKoers, mijnId, isIk, personen, naamVanPersoon, isMijn, isTeam, wie, wachtNogOp, wachtenOp, maaktKring, anderen as andereLeden } from "./data.js";
 import { familieHaak, planAutomatisch, werkGeplandBij, doelDatum, harde, prioriteit, googleLink, outlookLink, maakIcs, leesIcs, dagStr, dagIndeling, eventSoort, SOORTEN,
-  AFWIJKING, standaardTijden, afwijkingOp, planStatus, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, volgendeMomenten, plaatsVanaf, vrijkomend, vrijeTijd, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
+  AFWIJKING, standaardTijden, afwijkingOp, planStatus, grootsteGat, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, volgendeMomenten, plaatsVanaf, vrijkomend, vrijeTijd, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
 import { ids, verbindingen as alleVerbindingen, heeft, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, zonderDoel, koppelHaak, neemGedeeldeOver } from "./koppeling.js";
 import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroniseerAlles, naamVan, lijstWeg } from "./schijf.js";
 import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD } from "./sync.js";
@@ -403,8 +403,17 @@ const famAgenda = () => ingelogd() ? familieAgenda() : { bezet: [], planning: []
 function vandaag() {
   const nu = new Date(), vd = vandaagStr();
   const open = d().taken.filter(t => t.status !== "klaar" && zichtbaar(t));
-  const focus = [...open].filter(t => isMijn(t) && !wachtNogOp(t).length).sort((a, b) => prioriteit(b) - prioriteit(a)).filter(t => kwadrant(t) !== "schrappen").slice(0, 8);
-  const opMij = open.filter(t => doorWie(t, "wachtmij"));
+  // Alleen wat vandaag speelt: wat vandaag gepland staat, Doen dat nog niet is ingepland, en de rest alleen als er vandaag
+  // nog een echt vrij gat voor is. Wat op een andere dag gepland staat, hoort hier niet.
+  const eindVandaag = new Date(nu.getFullYear(), nu.getMonth(), nu.getDate() + 1);
+  const rel = maakRelevant(new Date(nu.getFullYear(), nu.getMonth(), nu.getDate()), eindVandaag);
+  const openItems = [...open, ...d().projecten.filter(p => p.status !== "klaar" && zichtbaar(p) && !d().taken.some(t => t.project === p.id && t.status !== "klaar"))];
+  const eersteVandaag = (t) => d().planning.filter(b => b.item === t.id && b.soort !== "reis" && dagStr(new Date(b.start)) === vd).map(b => b.start).sort()[0] || "";
+  const vandaagGepland = openItems.filter(t => rel(t) === "gepland").sort((a, b) => eersteVandaag(a).localeCompare(eersteVandaag(b)));
+  const doenOpen = openItems.filter(t => rel(t) === "doen").sort((a, b) => prioriteit(b) - prioriteit(a));
+  const metGat = openItems.filter(t => rel(t) === "gat").sort((a, b) => prioriteit(b) - prioriteit(a));
+  const opMij = open.filter(t => doorWie(t, "wachtmij")).filter(t => rel(t));
+  const rij = (i) => i.type === "taak" ? itemRij(i) : projectRijPlan(i);
   const blokken = [
     ...d().planning.filter(b => dagStr(new Date(b.start)) === vd).filter(b => actieveOverzichten().includes(b.overzicht)),
     ...d().bezet.filter(b => dagStr(new Date(b.start)) === vd).map(b => ({ ...b, bezet: true })),
@@ -412,8 +421,10 @@ function vandaag() {
       .filter(b => dagStr(new Date(b.start)) === vd).map(b => ({ ...b, bezet: true, fam: true })); })(),
   ].sort((a, b) => a.start.localeCompare(b.start));
   const geplandMin = blokken.filter(b => !b.bezet && !b.fam).reduce((s, b) => s + (new Date(b.eind) - new Date(b.start)) / 60000, 0);
+  const projectRelevant = (p) => rel(p) || d().taken.some(t => t.project === p.id && t.status !== "klaar" && rel(t));
   const binnenWeek = [...open, ...d().projecten.filter(p => p.status !== "klaar" && zichtbaar(p))]
     .filter(i => { const x = harde(i.type === "taak" ? i : { ...i, project: null }) || i.streef; return x && dagenTot(x) <= 7; })
+    .filter(i => i.type === "taak" ? rel(i) : projectRelevant(i))
     .sort((a, b) => (doelDatum(a) || "").localeCompare(doelDatum(b) || ""));
   const kal = kalibratie();
   const uur = nu.getHours(), groet = uur < 6 ? "Goedenacht" : uur < 12 ? "Goedemorgen" : uur < 18 ? "Goedemiddag" : "Goedenavond";
@@ -427,8 +438,12 @@ function vandaag() {
   ${snelInvoer()}
   <div class="raster2">
     <section>
-      <h3>Focus — eerst dit</h3>
-      <div class="lijst">${focus.map(t => itemRij(t)).join("") || `<div class="leeg">Niets dringends. Tijd voor kwadrant „Plannen”.</div>`}</div>
+      <h3>Vandaag gepland</h3>
+      <div class="lijst">${vandaagGepland.map(rij).join("") || `<div class="leeg">Voor vandaag staat er niets (meer) gepland.</div>`}</div>
+      ${doenOpen.length ? `<h3 style="color:var(--q-doen)">⚡ Doen — nog niet ingepland</h3><div class="lijst">${doenOpen.map(rij).join("")}</div>` : ""}
+      ${metGat.length ? `<h3>Als je vandaag tijd over hebt</h3>
+        <p class="hint" style="margin:-4px 0 8px">Er is vandaag nog een echt vrij gat voor: minstens een uur, of lang genoeg voor de geschatte tijd.</p>
+        <div class="lijst">${metGat.slice(0, 8).map(rij).join("")}${metGat.length > 8 ? `<div class="hint">+ ${metGat.length - 8} meer bij Taken</div>` : ""}</div>` : ""}
       <h3>Vandaag in je agenda</h3>
       <div class="tijdlijn">${blokken.map(b => { const st = b.bezet ? afspraakStijl(b) : null;
           return `<div class="tblok ${b.bezet ? "bezet" : ""}${st?.ander ? " ander" : ""}" style="--ok:${st ? esc(st.kleur) : ovKleur(b.overzicht)}" ${b.bezet ? "" : `data-blok="${b.id}"`}>
@@ -444,8 +459,8 @@ function vandaag() {
       </div>
       ${opMij.length ? `<h3>⏳ Anderen wachten op jou</h3><div class="lijst">${opMij.map(t => itemRij(t)).join("")}</div>` : ""}
       ${koersVandaag()}
-      <h3>Deadlines komende 7 dagen</h3>
-      <div class="lijst">${binnenWeek.map(i => i.type === "taak" ? itemRij(i) : projectRij(i)).join("") || `<div class="leeg">Geen deadlines deze week.</div>`}</div>
+      ${binnenWeek.length ? `<h3>Deadlines komende 7 dagen</h3>
+      <div class="lijst">${binnenWeek.map(i => i.type === "taak" ? itemRij(i) : projectRij(i)).join("")}</div>` : ""}
     </aside>
   </div>`;
 }
@@ -618,12 +633,10 @@ function taken() {
 // ===== Agenda =====
 const UUR_VAN = 6, UUR_TOT = 24, UUR_H = 44;
 function agenda() {
-  const mobiel = matchMedia("(max-width:860px)").matches;
   const nu = new Date();
-  let start;
-  if (mobiel) { start = new Date(nu.getFullYear(), nu.getMonth(), nu.getDate() + weekVerschuiving * 3); }
-  else { const ma = (nu.getDay() + 6) % 7; start = new Date(nu.getFullYear(), nu.getMonth(), nu.getDate() - ma + weekVerschuiving * 7); }
-  const n = mobiel ? 3 : 7;
+  // altijd een hele week (ma–zo), ook op een telefoon
+  const ma = (nu.getDay() + 6) % 7, start = new Date(nu.getFullYear(), nu.getMonth(), nu.getDate() - ma + weekVerschuiving * 7);
+  const n = 7;
   const dagen = Array.from({ length: n }, (_, i) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + i));
   const act = actieveOverzichten();
   const hoogte = (UUR_TOT - UUR_VAN) * UUR_H;
@@ -653,19 +666,19 @@ function agenda() {
     const famBlokken = fam.planning.filter(b => b.soort !== "reis").filter(inDag).map(b => {
       const t = Math.max(0, y(b.start)), h = Math.max(14, Math.min(hoogte, y(b.eind)) - t);
       return `<div class="wblok ander famblok" style="--ok:var(--zacht);top:${t}px;height:${h - 2}px" title="${esc(b.titel)} ${fmtTijd(b.start)}–${fmtTijd(b.eind)} · planning van ${esc(b.vanFamilie)}">
-        <b>${esc(b.titel)}</b>${h > 30 ? `${fmtTijd(b.start)}–${fmtTijd(b.eind)}` : ""}</div>`;
+        <b>${esc(b.titel)}</b>${h > 30 ? `<span class="btijd">${fmtTijd(b.start)}–${fmtTijd(b.eind)}</span>` : ""}</div>`;
     }).join("");
     const afspraken = [...d().bezet.filter(ev => eventSoort(ev) === "bezet"), ...fam.bezet.filter(ev => ev.soortF === "bezet")].filter(inDag).filter(ev => !ev.eigen).map(ev => {
       const { k, kleur, ander } = afspraakStijl(ev);
       const t = Math.max(0, y(ev.start)), h = Math.max(16, Math.min(hoogte, y(ev.eind)) - t);
       return `<div class="wblok bezet${ander ? " ander" : ""}" style="--ak:${esc(kleur)};top:${t}px;height:${h - 2}px" title="${esc(ev.titel)} ${fmtTijd(ev.start)}–${fmtTijd(ev.eind)}${k ? " · " + esc(k.naam) : ""}${ev.plaats ? " · " + esc(ev.plaats) : ""}">
-        <b>${esc(ev.titel)}</b>${h > 30 ? `${fmtTijd(ev.start)}–${fmtTijd(ev.eind)}` : ""}</div>`;
+        <b>${esc(ev.titel)}</b>${h > 30 ? `<span class="btijd">${fmtTijd(ev.start)}–${fmtTijd(ev.eind)}</span>` : ""}</div>`;
     }).join("");
     const blokken = d().planning.filter(b => act.includes(b.overzicht)).filter(inDag).map(b => {
       const t = Math.max(0, y(b.start)), h = Math.max(14, Math.min(hoogte, y(b.eind)) - t);
       const inAgenda = d().extern?.[b.id];
       return `<div class="wblok ${b.soort === "reis" ? "reis" : b.soort === "uitloop" ? "uitloop" : ""} ${b.vast ? "vast" : ""}" data-blok="${b.id}" style="--ok:${ovKleur(b.overzicht)};top:${t}px;height:${h - 2}px" title="${esc(b.titel)} ${fmtTijd(b.start)}–${fmtTijd(b.eind)}${inAgenda ? " · staat in je agenda" : ""}">
-        <b>${b.soort === "reis" ? "🚗 " : ""}${esc(b.titel)}</b>${h > 30 ? `${fmtTijd(b.start)}–${fmtTijd(b.eind)}${inAgenda ? " ✓" : ""}` : ""}</div>`;
+        <b>${b.soort === "reis" ? "🚗 " : ""}${esc(b.titel)}</b>${h > 30 ? `<span class="btijd">${fmtTijd(b.start)}–${fmtTijd(b.eind)}${inAgenda ? " ✓" : ""}</span>` : ""}</div>`;
     }).join("");
     const nulijn = ds === dagStr(nu) && nu.getHours() >= UUR_VAN && nu.getHours() < UUR_TOT ? `<div class="nulijn" style="top:${y(nu)}px"></div>` : "";
     return `<div class="wdag ${ds === dagStr(nu) ? "vandaag" : ""}" style="height:${hoogte}px;--uurH:${UUR_H}px">${beschikb}${vast}${elders}${reis}${afspraken}${famBlokken}${blokken}${nulijn}</div>`;
@@ -700,11 +713,12 @@ function agenda() {
     <div class="uren" style="height:${hoogte}px">${Array.from({ length: UUR_TOT - UUR_VAN }, (_, i) => i ? `<div style="top:${i * UUR_H}px">${UUR_VAN + i}:00</div>` : "").join("")}</div>
     ${kolommen}
   </div>
-  ${(() => { const open = [...d().taken, ...d().projecten.filter(p => !d().taken.some(t => t.project === p.id && t.status !== "klaar"))]
+  ${(() => { const rel = maakRelevant(dagen[0], new Date(dagen[n - 1].getTime() + 864e5));
+    const open = [...d().taken, ...d().projecten.filter(p => !d().taken.some(t => t.project === p.id && t.status !== "klaar"))]
       .filter(t => t.status !== "klaar" && act.includes(t.overzicht) && isMijn(t) && !doorGelinktIngepland(t))
-      .map(t => [t, planStatus(t)]).filter(([, st]) => st.soort !== "ja").sort(([a], [b]) => prioriteit(b) - prioriteit(a));
-    return open.length ? `<details class="nietgepland" open><summary><h3>○ Nog niet (helemaal) ingepland <span class="tel">${open.length}</span></h3></summary>
-      <p class="hint">Klik op „Nog niet ingepland” voor voorstellen in je eigen beschikbaarheid, of laat ⚡ Automatisch inplannen alles verdelen.</p>
+      .map(t => [t, planStatus(t)]).filter(([t, st]) => st.soort !== "ja" && rel(t)).sort(([a], [b]) => prioriteit(b) - prioriteit(a));
+    return open.length ? `<details class="nietgepland" open><summary><h3>○ Nog in te plannen ${n === 7 ? "deze week" : "deze dagen"} <span class="tel">${open.length}</span></h3></summary>
+      <p class="hint">Doen-taken die nog niet zijn ingepland, taken die hier al deels gepland staan, en andere taken als er ${n === 7 ? "deze week" : "deze dagen"} een echt vrij gat voor is (minstens een uur, of lang genoeg voor de geschatte tijd). Klik op „Nog niet ingepland” voor voorstellen.</p>
       <div class="lijst">${open.slice(0, 30).map(([t]) => t.type === "taak" ? itemRij(t) : projectRijPlan(t)).join("")}${open.length > 30 ? `<div class="hint">+ ${open.length - 30} meer — zie Taken → „Ingepland of niet”</div>` : ""}</div></details>` : ""; })()}
   <div class="legenda"><span><i class="lg venster"></i> vaste tijden van een lijst</span><span><i class="lg reisband"></i> reistijd</span><span><i class="lg beschikb"></i> beschikbaar (vrije tijd)</span><span><i class="lg eldersband"></i> cursus / elders</span>
     <span><i class="lg bezet"></i> afspraak uit je agenda</span>${(sessie.familie || []).length > 1 ? `<span><i class="lg famblok"></i> gedimd: agenda en planning van ${esc(sessie.familie.filter(u => u !== sessie.ik).map(u => emailVan(u) || "gelinkt account").join(", "))}</span>` : ""}<span>📌 vastgezet · ✓ staat in je agenda</span>
@@ -2117,6 +2131,32 @@ function nieuweLijst({ map: inMap = "", soort = "lijst" } = {}) {
   };
   dlg2.returnValue = "";
   dlg2.showModal();
+}
+
+// ---------- wat speelt er in een periode? ----------
+// "gepland" — er staat in de periode een blok voor
+// "doen"    — Doen, en nog niet (helemaal) ingepland
+// "gat"     — nog niet ingepland, en er is in de periode een echt vrij gat voor: minstens een uur, of (met een geschatte tijd)
+//             minstens zo lang als die schatting. Zonder schatting geldt alleen het uur.
+// null      — speelt niet (bijv. gepland op een andere dag, of geen ruimte)
+function maakRelevant(van, tot) {
+  const gatVan = new Date(Math.max(van, Date.now())), cache = new Map();
+  const gat = (t) => {
+    if (gatVan >= tot) return 0;
+    const p = plekVan(t), k = `${t.overzicht}|${p.eigenLoc}|${p.loc}`;
+    if (!cache.has(k)) cache.set(k, grootsteGat(t, gatVan, tot));
+    return cache.get(k);
+  };
+  return (t) => {
+    if (!t || t.status === "klaar") return null;
+    if (d().planning.some(b => b.item === t.id && b.soort !== "reis" && new Date(b.start) < tot && new Date(b.eind) > van)) return "gepland";
+    if (!isMijn(t) || doorGelinktIngepland(t)) return null;
+    const st = planStatus(t);
+    if (kwadrant(t) === "doen") return st.soort === "ja" ? null : "doen";
+    if (st.soort !== "niet" || kwadrant(t) === "schrappen" || (t.type === "taak" && wachtNogOp(t).length)) return null;
+    const drempel = t.schatting > 0 ? Math.min(60, t.schatting) : 60;
+    return gat(t) >= drempel ? "gat" : null;
+  };
 }
 
 // ---------- zelf inplannen: voorstellen op basis van je beschikbaarheid ----------
