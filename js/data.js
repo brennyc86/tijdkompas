@@ -133,7 +133,8 @@ function laad() {
 export function blokTitel(it) {
   const p = it?.type === "taak" && it.project ? data.projecten.find(x => x.id === it.project) : null;
   const ic = (x) => x?.icoon ? x.icoon + " " : "";                   // het icoon van het project komt vooraan, ook in je agenda
-  return p ? `${ic(p)}${p.titel}: ${it.titel}` : it?.type === "project" ? `${ic(it)}${it.titel}` : it?.titel || "";
+  const naam = (x) => (x?.kort || "").trim() || x?.titel || "";       // korte naam (als die er is) houdt de agenda overzichtelijk
+  return p ? `${ic(p)}${naam(p)}: ${it.titel}` : it?.type === "project" ? `${ic(it)}${naam(it)}` : it?.titel || "";
 }
 // Blokken volgen de (nieuwe) naam van hun taak en project
 function blokTitelsBij() {

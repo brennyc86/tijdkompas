@@ -1825,7 +1825,8 @@ function openEditor(item, standaard = {}) {
     <div class="dlijf">
       ${isProj ? `<div class="titelrij"><button type="button" class="emojiknop" data-emoji="project" data-pemoji title="Icoon van het project (komt ook in je agenda)" aria-label="Icoon kiezen">${pIcoon(c)}</button>` : ""}
       <input class="grootTitel" type="text" name="titel" value="${esc(c.titel)}" placeholder="${isProj ? "Naam van het project" : "Wat moet er gebeuren?"}" required autofocus>
-      ${isProj ? `${c.icoon ? `<button type="button" class="x" data-pemojiweg title="Terug naar de ruit">✕</button>` : ""}</div>` : ""}
+      ${isProj ? `${c.icoon ? `<button type="button" class="x" data-pemojiweg title="Terug naar de ruit">✕</button>` : ""}</div>
+      <label class="veld">Korte naam voor in de agenda <small class="hint">(mag leeg; dan de hele naam)</small><input type="text" name="kort" value="${esc(c.kort || "")}" maxlength="40" placeholder="bv. Camper"></label>` : ""}
       <div class="rij">
         <label class="veld">Lijst<select name="overzicht">${boom().filter(r => r.soort === "map" || !r.x.slot || r.x.id === c.overzicht).map(r => r.soort === "map"
           ? `<option disabled>${"\u2003".repeat(r.diepte)}${esc(r.x.icoon)} ${esc(r.x.naam)}</option>`
@@ -1888,6 +1889,7 @@ function openEditor(item, standaard = {}) {
     if (!isProj) { const geldig = new Set(personen(overzicht(c.overzicht)).map(p => p.id)); c.wie = c.wie.filter(x => isIk(x) || geldig.has(x)); }
     c.schatting = leesDuur(f.schatting.value); c.werkelijk = leesDuur(f.werkelijk.value);
     if (f.project) c.project = f.project.value || null;
+    const kf = $("[name=kort]", f); if (kf) c.kort = kf.value.trim().slice(0, 40);
   };
   let gemaakt = null;                                          // bij een nieuwe taak: wat er net is aangemaakt
   const opslaan = () => {
@@ -1897,7 +1899,7 @@ function openEditor(item, standaard = {}) {
     const velden = { titel: c.titel, overzicht: c.overzicht, notitie: c.notitie, deadline: c.deadline, streef: c.streef, schatting: c.schatting,
                      werkelijk: c.werkelijk, urgent: c.urgent, belangrijk: c.belangrijk, links: c.links, gedeeldMet: c.gedeeldMet, locatie: c.locatie || "" };
     if (!isProj) { velden.wie = c.wie; velden.wachtOp = c.wachtOp; }
-    else velden.icoon = c.icoon || "";
+    else { velden.icoon = c.icoon || ""; velden.kort = c.kort || ""; }
     if (!nieuw && c.status === "klaar" && c.klaarOp) velden.klaarOp = c.klaarOp;
     if (nieuw) {
       if (isProj) {
