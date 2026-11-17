@@ -58,6 +58,7 @@ export function ontsmet(n) {
     n[soort] = (n[soort] || []).filter(x => x && veiligId(x.id) && veiligId(x.overzicht || "x"));
     for (const x of n[soort]) {
       x.titel = tekst(x.titel, 500);
+      if (x.icoon != null) x.icoon = x.icoon ? veiligIcoon(x.icoon, "") : "";
       if (x.project && !veiligId(x.project)) x.project = "";
       if (Array.isArray(x.wachtOp)) x.wachtOp = idLijst(x.wachtOp);
       if (Array.isArray(x.wie)) x.wie = x.wie.filter(w => typeof w === "string" && (veiligId(w) || w === "ik" || /^~[^<>"'&`]{1,100}$/.test(w)));

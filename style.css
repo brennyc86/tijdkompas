@@ -625,3 +625,6 @@ a.koersitem{text-decoration:none;color:inherit}
   .tabs::-webkit-scrollbar{display:none}
   .tabs button{flex:none;padding:6px 11px;font-size:13.5px}
 }
+.titelrij{display:flex;align-items:center;gap:8px}
+.titelrij .grootTitel{flex:1;min-width:0}
+.titelrij .emojiknop{flex:none;font-size:22px}

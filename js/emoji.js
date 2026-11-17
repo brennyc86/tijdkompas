@@ -62,6 +62,7 @@ export function voorstellen(naam, soort = "lijst") {
   }
   const uit = [...score].sort((a, b) => b[1] - a[1]).map(([e]) => e);
   const basis = soort === "map" ? ["📁", "🗂️", "💼", "🏠", "👥", "🌱", "🏛️", "⛵"] : soort === "locatie" ? ["🏠", "🏢", "📍", "⚓", "🏛️", "🏫", "🏋️", "🛒"]
+    : soort === "project" ? ["🚀", "🛠️", "🏗️", "📦", "🎯", "🧩", "📐", "🎨"]
     : ["📋", "💼", "🏠", "👥", "🌱", "⛵", "🎯", "📚"];
   return [...new Set([...uit, ...basis])].slice(0, 16);
 }
