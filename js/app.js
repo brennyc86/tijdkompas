@@ -4,7 +4,7 @@ import { opslag, bewaar, KWADRANTEN, kwadrant, overzicht, project, taak, takenVa
          map, submappen, lijstenIn, lijstenOnder, mappenOnder, mapPad, boom, lijstVolgorde, idsVan,
          afspraak, koersVan, binnenDoel, koersScore, koersSuggesties, koppelKoers, mijnId, isIk, personen, naamVanPersoon, isMijn, isTeam, wie, wachtNogOp, wachtenOp, maaktKring, anderen as andereLeden } from "./data.js";
 import { familieHaak, planAutomatisch, werkGeplandBij, doelDatum, harde, prioriteit, googleLink, outlookLink, maakIcs, leesIcs, dagStr, dagIndeling, eventSoort, SOORTEN,
-  AFWIJKING, standaardTijden, afwijkingOp, planStatus, voorstellen as planVoorstellen, botsingen, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
+  AFWIJKING, standaardTijden, afwijkingOp, planStatus, voorstellen as planVoorstellen, botsingen, raster, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
 import { ids, verbindingen as alleVerbindingen, heeft, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, zonderDoel, koppelHaak, neemGedeeldeOver } from "./koppeling.js";
 import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroniseerAlles, naamVan, lijstWeg } from "./schijf.js";
 import { verversAgendas, zetNaarAgendas, verversLinks, linkBron } from "./sync.js";
@@ -707,7 +707,7 @@ function agenda() {
     <b style="color:var(--tekst)">Zo werkt inplannen</b> — Taken gaan op volgorde van kwadrant en deadline/streefdatum.
     Lijsten met <b>vaste tijden</b> (zoals werk) krijgen alleen hun eigen tijdvakken; de reistijd naar die locatie gaat af van je vrije tijd.
     Lijsten in de <b>vrije tijd</b> vullen wat er overblijft binnen je beschikbaarheid. Staat zo'n lijst of taak op een locatie met reistijd, dan plant Tijdkompas reis heen en terug en zet taken op dezelfde plek achter elkaar.
-    Blokken zijn hooguit ${d().instellingen.blokMax} min met ${d().instellingen.buffer} min pauze, en een dag wordt voor maximaal ${d().instellingen.vulgraad}% gevuld.
+    Blokken beginnen op een ${({ 15: "heel kwartier", 60: "heel uur" })[d().instellingen.raster] || "heel of half uur"} (eindigt een afspraak eerder, dan is de rest pauze${d().instellingen.buffer ? `, plus ${d().instellingen.buffer} min extra` : ""}), duren hooguit ${d().instellingen.blokMax} min, en een dag wordt voor maximaal ${d().instellingen.vulgraad}% gevuld. Afspraken op „vrij” tellen niet mee.
     ${d().instellingen.kalibratie && kalibratie().n >= 3 ? `Schattingen worden gecorrigeerd met je schatfactor (×${kalibratie().factor.toFixed(2)}).` : ""}
   </div>`;
 }
@@ -1205,7 +1205,8 @@ function instLocaties() {
   <div class="paneel"><div class="rij" data-actie="inst">
     <label class="veld">Langste blok (min)<input type="number" min="15" step="15" name="blokMax" value="${inst.blokMax}"></label>
     <label class="veld">Kortste blok (min)<input type="number" min="5" step="5" name="blokMin" value="${inst.blokMin}"></label>
-    <label class="veld">Pauze tussen blokken (min)<input type="number" min="0" step="5" name="buffer" value="${inst.buffer}"></label>
+    <label class="veld" title="Blokken beginnen op het volgende hele/halve uur na een afspraak; wat er tot dan overblijft is je pauze">Plannen per<select name="raster">${[[15, "kwartier"], [30, "half uur"], [60, "heel uur"]].map(([v, n]) => `<option value="${v}" ${+(inst.raster || 30) === v ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+    <label class="veld" title="Bovenop het afronden naar het hele/halve uur. Meestal 0.">Extra pauze na een afspraak (min)<input type="number" min="0" step="5" name="buffer" value="${inst.buffer || 0}"></label>
     <label class="veld">Dagen vooruit<input type="number" min="1" max="60" name="horizon" value="${inst.horizon}"></label>
     <label class="veld">Max. dagvulling (%)<input type="number" min="10" max="100" step="5" name="vulgraad" value="${inst.vulgraad}"></label>
   </div>
@@ -2027,23 +2028,25 @@ function projectRijPlan(p) {
 const dagKort = (x) => `${DAG[x.getDay()]} ${x.getDate()} ${MAAND[x.getMonth()]}`;
 function planTaak(it) {
   if (!it) return;
-  let duur = null, melding = "";
-  const inst = d().instellingen;
+  let minDuur = null, aantal = 16, melding = "", aanpas = null;   // aanpas: {dag, van, tot} van een voorstel dat je bijstelt
+  const R = raster();
+  const opRaster = (m) => Math.ceil(m / R) * R;
   const teken = () => {
     const s = planStatus(it), { ov, loc, reis } = plekVan(it), l = locatie(loc);
     if (!ov) { dlg2.close(); return; }
-    if (duur == null) duur = Math.max(5, Math.min(s.rest || s.nodig || 30, Math.max(inst.blokMax, 30)));
+    if (minDuur == null) minDuur = Math.max(R, Math.min(voorkeur.lees("planMin", 60), opRaster(s.rest || s.nodig || 30)));
     const gelinkt = doorGelinktIngepland(it);
-    const vs = gelinkt || it.status === "klaar" ? [] : planVoorstellen(it, duur);
+    const vs = gelinkt || it.status === "klaar" ? [] : planVoorstellen(it, minDuur, { aantal });
     const perDag = [];
     for (const v of vs) { const g = perDag.find(x => x.dag === v.dag); if (g) g.v.push(v); else perDag.push({ dag: v.dag, v: [v] }); }
     const dl = harde(it), doel = doelDatum(it);
     const waar = ov.modus === "vast" ? `binnen de vaste tijden van ${esc(ov.icoon)} ${esc(ov.naam)}` : "in je vrije tijd (beschikbaarheid min werk, reistijd en afspraken)";
     const morgen = new Date(Date.now() + 864e5);
+    const tijdIn = (naam, w) => `<input type="time" name="${naam}" value="${esc(w)}" step="300">`;
     dlg2.innerHTML = `<form method="dialog" id="planForm"><div class="dkop"><span class="soort" style="color:${ovKleur(it.overzicht)}">📅 Inplannen</span><button type="button" class="sluit" data-sluit aria-label="Sluiten">×</button></div>
     <div class="dlijf">
       <h2 style="margin:0">${esc(it.titel)}</h2>
-      <div class="hint">Voorstellen ${waar}${l && l.id !== "thuis" ? ` · 📍 ${esc(l.naam)}${reis ? ` (${reis} min reizen heen en terug)` : ""}` : ""}${dl ? ` · ⏰ deadline ${fmtDatum(dl)}` : doel ? ` · 🎯 ${fmtDatum(doel)}` : ""}</div>
+      <div class="hint">Vrije gaten ${waar}${l && l.id !== "thuis" ? ` · 📍 ${esc(l.naam)}${reis ? ` (${reis} min reizen heen en terug)` : ""}` : ""}${dl ? ` · ⏰ deadline ${fmtDatum(dl)}` : doel ? ` · 🎯 ${fmtDatum(doel)}` : ""}</div>
       <div class="planstand pl-${s.soort}">${s.soort === "klaar" ? "✓ Afgerond" : `Nodig: <b>${fmtDuur(s.nodig) || "–"}</b>${it.schatting ? "" : " (geen schatting: 30 min aangenomen)"} · ingepland: <b>${fmtDuur(s.min) || "niets"}</b>${s.rest ? ` · nog in te plannen: <b>${fmtDuur(s.rest)}</b>` : " ✓"}`}</div>
       ${melding ? `<div class="hint" style="color:var(--groen)">${melding}</div>` : ""}
       ${s.blokken.length ? `<div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">Staat ingepland</div><div class="lijst">${s.blokken.map(b =>
@@ -2052,49 +2055,68 @@ function planTaak(it) {
       ${gelinkt ? `<div class="hint">Deze lijst hoort bij je gelinkte account; die plant hem zelf in (log daar in om hem te plannen).</div>`
       : it.status === "klaar" ? "" : `
       ${isMijn(it) ? "" : `<div class="hint">👤 Toegewezen aan ${esc(wieTekst(it))}. Plan je hem zelf in, dan staat hij in jóuw agenda.</div>`}
+      ${aanpas ? `<div class="aanpas paneel"><b>Blok aanpassen — ${dagKort(new Date(aanpas.dag + "T12:00"))}</b>
+        <div class="rij" style="align-items:end"><label class="veld">Van${tijdIn("avan", aanpas.van)}</label><label class="veld">Tot${tijdIn("atot", aanpas.tot)}</label>
+          <button type="button" class="knop prim" data-actie="aZet">Plaatsen</button><button type="button" class="knop" data-actie="aWeg">Annuleren</button></div>
+        <span class="hint">Het vrije gat loopt van ${aanpas.gatVan} tot ${aanpas.gatTot}.</span></div>` : ""}
       <div class="rij" style="align-items:end">
-        <label class="veld">Duur van dit blok<input type="text" name="pduur" value="${fmtDuur(duur)}" style="max-width:110px"></label>
-        <button type="button" class="knop klein" data-actie="pduur">Opnieuw zoeken</button>
-        ${s.rest > duur ? `<span class="hint" style="align-self:center">Daarna nog ${fmtDuur(s.rest - duur)} — dat kun je in een volgend blok plannen.</span>` : ""}
+        <label class="veld" title="Alleen vrije gaten van minstens deze lengte worden voorgesteld">Gaten van minstens<input type="text" name="pmin" value="${fmtDuur(minDuur)}" style="max-width:110px"></label>
+        <button type="button" class="knop klein" data-actie="pmin">Zoeken</button>
       </div>
-      <div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">Voorstellen — kies er een</div>
+      <div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">Vrije gaten — klik om het hele gat te plannen; <b>rechtsklik of lang drukken</b> om het blok in te korten of te verschuiven</div>
         ${perDag.length ? `<div class="voorstellen">${perDag.map(g => `<div class="vdag"><b>${fmtDatum(g.dag)}</b>${g.v.map(v =>
-          `<button type="button" class="voorstel${v.naDeadline ? " laat" : ""}" data-zet="${v.a.toISOString()}" title="${v.naDeadline ? "Ná de deadline" : "Hier plaatsen"}">${fmtTijd(v.a.toISOString())}–${fmtTijd(v.b.toISOString())}${v.reis ? `<small>🚗 ${v.reis}m heen/terug</small>` : ""}${v.naDeadline ? "<small>na deadline</small>" : ""}</button>`).join("")}</div>`).join("")}</div>`
-          : `<div class="leeg" style="padding:14px">Geen plek voor ${fmtDuur(duur)} aaneengesloten in de komende 4 weken ${waar}. Probeer een kortere duur, of kies hieronder zelf een moment.</div>`}
+          `<button type="button" class="voorstel${v.naDeadline ? " laat" : ""}" data-zet="${v.a.toISOString()}" data-tot="${v.b.toISOString()}" title="${v.naDeadline ? "Ná de deadline · " : ""}Klik: hele gat plannen · rechtsklik of lang drukken: aanpassen">${fmtTijd(v.a.toISOString())}–${fmtTijd(v.b.toISOString())}<small>${fmtDuur(v.duur)}${v.reis ? ` · 🚗 ${v.reis}m heen/terug` : ""}</small>${v.naDeadline ? "<small>na deadline</small>" : ""}</button>`).join("")}</div>`).join("")}</div>
+          ${vs.length >= aantal ? `<button type="button" class="knop klein" data-actie="pmeer" style="margin-top:8px">Meer gaten tonen</button>` : ""}`
+          : `<div class="leeg" style="padding:14px">Geen vrij gat van ${fmtDuur(minDuur)} of langer in de komende 4 weken ${waar}. Kies een kortere lengte, of kies hieronder zelf een moment.</div>`}
       </div>
       <div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">Of kies zelf</div>
         <div class="rij" style="align-items:end"><label class="veld">Dag<input type="date" name="pdag" value="${dagStr(morgen)}"></label>
-          <label class="veld">Begintijd<input type="time" name="ptijd" value="09:00" step="300"></label>
+          <label class="veld">Van${tijdIn("pvan", "09:00")}</label><label class="veld">Tot${tijdIn("ptot", hhmm(9 * 60 + opRaster(Math.min(s.rest || 60, 240))))}</label>
           <button type="button" class="knop" data-actie="pzelf">Hier plaatsen</button></div></div>`}
-      <p class="hint" style="margin:0">Wat je hier plaatst wordt 📌 vastgezet: ⚡ Automatisch inplannen laat het staan en plant alleen de rest.${ov.doelAgenda ? " Het komt in je agenda bij „📤 In mijn agenda zetten”." : ""}</p>
+      <p class="hint" style="margin:0">Blokken beginnen op een heel of half uur: eindigt een afspraak om kwart over, dan begin je om half (de rest is pauze). Afspraken die in je agenda op „vrij” staan tellen niet mee.
+        Wat je hier plaatst wordt 📌 vastgezet: ⚡ Automatisch inplannen laat het staan en plant alleen de rest.${ov.doelAgenda ? " Het komt in je agenda bij „📤 In mijn agenda zetten”." : ""}</p>
     </div>
     <div class="dvoet"><div class="rechts"><button type="button" class="knop" data-actie="popen">Open ${it.type === "project" ? "project" : "taak"}</button><button class="knop prim" value="ok">Klaar</button></div></div></form>`;
   };
-  const zet = (a) => {
-    const r = plaatsBlok(it, a, duur);
-    melding = `✓ Ingepland: ${dagKort(a)} ${fmtTijd(a.toISOString())}–${fmtTijd(r.blok.eind)}${r.vervallen ? ` · ${r.vervallen} automatisch ingepland${r.vervallen === 1 ? " blok" : "e blokken"} van deze taak vervangen` : ""}`;
-    duur = null; bewaar(); teken();
+  // Plaats [start, eind); met een waarschuwing als het ergens mee botst
+  const zet = (start, eind, controleer = true) => {
+    const duur = Math.round((eind - start) / 60000);
+    if (!(duur > 0)) { toast("De eindtijd moet na de begintijd liggen"); return; }
+    if (eind <= new Date()) { toast("Dat moment is al voorbij"); return; }
+    const bots = controleer ? botsingen(it, start, eind) : [];
+    if (bots.length && !confirm(`Let op:\n• ${bots.join("\n• ")}\n\nToch hier plaatsen?`)) return;
+    const r = plaatsBlok(it, start, duur);
+    melding = `✓ Ingepland: ${dagKort(start)} ${fmtTijd(start.toISOString())}–${fmtTijd(r.blok.eind)}${r.vervallen ? ` · ${r.vervallen} automatisch ingepland${r.vervallen === 1 ? " blok" : "e blokken"} van deze taak vervangen` : ""}`;
+    aanpas = null; minDuur = null; bewaar(); teken();
   };
+  const openAanpas = (b) => {
+    const a = new Date(b.dataset.zet), e = new Date(b.dataset.tot);
+    aanpas = { dag: dagStr(a), van: fmtTijd(a.toISOString()), tot: fmtTijd(e.toISOString()), gatVan: fmtTijd(a.toISOString()), gatTot: fmtTijd(e.toISOString()) };
+    teken(); $("[name=atot]", dlg2)?.focus?.();
+  };
+  let lang = null, langGedaan = false;   // lang drukken (telefoon) = rechtsklik
+  dlg2.oncontextmenu = (e) => { const b = e.target.closest(".voorstel"); if (!b) return; e.preventDefault(); clearTimeout(lang); langGedaan = true; openAanpas(b); };
+  dlg2.onpointerdown = (e) => { const b = e.target.closest(".voorstel"); if (!b || e.button > 0) return; langGedaan = false; clearTimeout(lang); lang = setTimeout(() => { langGedaan = true; openAanpas(b); }, 550); };
+  dlg2.onpointerup = dlg2.onpointercancel = dlg2.onpointerleave = () => clearTimeout(lang);
   dlg2.onclick = (e) => {
     const b = e.target.closest("button"); if (!b) return;
-    if (b.dataset.zet) { zet(new Date(b.dataset.zet)); return; }
-    if (b.dataset.blokweg) { const x = d().planning.find(y => y.id === b.dataset.blokweg); if (x) { haalBlokWeg(x); melding = "Blok uit de planning gehaald"; duur = null; bewaar(); teken(); } return; }
+    if (b.dataset.zet) { if (langGedaan) { langGedaan = false; return; } zet(new Date(b.dataset.zet), new Date(b.dataset.tot), false); return; }
+    if (b.dataset.blokweg) { const x = d().planning.find(y => y.id === b.dataset.blokweg); if (x) { haalBlokWeg(x); melding = "Blok uit de planning gehaald"; minDuur = null; bewaar(); teken(); } return; }
     const a = b.dataset.actie;
-    if (a === "pduur") { const v = leesDuur($("[name=pduur]", dlg2).value); if (v > 0) { duur = Math.round(v / 5) * 5 || 5; melding = ""; teken(); } else toast("Vul een duur in, bv. 45m of 1u30"); }
-    else if (a === "pzelf") {
-      const dag = $("[name=pdag]", dlg2).value, tijd = $("[name=ptijd]", dlg2).value;
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(dag) || !/^\d{2}:\d{2}$/.test(tijd)) { toast("Kies een dag en begintijd"); return; }
-      const v = leesDuur($("[name=pduur]", dlg2).value); if (v > 0) duur = Math.round(v / 5) * 5 || 5;
-      const start = new Date(dag + "T" + tijd), eind = new Date(start.getTime() + duur * 60000);
-      if (eind <= new Date()) { toast("Dat moment is al voorbij"); return; }
-      const bots = botsingen(it, start, eind);
-      if (bots.length && !confirm(`Let op:\n• ${bots.join("\n• ")}\n\nToch hier plaatsen?`)) return;
-      zet(start);
+    const tijd = (n) => $(`[name=${n}]`, dlg2)?.value || "";
+    if (a === "pmin") { const v = leesDuur(tijd("pmin")); if (v > 0) { minDuur = Math.max(5, Math.round(v / 5) * 5); voorkeur.zet("planMin", minDuur); aantal = 16; melding = ""; teken(); } else toast("Vul een lengte in, bv. 1u30 of 45m"); }
+    else if (a === "pmeer") { aantal += 16; teken(); }
+    else if (a === "aWeg") { aanpas = null; teken(); }
+    else if (a === "aZet" || a === "pzelf") {
+      const dag = a === "aZet" ? aanpas.dag : tijd("pdag"), van = tijd(a === "aZet" ? "avan" : "pvan"), tot = tijd(a === "aZet" ? "atot" : "ptot");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dag) || !/^\d{2}:\d{2}$/.test(van) || !/^\d{2}:\d{2}$/.test(tot)) { toast("Kies een dag, begin- en eindtijd"); return; }
+      zet(new Date(dag + "T" + van), new Date(dag + "T" + tot));
     }
     else if (a === "popen") { dlg2.close(); openEditor(it); }
   };
-  dlg2.onkeydown = (e) => { if (e.key === "Enter" && e.target.name === "pduur") { e.preventDefault(); $('[data-actie="pduur"]', dlg2).click(); } };
-  dlg2.onchange = null; dlg2.onclose = () => { dlg2.onkeydown = null; dlg2.onclose = null; };
+  dlg2.onkeydown = (e) => { if (e.key === "Enter" && e.target.name === "pmin") { e.preventDefault(); $('[data-actie="pmin"]', dlg2).click(); } };
+  dlg2.onchange = null;
+  dlg2.onclose = () => { clearTimeout(lang); for (const k of ["onkeydown", "oncontextmenu", "onpointerdown", "onpointerup", "onpointercancel", "onpointerleave", "onclose"]) dlg2[k] = null; };
   teken();
   if (!dlg2.open) dlg2.showModal();
 }

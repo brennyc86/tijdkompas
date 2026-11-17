@@ -16,6 +16,9 @@ const vanGelinkt = (ovId) => { const o = overzicht(ovId), f = sessie.familie || 
 
 const MIN = 60000;
 const rondOp = (d, stap = 15) => new Date(Math.ceil(d.getTime() / (stap * MIN)) * stap * MIN);
+// Plannen gaat per half uur (instelbaar): na een afspraak begin je op het volgende hele of halve uur;
+// wat er tot dan overblijft is je pauze. Een extra pauze (buffer) komt daar alleen bij als je die instelt.
+export const raster = () => Math.max(5, +opslag.d.instellingen.raster || 30);
 const opDag = (dag, hhmm) => { const [h, m] = hhmm.split(":").map(Number); return new Date(dag.getFullYear(), dag.getMonth(), dag.getDate(), h, m); };
 const minuten = (a, b) => (b - a) / MIN;
 export const dagStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -151,14 +154,32 @@ export function dagIndeling(dag) {
 }
 
 /**
+ * Vrije gaten tussen `van` en `tot` om bezette tijden heen. Een gat begint op het eerstvolgende hele of halve uur
+ * (raster) na het einde van wat ervoor zit (plus de eventuele extra pauze); het loopt door tot het volgende item begint.
+ * Reistijd telt zonder pauze. Bezet: [{a, b, reis?}]
+ */
+export function vrijeGaten(van, tot, bezet, R = raster(), buf = 0) {
+  const uit = []; let c = van;
+  for (const x of bezet.filter(x => x.b > van && x.a < tot).sort((p, q) => p.a - q.a)) {
+    const a = rondOp(c, R), eind = new Date(Math.min(tot, x.a - (x.reis ? 0 : buf)));
+    if (eind > a) uit.push([a, eind]);
+    const na = new Date(x.b.getTime() + (x.reis ? 0 : buf));
+    if (na > c) c = na;
+  }
+  const a = rondOp(c, R);
+  if (tot > a) uit.push([a, new Date(tot)]);
+  return uit.filter(([a, b]) => b - a >= 5 * MIN);
+}
+
+/**
  * Plant alle open taken (en projecten zonder taken) in. Vastgezette blokken en afspraken blijven staan.
  * @returns {{blokken:number, waarschuwingen:string[]}}
  */
 export function planAutomatisch(actieveOverzichten) {
   const d = opslag.d, inst = d.instellingen, nu = new Date();
-  const start = rondOp(nu);
+  const R = raster(), start = rondOp(nu, R);
   const eind = new Date(start.getTime() + inst.horizon * 864e5);
-  const buf = inst.buffer * MIN;
+  const buf = (inst.buffer || 0) * MIN;
 
   // Toekomstige niet-vaste blokken van actieve lijsten vervallen; de rest blijft
   d.planning = d.planning.filter(b => b.vast || new Date(b.eind) <= nu || !actieveOverzichten.includes(b.overzicht));
@@ -180,18 +201,8 @@ export function planAutomatisch(actieveOverzichten) {
     return indeling[k];
   };
 
-  // Vrije stukken binnen [wa, wb], met pauze rond bezette tijd
-  const gaten = (wa, wb, negeer) => {
-    const uit = []; let c = wa < start ? start : wa;
-    for (const x of bezet.filter(x => x.ref !== negeer && x.b > c && x.a < wb).sort((p, q) => p.a - q.a)) {
-      const tot = new Date(Math.min(wb, x.a - (x.reis ? 0 : buf)));
-      if (tot > c) uit.push([rondOp(c, 5), tot]);
-      const na = new Date(x.b.getTime() + (x.reis ? 0 : buf));
-      if (na > c) c = na;
-    }
-    if (wb > c) uit.push([rondOp(c, 5), wb]);
-    return uit.filter(([a, b]) => b - a >= 5 * MIN);
-  };
+  // Vrije stukken binnen [wa, wb]: beginnen op het volgende hele/halve uur na wat er bezet is
+  const gaten = (wa, wb, negeer) => vrijeGaten(wa < start ? start : wa, wb, bezet.filter(x => x.ref !== negeer), R, buf);
 
   const items = [
     ...d.taken.filter(t => t.status !== "klaar"),
@@ -241,7 +252,7 @@ export function planAutomatisch(actieveOverzichten) {
       const eigen = d.planning.filter(b => b.item === id && b.soort !== "reis").map(b => new Date(b.eind));
       const tot = eindVan[id] !== undefined ? eindVan[id] : eigen.length ? new Date(Math.max(...eigen)) : v.gepland?.tot ? new Date(v.gepland.tot) : null;
       if (!tot) { wachtOpOnbekend = v; break; }
-      if (tot > vanaf) vanaf = rondOp(new Date(tot.getTime() + buf), 5);
+      if (tot > vanaf) vanaf = rondOp(new Date(tot.getTime() + buf), R);
     }
     if (wachtOpOnbekend) { eindVan[it.id] = null; waarschuwingen.push(`„${it.titel}” wacht op „${wachtOpOnbekend.titel}”, en die is nog niet ingepland — daarom nog niet ingepland.`); continue; }
     const al = d.planning.filter(b => b.item === it.id && b.vast && b.soort !== "reis").reduce((s, b) => s + minuten(new Date(b.start), new Date(b.eind)), 0);
@@ -284,9 +295,9 @@ export function planAutomatisch(actieveOverzichten) {
         if (reis) {
           for (const s of sessies.filter(s => s.loc === loc && s.dag === dagStr(dag) && s.eindTaak >= vanaf)) {
             const venster = vensters.find(([a, b]) => s.eindTaak >= a && s.eindTaak <= b); if (!venster) continue;
-            const g = gaten(s.eindTaak, venster[1], s.terug.id).find(([a]) => a <= new Date(s.eindTaak.getTime() + buf + 5 * MIN));
+            const a = rondOp(new Date(s.eindTaak.getTime() + buf), R);
+            const g = gaten(s.eindTaak, venster[1], s.terug.id).find(([x, y]) => x <= a && y > a);
             if (!g) continue;
-            const a = rondOp(new Date(s.eindTaak.getTime() + buf), 5);
             const duur = Math.min(maxDuur(), Math.floor((minuten(a, g[1]) - reis) / 5) * 5);
             if (duur < Math.min(inst.blokMin, rest)) continue;
             weg(s.terug);
@@ -301,18 +312,21 @@ export function planAutomatisch(actieveOverzichten) {
         //    (op locatie: minstens zo lang blijven als je heen en terug reist)
         const heel = maxDuur();
         const deelMin = Math.min(rest, Math.max(inst.blokMin, 30, 2 * reis));
+        // met reistijd: de taak zelf begint op een heel/half uur, de reis ervoor
+        const begin = ([a]) => rondOp(new Date(a.getTime() + reis * MIN), R);
+        const ruimteIn = (g) => minuten(begin(g), g[1]) - reis;
         const gatenDag = vensters.flatMap(([wa, wb]) => gaten(wa, wb));
-        const g = gatenDag.find(([a, b]) => minuten(a, b) - 2 * reis >= heel)
-               || gatenDag.find(([a, b]) => minuten(a, b) - 2 * reis >= deelMin);
-        if (g && heel >= Math.min(deelMin, heel)) {
-          const duur = Math.min(heel, Math.floor((minuten(g[0], g[1]) - 2 * reis) / 5) * 5);
+        const g = gatenDag.find(x => ruimteIn(x) >= heel) || gatenDag.find(x => ruimteIn(x) >= deelMin);
+        const duur = g ? Math.min(heel, Math.floor(ruimteIn(g) / 5) * 5) : 0;
+        if (g && duur > 0 && duur >= Math.min(deelMin, heel)) {
+          const aTaak = begin(g);
           if (reis) {
             const naam = locatie(loc)?.naam || "";
-            nieuwBlok({ ...basisBlok, soort: "reis", titel: `Reis naar ${naam}`, a: g[0], b: new Date(g[0].getTime() + reis * MIN) });
-            const b = plaats(new Date(g[0].getTime() + reis * MIN), duur);
+            nieuwBlok({ ...basisBlok, soort: "reis", titel: `Reis naar ${naam}`, a: new Date(aTaak.getTime() - reis * MIN), b: aTaak });
+            const b = plaats(aTaak, duur);
             const terug = nieuwBlok({ ...basisBlok, soort: "reis", titel: `Reis terug van ${naam}`, a: new Date(b.eind), b: new Date(new Date(b.eind).getTime() + reis * MIN) });
             sessies.push({ loc, dag: dagStr(dag), eindTaak: new Date(b.eind), terug });
-          } else plaats(g[0], duur);
+          } else plaats(aTaak, duur);
           gelukt = true;
         }
       }
@@ -394,23 +408,23 @@ export function plekVan(it) {
 export const doorGelinktIngepland = (it) => vanGelinkt(it.overzicht);
 
 /**
- * Voorstellen voor één blok van `duur` minuten, binnen je beschikbaarheid (vrije tijd of de vaste tijden van de lijst),
- * om afspraken, andere geplande blokken, reistijd en afwijkingen heen. Per dag hooguit twee voorstellen
- * (zo vroeg mogelijk, en een later moment op die dag), zodat je echt iets te kiezen hebt.
- * @returns {{a:Date, b:Date, reis:number, loc:string, naDeadline:boolean, dag:string}[]}
+ * Voorstellen: de vrije gaten van minstens `minDuur` minuten, binnen je beschikbaarheid (vrije tijd, of de vaste tijden
+ * van de lijst), om afspraken (niet die op "vrij"), andere geplande blokken, reistijd en afwijkingen heen.
+ * Elk voorstel beslaat het hele gat (begin op een heel of half uur tot het volgende item); inkorten kan bij het plaatsen.
+ * @returns {{a:Date, b:Date, duur:number, reis:number, loc:string, naDeadline:boolean, dag:string}[]}
  */
-export function voorstellen(it, duur, { aantal = 8, dagen = 28, vanaf = new Date() } = {}) {
-  const d = opslag.d, buf = d.instellingen.buffer * MIN;
+export function voorstellen(it, minDuur, { aantal = 16, dagen = 28, vanaf = new Date() } = {}) {
+  const d = opslag.d, R = raster(), buf = (d.instellingen.buffer || 0) * MIN;
   const { ov, eigenLoc, loc, reis } = plekVan(it);
-  if (!ov || !(duur > 0)) return [];
-  const start = rondOp(vanaf, 15);
+  if (!ov || !(minDuur > 0)) return [];
+  const start = rondOp(vanaf, R);
   const bezet = bezetBehalve(it.id);
   // waar dit item op wacht: pas daarna
   let na = start;
   for (const id of it.wachtOp || []) {
     const v = taak(id); if (!v || v.status === "klaar") continue;
     const eind = d.planning.filter(b => b.item === id && b.soort !== "reis").map(b => new Date(b.eind)).sort((a, b) => b - a)[0];
-    if (eind && eind > na) na = rondOp(new Date(eind.getTime() + buf), 5);
+    if (eind && eind > na) na = rondOp(new Date(eind.getTime() + buf), R);
   }
   const deadline = harde(it);
   const uit = [];
@@ -421,29 +435,13 @@ export function voorstellen(it, duur, { aantal = 8, dagen = 28, vanaf = new Date
     const vensters = (ov.modus === "vast"
       ? I.vast.filter(v => v.lijst === ov.id && (!eigenLoc || v.locatie === eigenLoc)).map(v => [v.a, v.b])
       : I.vrij).map(([a, b]) => [a < na ? na : a, b]).filter(([a, b]) => b - a >= 5 * MIN);
-    const opDag = [];
-    for (const [wa, wb] of vensters) {
-      let c = wa;
-      const lijst = [...bezet, ...extra].filter(x => x.b > wa && x.a < wb).sort((p, q) => p.a - q.a);
-      const gaten = [];
-      for (const x of lijst) {
-        const tot = new Date(Math.min(wb, x.a - (x.reis ? 0 : buf)));
-        if (tot > c) gaten.push([rondOp(c, 5), tot]);
-        const nx = new Date(x.b.getTime() + (x.reis ? 0 : buf));
-        if (nx > c) c = nx;
-      }
-      if (wb > c) gaten.push([rondOp(c, 5), wb]);
-      for (const [a, b] of gaten) if (minuten(a, b) >= duur + 2 * reis) opDag.push([a, b]);
+    for (const [wa, wb] of vensters) for (const [ga, gb] of vrijeGaten(wa, wb, [...bezet, ...extra], R, buf)) {
+      const a = rondOp(new Date(ga.getTime() + reis * MIN), R), b = new Date(gb.getTime() - reis * MIN);
+      const duur = Math.floor(minuten(a, b) / 5) * 5;
+      if (duur < minDuur || uit.length >= aantal) continue;
+      const eind = new Date(a.getTime() + duur * MIN);
+      uit.push({ a, b: eind, duur, reis, loc, dag: dagStr(dag), naDeadline: !!deadline && dagStr(eind) > deadline });
     }
-    if (!opDag.length) continue;
-    const maak = (a) => { const t0 = new Date(a.getTime() + reis * MIN), t1 = new Date(t0.getTime() + duur * MIN);
-      return { a: t0, b: t1, reis, loc, dag: dagStr(dag), naDeadline: !!deadline && dagStr(t1) > deadline }; };
-    const eerste = maak(opDag[0][0]);
-    uit.push(eerste);
-    // een tweede keuze later op de dag (minstens 3 uur later, of in een ander gat)
-    const later = opDag.map(([a, b]) => { const s = a < new Date(eerste.b.getTime() + 2 * 36e5) ? new Date(eerste.b.getTime() + 2 * 36e5) : a;
-      return minuten(rondOp(s, 15), b) >= duur + 2 * reis ? rondOp(s, 15) : null; }).find(Boolean);
-    if (later && uit.length < aantal) uit.push(maak(later));
   }
   return uit;
 }
@@ -553,6 +551,7 @@ export function leesIcs(tekst, bron = "agenda", { van = new Date(Date.now() - 86
       else if (naam === "DURATION") ev.duur = waarde;
       else if (naam === "SUMMARY") ev.titel = ontsnap(waarde);
       else if (naam === "TRANSP") ev.transp = waarde;
+      else if (naam === "X-MICROSOFT-CDO-BUSYSTATUS" || naam === "X-MICROSOFT-CDO-INTENDEDSTATUS") ev.ms = waarde.toUpperCase();   // Outlook: vrij/bezet
       else if (naam === "STATUS") ev.status = waarde;
       else if (naam === "LOCATION") ev.plaats = ontsnap(waarde);
       else if (naam === "RRULE") ev.rrule = waarde;
@@ -563,7 +562,7 @@ export function leesIcs(tekst, bron = "agenda", { van = new Date(Date.now() - 86
   }
   const uit = [];
   const neem = (e, start, eind, herhalend) => {
-    if (e.transp === "TRANSPARENT" || e.status === "CANCELLED") return;
+    if (e.transp === "TRANSPARENT" || e.ms === "FREE" || e.status === "CANCELLED") return;   // op "vrij" gezet: die tijd is te gebruiken
     if (eind <= van || start >= tot) return;
     uit.push({ id: uid(), start: start.toISOString(), eind: eind.toISOString(), titel: e.titel || "Bezet", plaats: e.plaats || "", bron, herhalend });
   };

@@ -30,7 +30,8 @@ export function kwadrant(item) {
 const STANDAARD_INST = {
   blokMax: 90,          // langste aaneengesloten blok (min)
   blokMin: 15,          // kortste blok (min)
-  buffer: 10,           // pauze tussen blokken (min)
+  raster: 30,           // plannen per half uur: blokken beginnen op een heel of half uur (de rest is pauze)
+  buffer: 0,            // extra pauze na een afspraak/blok, bovenop het afronden (min)
   vulgraad: 70,         // max % van de beschikbare tijd per dag inplannen (ruimte voor onverwacht)
   horizon: 14,          // dagen vooruit inplannen
   kalibratie: true,     // schattingen corrigeren met je eigen historie
@@ -59,6 +60,8 @@ function basisBeschikbaar() {
 function normaliseer(d) {
   const n = { ...leeg(), ...d };
   n.instellingen = { ...STANDAARD_INST, ...(d.instellingen || {}) };
+  // van vóór het half-uur-raster: de oude pauze van 10 min zat in het afronden, dus weg
+  if (d.instellingen && d.instellingen.raster == null) { n.instellingen.raster = 30; n.instellingen.buffer = 0; }
   for (const k of ["overzichten", "projecten", "taken", "bezet", "planning"]) n[k] ||= [];
   if (!Array.isArray(d.locaties) || !d.locaties.length) n.locaties = basisLocaties();
   if (!n.locaties.some(l => l.id === "thuis")) n.locaties.unshift({ id: "thuis", naam: "Thuis", icoon: "🏠", reistijd: 0 });
