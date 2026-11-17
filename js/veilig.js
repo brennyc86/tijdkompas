@@ -84,5 +84,17 @@ export function ontsmet(n) {
   for (const a of Object.values(n.agendas || {})) if (a && a.kleur) a.kleur = veiligeKleur(a.kleur, "");
   for (const l of n.agendaLinks || []) if (l && l.kleur) l.kleur = veiligeKleur(l.kleur, "");
   n.planning = (n.planning || []).filter(b => b && veiligId(b.id));
+  // afwijkingen per datum (vakantie, cursus, geruilde dag…): alleen geldige datums, soorten en tijden; oud spul (> 1 jaar) valt weg
+  const datum = (k) => /^\d{4}-\d{2}-\d{2}$/.test(k), grens = new Date(Date.now() - 366 * 864e5).toISOString().slice(0, 10);
+  const afw = (x) => {
+    if (!x || typeof x !== "object" || !["vrij", "anders", "bezet"].includes(x.soort)) return null;
+    return { soort: x.soort, reden: tekst(x.reden, 100), tijden: x.soort === "vrij" ? [] : tijdvakken(x.tijden).map(t => ({ van: t.van, tot: t.tot, locatie: t.locatie })) };
+  };
+  for (const o of n.overzichten) {
+    if (!o.afwijkingen || typeof o.afwijkingen !== "object" || Array.isArray(o.afwijkingen)) { o.afwijkingen = {}; continue; }
+    o.afwijkingen = Object.fromEntries(Object.entries(o.afwijkingen).filter(([k]) => datum(k) && k >= grens).map(([k, x]) => [k, afw(x)]).filter(([, x]) => x));
+  }
+  const weg = n.afwezig && typeof n.afwezig === "object" && !Array.isArray(n.afwezig) ? n.afwezig : {};
+  n.afwezig = Object.fromEntries(Object.entries(weg).filter(([k, x]) => datum(k) && k >= grens && x && typeof x === "object").map(([k, x]) => [k, { reden: tekst(x.reden, 100) }]));
   return n;
 }

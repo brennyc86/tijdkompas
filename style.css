@@ -465,3 +465,81 @@ a.koersitem{text-decoration:none;color:inherit}
 .kzicht.gedeeld{background:color-mix(in srgb,var(--accent) 25%,transparent);color:var(--tekst);border:1px solid var(--accent)}
 .kkaart>.kzicht{align-self:flex-start;margin-bottom:4px}
 .kkaart.kgedeeld{border:2px solid var(--accent)}
+
+/* ===== Ingepland of niet ===== */
+.plantag{display:inline-flex;align-items:center;gap:4px;font:inherit;font-size:11px;font-weight:600;border-radius:6px;padding:1px 7px;cursor:pointer;white-space:nowrap;border:1px solid var(--rand);background:var(--kaart2);color:var(--tekst)}
+.plantag small{font-weight:400;opacity:.8}
+.plantag.ja{color:var(--groen);border-color:color-mix(in srgb,var(--groen) 60%,transparent);background:color-mix(in srgb,var(--groen) 12%,var(--kaart))}
+.plantag.deels{color:var(--oranje);border-color:color-mix(in srgb,var(--oranje) 60%,transparent);background:color-mix(in srgb,var(--oranje) 12%,var(--kaart))}
+.plantag.niet{color:var(--meta);border-style:dashed;background:transparent}
+.plantag.niet:hover,.plantag:hover{border-color:var(--accent);color:var(--accent)}
+.item.pl-niet{border-style:dashed;border-left-style:solid;background:color-mix(in srgb,var(--kaart) 70%,transparent)}
+.item.pl-ja{background:color-mix(in srgb,var(--groen) 5%,var(--kaart))}
+.kaartje.pl-niet{border-style:dashed;border-left-style:solid}
+.kaartje.pl-ja{background:color-mix(in srgb,var(--groen) 6%,var(--kaart))}
+.kaartje .plicoon{font-size:11px}
+.plgroep-niet .groepkop h2{color:var(--meta)}
+.plgroep-ja .groepkop h2{color:var(--groen)}
+.plgroep-deels .groepkop h2{color:var(--oranje)}
+.nietgepland{margin-top:18px}
+.nietgepland summary{cursor:pointer;list-style:none}
+.nietgepland summary::-webkit-details-marker{display:none}
+.nietgepland summary h3{display:inline-flex;gap:8px;align-items:center;margin:0 0 6px}
+.nietgepland summary h3::before{content:"▸";color:var(--zacht)}
+.nietgepland[open] summary h3::before{content:"▾"}
+.nietgepland .tel{font-size:12px;color:var(--meta);font-weight:400}
+
+/* inplanvenster */
+.planstand{font-size:13px;padding:8px 10px;border-radius:8px;border:1px solid var(--rand);background:var(--bg2)}
+.planstand.pl-ja{border-color:color-mix(in srgb,var(--groen) 50%,var(--rand))}
+.planstand.pl-deels{border-color:color-mix(in srgb,var(--oranje) 50%,var(--rand))}
+.voorstellen{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.vdag{display:flex;flex-direction:column;gap:5px;padding:8px;border:1px solid var(--rand);border-radius:9px;background:var(--bg2)}
+.vdag > b{font-size:12.5px;color:var(--meta)}
+.voorstel{display:flex;flex-direction:column;align-items:flex-start;gap:1px;font:inherit;font-size:14px;font-weight:600;padding:6px 9px;border-radius:7px;border:1px solid var(--accent);background:var(--kaart);color:var(--tekst);cursor:pointer;text-align:left}
+.voorstel:hover{background:color-mix(in srgb,var(--accent) 16%,var(--kaart))}
+.voorstel small{font-size:11px;font-weight:400;color:var(--meta)}
+.voorstel.laat{border-color:var(--rood)}
+.voorstel.laat small:last-child{color:var(--rood)}
+
+/* weekrooster */
+.rooster{display:flex;flex-direction:column;gap:4px}
+.rdag{display:grid;grid-template-columns:30px 1fr 52px 34px;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid color-mix(in srgb,var(--rand) 60%,transparent)}
+.rdag.leeg .rdnaam{color:var(--zacht)}
+.rdnaam{font-size:13px;text-transform:capitalize}
+.rdslots{display:flex;flex-direction:column;gap:4px;min-width:0}
+.rslot{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:13px}
+.rslot input[type=time]{width:auto;padding:4px 6px}
+.rslot select{width:auto;max-width:100%;padding:4px 8px}
+.rdduur{font-size:12px;color:var(--meta);text-align:right}
+.rtotaal{font-size:12.5px;color:var(--meta);text-align:right;padding-top:2px}
+
+/* afwijkingen in de agenda */
+.eldersband{position:absolute;left:0;right:0;z-index:1;background:repeating-linear-gradient(-45deg,color-mix(in srgb,var(--rood) 16%,transparent) 0 5px,transparent 5px 10px);border-left:2px solid color-mix(in srgb,var(--rood) 55%,transparent)}
+.eldersband .vlabel{left:4px;right:auto;max-width:calc(100% - 8px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wegband{position:absolute;inset:0;z-index:3;background:repeating-linear-gradient(-45deg,color-mix(in srgb,var(--zacht) 14%,transparent) 0 8px,transparent 8px 16px);display:flex;justify-content:center;padding-top:10px;font-size:12px;color:var(--meta);pointer-events:none}
+.legenda .lg.eldersband{background:repeating-linear-gradient(-45deg,color-mix(in srgb,var(--rood) 35%,transparent) 0 3px,transparent 3px 6px)}
+.afwlabel{display:block;margin:2px auto 0;font:inherit;font-size:12px;line-height:1;padding:2px 6px;border-radius:999px;border:1px solid var(--rand);background:var(--kaart);cursor:pointer}
+.afwlabel:hover{border-color:var(--accent)}
+
+/* week aanpassen */
+.weeknav{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.weekdagen{display:flex;flex-direction:column;gap:8px}
+.wdagrij{border:1px solid var(--rand);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:6px;background:var(--kaart)}
+.wdagrij.vandaag{border-color:var(--accent)}
+.wdagrij.voorbij{opacity:.6}
+.wdagrij.weg{background:repeating-linear-gradient(-45deg,color-mix(in srgb,var(--zacht) 10%,var(--kaart)) 0 8px,var(--kaart) 8px 16px)}
+.wdkop{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.wdkop b{text-transform:capitalize;min-width:150px}
+.wdkop input[type=text]{flex:1;min-width:140px;width:auto}
+.wdlijst{display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-left:3px solid var(--ok);padding-left:8px}
+.wdnaam{font-size:13px;min-width:90px}
+.wdlijst > select{width:auto;max-width:100%}
+.wddetail{flex-basis:100%;display:flex;flex-direction:column;gap:5px}
+.wddetail input[type=text]{width:100%}
+@media (max-width:640px){
+  .rdag{grid-template-columns:26px 1fr 34px}
+  .rdduur{display:none}
+  .wdkop b{min-width:0}
+  .voorstellen{grid-template-columns:1fr 1fr}
+}

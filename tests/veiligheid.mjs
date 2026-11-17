@@ -55,13 +55,16 @@ if (/hasOnly\(\['uid', 'email', 'naam'/.test(regels)) fout("firestore.rules: kop
 
 // ---------- 2. dynamisch ----------
 const P = `"'><xss-x data-xss="1" onmouseover="alert(1)">`;
+const dagNa = (n) => { const x = new Date(Date.now() + n * 864e5); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`; };
 const vijand = {
   versie: 2, demo: false,
   overzichten: [
     { id: "goed", naam: "Lijst " + P, icoon: `<img src=x onerror=alert(1)>`, kleur: `red;}"><xss-k data-xss=1>`, modus: "vast",
       tijden: [{ dagen: [1], van: `09:00"><xss-t>`, tot: "17:00" }, { dagen: [2], van: "09:00", tot: "17:00", locatie: "kantoor" }],
       eigenaar: "anderUid", leden: ["anderUid", "derde"], ledenInfo: { anderUid: { naam: "Eigenaar " + P, email: P, foto: "javascript:alert(1)" }, derde: { naam: P, email: "x@y.z", foto: `https://x/"><xss-f>` } },
-      uitgenodigd: [P], mensen: [P], map: "m1" },
+      uitgenodigd: [P], mensen: [P], map: "m1",
+      afwijkingen: { [dagNa(1)]: { soort: "bezet", reden: P, tijden: [{ van: "10:00", tot: "12:00", locatie: P }, { van: P, tot: "13:00" }] },
+                     [dagNa(2)]: { soort: "anders", reden: P, tijden: [{ van: "09:00", tot: "12:00", locatie: "kantoor" }] }, [P]: { soort: P, reden: P } } },
     { id: `slecht" onmouseover="alert(1)`, naam: "Weg", icoon: "📋", kleur: "#fff" },
   ],
   mappen: [{ id: "m1", naam: "Map " + P, icoon: P, kleur: P, ouder: "" }, { id: `m2"><xss-m>`, naam: "x", icoon: "📁", kleur: "#fff" }],
@@ -77,6 +80,7 @@ const vijand = {
   bezet: [{ id: "e1", titel: "Afspraak " + P, plaats: P, start: new Date(Date.now() + 3600e3).toISOString(), eind: new Date(Date.now() + 7200e3).toISOString(), kleur: P, bron: P }],
   planning: [{ id: "b1", item: "t1", overzicht: "goed", titel: "Blok " + P, start: new Date(Date.now() + 9000e3).toISOString(), eind: new Date(Date.now() + 12600e3).toISOString() }],
   agendaLinks: [{ id: "l1", naam: P, url: "https://outlook.live.com/x.ics", kleur: P }],
+  afwezig: { [dagNa(3)]: { reden: P }, [P]: { reden: P } },
 };
 
 const { window, document } = parseHTML(html);
@@ -144,6 +148,21 @@ function allesTekenen(ronde) {
     controleer(`${ronde}/editor ${id}`);
     document.querySelector("#dlg").close?.("");
   }
+  // zelf inplannen (voorstellen) en week aanpassen (afwijkingen)
+  if (!main.querySelector(".plantag")) fout(`${ronde}/taken: geen inplan-label`);
+  for (const sel of ['.plantag[data-plan="t1"]', ".plantag"]) {
+    try { main.querySelector(sel)?.dispatchEvent(new window.Event("click", { bubbles: true })); } catch (e) { fout(`${ronde}/inplannen: ${e.message}`); }
+    controleer(`${ronde}/inplannen`);
+    if (sel === ".plantag" && !document.querySelector("#dlg2 #planForm")) fout(`${ronde}/inplannen: venster niet geopend`);
+    document.querySelector("#dlg2").close?.("");
+  }
+  globalThis.location.hash = "#agenda"; bewaar();
+  try { main.querySelector("[data-actie=werkweek]")?.dispatchEvent(new window.Event("click", { bubbles: true })); } catch (e) { fout(`${ronde}/week: ${e.message}`); }
+  controleer(`${ronde}/week aanpassen`);
+  if (!document.querySelector("#dlg2 .weekdagen")) fout(`${ronde}/week aanpassen: venster niet geopend`);
+  try { document.querySelector('#dlg2 [data-wnav="1"]')?.dispatchEvent(new window.Event("click", { bubbles: true })); } catch (e) { fout(`${ronde}/week+1: ${e.message}`); }
+  controleer(`${ronde}/week aanpassen +1`);
+  document.querySelector("#dlg2").close?.("");
   globalThis.location.hash = "#koers"; bewaar();
   for (const sel of ["[data-afspraak]", "[data-actie=koersRapport]"]) {
     try { main.querySelector(sel)?.dispatchEvent(new window.Event("click", { bubbles: true })); } catch (e) { fout(`${ronde}/${sel}: ${e.message}`); }
@@ -173,6 +192,8 @@ for (const l of D.locaties) Object.assign(l, { naam: P, icoon: P });
 for (const a of D.koers) Object.assign(a, { titel: P, toelichting: P, evaluatie: P });
 for (const e of D.bezet) Object.assign(e, { titel: P, plaats: P, kleur: P });
 for (const b of D.planning) Object.assign(b, { titel: P });
+for (const x of Object.values(o.afwijkingen || {})) Object.assign(x, { reden: P });
+for (const x of Object.values(D.afwezig || {})) Object.assign(x, { reden: P });
 D.taken[0].links = [{ url: "javascript:alert(1)", label: P }];
 const echtBewaar = bewaar;
 allesTekenen("zonder filter");

@@ -39,7 +39,7 @@ const STANDAARD_INST = {
 
 function leeg() {
   return { versie: 2, mappen: [], koers: [], overzichten: [], projecten: [], taken: [], bezet: [], planning: [],
-           locaties: basisLocaties(), beschikbaar: basisBeschikbaar(), agendas: {}, extern: {}, takenlijsten: {},
+           locaties: basisLocaties(), beschikbaar: basisBeschikbaar(), afwezig: {}, agendas: {}, extern: {}, takenlijsten: {},
            instellingen: { ...STANDAARD_INST }, demo: false, gewijzigd: new Date().toISOString() };
 }
 

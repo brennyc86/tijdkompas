@@ -482,7 +482,7 @@ function bouw() {
   const items = ids.flatMap(id => (itemDocs.get(id) || []).map(x => ({ ...x, overzicht: id })));
   const titels = leesTitels();
   const d = aanvullen({
-    locaties: u.locaties, beschikbaar: u.beschikbaar, instellingen: u.instellingen, agendas: u.agendas || {}, extern: u.extern || {},
+    locaties: u.locaties, beschikbaar: u.beschikbaar, afwezig: u.afwezig || {}, instellingen: u.instellingen, agendas: u.agendas || {}, extern: u.extern || {},
     planning: u.planning || [], agendaSync: u.agendaSync, gewijzigd: u.gewijzigd, takenlijsten: u.takenlijsten || {}, takenSync: u.takenSync || "", koppelingen: u.koppelingen, agendaLinks: u.agendaLinks || [],
     bezet: (u.bezet || []).map(e => ({ ...e, titel: titels.bezet?.[e.id]?.titel || e.titel || "Bezet", plaats: titels.bezet?.[e.id]?.plaats || e.plaats || "" })),
     overzichten: ids.map(id => {
@@ -513,7 +513,7 @@ function bouw() {
 }
 
 // ---------- van het geheugen naar Firestore ----------
-const PERSOONLIJK = ["modus", "locatie", "tijden", "doelAgenda", "map"];
+const PERSOONLIJK = ["modus", "locatie", "tijden", "afwijkingen", "doelAgenda", "map"];
 // Alle inlogs van dit Tijdkompas horen in elke lijst/map (zonder losgekoppelde: die staan niet meer in familie)
 const exFamilie = new Set();
 // Als hoofd: een gelinkt account pas toevoegen als het zelf ook naar mij wijst (wederzijds; zo eisen de regels het ook)
@@ -538,7 +538,7 @@ function naarDocs(d) {
   const schijfLijst = new Set(d.overzichten.filter(o => o.opslag).map(o => o.id));
   onthoudTitels(d);
   docs.set("gebruikers/" + ik, schoon({
-    locaties: d.locaties, beschikbaar: d.beschikbaar, instellingen: d.instellingen, agendas: d.agendas || {},
+    locaties: d.locaties, beschikbaar: d.beschikbaar, afwezig: d.afwezig || {}, instellingen: d.instellingen, agendas: d.agendas || {},
     extern: Object.fromEntries(Object.entries(d.extern || {}).map(([k, x]) => { const { titel, ...r } = x; return [k, titel !== undefined && !r.th ? { ...r, th: vingerafdruk(titel) } : r]; })),
     planning: (d.planning || []).map(b => schijfLijst.has(b.overzicht) && b.soort !== "reis" ? { ...b, titel: "" } : b),
     // afspraken mét titel: zo ziet elke inlog en elk apparaat van dit Tijdkompas dezelfde agenda

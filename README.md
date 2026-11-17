@@ -19,6 +19,8 @@ Planner voor werk, privé en hobby's: projecten en taken, de Eisenhower-matrix (
 | Mails/links koppelen (Gmail, Outlook, Drive, SharePoint…) | ✅ plakken, bladwijzer-knop, „Delen” op Android |
 | Meerdere overzichten (werk/privé/hobby), los of gecombineerd tonen | ✅ |
 | Automatisch inroosteren in vrije tijd, per overzicht eigen werktijden | ✅ |
+| Zien wat wel en niet ingepland is; één taak zelf inplannen met voorstellen | ✅ |
+| Weekrooster per dag (hoe lang, waar) en afwijkende weken (vakantie, cursus, ruildag, dagdeel vrij) | ✅ |
 | Bestaande afspraken ontwijken | ✅ rechtstreeks uit Google/Outlook, of via .ics |
 | Planning naar Google Agenda / Outlook | ✅ automatisch per lijst, of .ics / per blok |
 | Inzicht: schatfactor, tijd per kwadrant | ✅ |
@@ -59,8 +61,16 @@ Planner voor werk, privé en hobby's: projecten en taken, de Eisenhower-matrix (
 ## Lijsten, locaties en reistijd
 
 - **Lijsten** (werk, privé, boot, vereniging…) hebben een naam, kleur, standaardlocatie en een soort:
-  - **Vaste tijden** — eigen tijdvakken per dag, elk met een locatie (bijv. ma/di/do kantoor, wo/vr thuis). Taken alleen binnen die tijden; reistijd ervoor en erna gaat af van je vrije tijd.
+  - **Vaste tijden** — een weekrooster: per dag hoe laat en waar (bijv. ma/di/do 9–17 op kantoor, wo 9–13 thuis, vr vrij), met het totaal per dag en per week. Twee tijdvakken op één dag (gesplitste dienst) kan ook. Taken alleen binnen die tijden; reistijd ervoor en erna gaat af van je vrije tijd.
   - **Vrije tijd** — wordt gevuld met wat overblijft binnen je *beschikbaarheid*, na aftrek van vaste tijden, reistijd en afspraken. Op een locatie met reistijd krijgt elke sessie reis heen en terug, en taken op dezelfde plek worden achter elkaar gezet.
+- **Afwijkende weken** (🗓️ *Week aanpassen* in de agenda, of bij de lijst): per datum
+  - 🏖️ **Vrij** — die dag geen werk (vrije dag, geruilde dag, vakantie thuis); de tijd wordt gewone vrije tijd;
+  - 🕘 **Andere tijden of plek** — bijv. de dag waarmee je geruild hebt, thuis i.p.v. op kantoor; met snelknoppen 🌅 *Ochtend vrij* en 🌇 *Middag vrij*;
+  - 🎓 **Cursus of elders** — die tijd is bezet, er wordt niets in ingepland (reistijd telt mee);
+  - ✈️ **Hele dag weg** — niets inplannen, ook niet uit andere lijsten.
+  Een langere vakantie zet je in één keer (van–tot). Je gewone weekrooster blijft ongewijzigd; in de agenda zie je de afwijking boven de dag.
+- **Ingepland of niet** — elke taak laat op dezelfde plek zien hoe het ervoor staat: groen 📅 met datum en tijd (ingepland), oranje ◐ (deels, met wat er nog over is) of een gestippelde rand met ○ *Nog niet ingepland*. Bij Taken kun je groeperen op *Ingepland of niet*; onder de agenda staat wat nog niet (helemaal) ingepland is.
+- **Zelf inplannen** — klik op dat label (of 📅 *Inplannen* in een taak): je krijgt voorstellen binnen je beschikbaarheid (bij vaste tijden: binnen de werktijden van die lijst), om afspraken, reistijd, cursussen en vrije dagen heen. Kies er een, of kies zelf een moment (met een waarschuwing als het botst). Wat je zo plaatst wordt 📌 vastgezet; ⚡ *Automatisch inplannen* laat het staan en plant alleen de rest.
 - **Locaties** met reistijd (enkele reis vanaf huis) en optioneel adres; afspraken met een herkenbare plaats krijgen automatisch reistijd.
 - Een taak of project kan een eigen locatie hebben (bijv. „printen op kantoor” → alleen op kantoordagen).
 

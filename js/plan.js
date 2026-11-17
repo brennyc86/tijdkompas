@@ -79,44 +79,75 @@ function aftrekken(vensters, weg) {
   return uit.filter(([a, b]) => b - a >= 5 * MIN);
 }
 
+// ---------- afwijkingen per dag ----------
+// o.afwijkingen["2026-11-20"] = { soort, tijden: [{van, tot, locatie}], reden } op een lijst met vaste tijden:
+//   vrij    — die dag geen vaste tijden (vrije dag, ruildag, vakantie thuis): de tijd wordt gewone vrije tijd
+//   anders  — andere tijden en/of plek dan normaal (geruilde dag, dagdeel vrij, thuis i.p.v. kantoor)
+//   bezet   — cursus, training of elders: die tijd is bezet, er wordt niets in ingepland (reistijd telt mee)
+// d.afwezig["2026-11-20"] = { reden } — de hele dag weg (vakantie): niets inplannen, ook niet uit andere lijsten.
+export const AFWIJKING = {
+  vrij:   { naam: "Vrij",                 icoon: "🏖️", uitleg: "Geen vaste tijden; de tijd telt als vrije tijd" },
+  anders: { naam: "Andere tijden of plek", icoon: "🕘", uitleg: "Bijv. geruilde dag, dagdeel vrij of thuis i.p.v. op kantoor" },
+  bezet:  { naam: "Cursus of elders",     icoon: "🎓", uitleg: "Die tijd is bezet: er wordt niets in ingepland" },
+};
+/** Standaard tijdvakken van een lijst op een weekdag (zonder afwijkingen) */
+export const standaardTijden = (o, weekdag) => (o.tijden || []).filter(t => (t.dagen || []).includes(weekdag));
+/** Afwijking van een lijst op een dag (of null) */
+export const afwijkingOp = (o, ds) => o?.afwijkingen?.[ds] || null;
+export const afwezigOp = (ds) => opslag.d.afwezig?.[ds] || null;
+
 /**
  * Indeling van één dag: vaste tijdvakken (alle "vast"-lijsten), reistijd daaromheen,
  * pauzes ter plekke, en de vrije vensters die overblijven voor "vrij"-lijsten.
+ * Afwijkingen voor die datum (vrij, andere tijden, cursus, hele dag weg) gaan vóór het weekrooster.
  */
 export function dagIndeling(dag) {
-  const d = opslag.d;
+  const d = opslag.d, ds = dagStr(dag);
+  const weg = afwezigOp(ds);
+  if (weg) return { vast: [], reis: [], terPlekke: [], elders: [], beschikbaar: [], vrij: [], weg, afwijkingen: [] };
   const dagEind = new Date(dag.getFullYear(), dag.getMonth(), dag.getDate() + 1);
   const opDezeDag = (ev) => new Date(ev.start) < dagEind && new Date(ev.eind) > dag;
-  const vast = [];
+  const vast = [], elders = [], afwijkingen = [];
+  const geldig = (t) => t && /^\d{2}:\d{2}$/.test(t.van) && /^\d{2}:\d{2}$/.test(t.tot) && t.tot > t.van;
   for (const o of d.overzichten.filter(o => o.modus === "vast")) {
+    const afw = afwijkingOp(o, ds);
+    if (afw) {
+      afwijkingen.push({ lijst: o.id, ...afw });
+      if (afw.soort === "vrij") continue;
+      for (const t of (afw.tijden || []).filter(geldig))
+        (afw.soort === "bezet" ? elders : vast).push({ lijst: o.id, a: opDag(dag, t.van), b: opDag(dag, t.tot), locatie: t.locatie ?? o.locatie ?? "", bron: "afwijking", reden: afw.reden || "" });
+      continue;
+    }
     const rooster = d.bezet.filter(ev => eventSoort(ev) === "rooster" && eventLijst(ev) === o.id && opDezeDag(ev));
     if (rooster.length) rooster.forEach(ev => vast.push({ lijst: o.id, a: new Date(ev.start), b: new Date(ev.eind), locatie: (ev.loc ?? herkenLocatie(ev.plaats)) || o.locatie || "", bron: "rooster" }));
-    else (o.tijden || []).filter(t => t.dagen.includes(dag.getDay()))
+    else standaardTijden(o, dag.getDay()).filter(geldig)
       .forEach(t => vast.push({ lijst: o.id, a: opDag(dag, t.van), b: opDag(dag, t.tot), locatie: t.locatie ?? o.locatie ?? "", bron: "lijst" }));
   }
   vast.sort((x, y) => x.a - y.a);
 
+  // reistijd rond vaste tijden én rond cursus/elders
+  const metReis = [...vast, ...elders].sort((x, y) => x.a - y.a);
   const reis = [], terPlekke = [];
-  vast.forEach((v, i) => {
+  metReis.forEach((v, i) => {
     const r = reisVan(v.locatie); if (!r) return;
     // korte pauze tussen twee tijdvakken op dezelfde plek: je blijft ter plekke, geen reis
     const kort = (x, y) => x && y && x.locatie === y.locatie && minuten(x.b, y.a) >= 0 && minuten(x.b, y.a) < 2 * r + 60;
-    if (!kort(vast[i - 1], v)) reis.push({ a: new Date(v.a - r * MIN), b: v.a, locatie: v.locatie, lijst: v.lijst, richting: "heen" });
-    if (kort(v, vast[i + 1])) terPlekke.push({ a: v.b, b: vast[i + 1].a, locatie: v.locatie, lijst: v.lijst });
+    if (!kort(metReis[i - 1], v)) reis.push({ a: new Date(v.a - r * MIN), b: v.a, locatie: v.locatie, lijst: v.lijst, richting: "heen" });
+    if (kort(v, metReis[i + 1])) terPlekke.push({ a: v.b, b: metReis[i + 1].a, locatie: v.locatie, lijst: v.lijst });
     else reis.push({ a: v.b, b: new Date(v.b.getTime() + r * MIN), locatie: v.locatie, lijst: v.lijst, richting: "terug" });
   });
   // Afspraken (soort bezet) op een bekende locatie met reistijd: reis eromheen
   for (const ev of d.bezet.filter(ev => eventSoort(ev) === "bezet" && !ev.eigen && opDezeDag(ev))) {
     const loc = ev.loc ?? herkenLocatie(ev.plaats), r = reisVan(loc);
     if (!r) continue;
-    if (vast.some(v => v.locatie === loc && v.a <= new Date(ev.start) && v.b >= new Date(ev.eind))) continue; // al ter plekke
+    if (metReis.some(v => v.locatie === loc && v.a <= new Date(ev.start) && v.b >= new Date(ev.eind))) continue; // al ter plekke
     reis.push({ a: new Date(new Date(ev.start) - r * MIN), b: new Date(ev.start), locatie: loc, richting: "heen", afspraak: ev.titel });
     reis.push({ a: new Date(ev.eind), b: new Date(new Date(ev.eind).getTime() + r * MIN), locatie: loc, richting: "terug", afspraak: ev.titel });
   }
 
-  const beschikbaar = (d.beschikbaar || []).filter(t => t.dagen.includes(dag.getDay())).map(t => [opDag(dag, t.van), opDag(dag, t.tot)]);
-  const vrij = aftrekken(beschikbaar, [...vast, ...reis, ...terPlekke].map(x => [x.a, x.b]));
-  return { vast, reis, terPlekke, beschikbaar, vrij };
+  const beschikbaar = (d.beschikbaar || []).filter(t => (t.dagen || []).includes(dag.getDay()) && geldig(t)).map(t => [opDag(dag, t.van), opDag(dag, t.tot)]);
+  const vrij = aftrekken(beschikbaar, [...vast, ...elders, ...reis, ...terPlekke].map(x => [x.a, x.b]));
+  return { vast, reis, terPlekke, elders, beschikbaar, vrij, weg: null, afwijkingen };
 }
 
 /**
@@ -144,7 +175,8 @@ export function planAutomatisch(actieveOverzichten) {
   const indeling = {};
   const ind = (dag) => {
     const k = dagStr(dag);
-    if (!indeling[k]) { indeling[k] = dagIndeling(dag); indeling[k].reis.forEach(r => bezet.push({ a: r.a, b: r.b, ref: "reis", reis: true })); }
+    if (!indeling[k]) { indeling[k] = dagIndeling(dag); indeling[k].reis.forEach(r => bezet.push({ a: r.a, b: r.b, ref: "reis", reis: true }));
+      indeling[k].elders.forEach(r => bezet.push({ a: r.a, b: r.b, ref: "elders" })); }
     return indeling[k];
   };
 
@@ -213,9 +245,8 @@ export function planAutomatisch(actieveOverzichten) {
     }
     if (wachtOpOnbekend) { eindVan[it.id] = null; waarschuwingen.push(`„${it.titel}” wacht op „${wachtOpOnbekend.titel}”, en die is nog niet ingepland — daarom nog niet ingepland.`); continue; }
     const al = d.planning.filter(b => b.item === it.id && b.vast && b.soort !== "reis").reduce((s, b) => s + minuten(new Date(b.start), new Date(b.eind)), 0);
-    let fac = 1;
-    if (inst.kalibratie) { factorCache[it.overzicht] ??= kalibratie(it.overzicht).factor; fac = Math.min(2, Math.max(0.8, factorCache[it.overzicht])); }
-    let rest = Math.round(((it.schatting || 30) * fac - (it.werkelijk || 0) - al) / 5) * 5;
+    factorCache[it.overzicht] ??= schatFactor(it.overzicht);
+    let rest = Math.round(((it.schatting || 30) * factorCache[it.overzicht] - (it.werkelijk || 0) - al) / 5) * 5;
     if (rest < inst.blokMin) rest = it.schatting ? Math.max(0, rest) : 30;
     if (rest <= 0) continue;
 
@@ -306,6 +337,156 @@ export function werkGeplandBij(actieveOverzichten) {
     if (JSON.stringify(g) === JSON.stringify(t.gepland || null)) continue;
     if (g) t.gepland = g; else delete t.gepland;
   }
+}
+
+// ---------- per taak: hoe staat het met inplannen, en zelf een plek kiezen ----------
+/** Correctie op schattingen uit je eigen historie (zoals het automatisch inplannen die gebruikt) */
+export function schatFactor(ovId) {
+  if (!opslag.d.instellingen.kalibratie) return 1;
+  return Math.min(2, Math.max(0.8, kalibratie(ovId).factor || 1));
+}
+/** Hoeveel minuten er voor dit item nog ingepland moeten worden in totaal (schatting × factor − al gewerkt) */
+export function nogNodig(it) {
+  return Math.max(0, Math.round(((it.schatting || 30) * schatFactor(it.overzicht) - (it.werkelijk || 0)) / 5) * 5);
+}
+const blokkenVan = (id, nu = new Date()) => opslag.d.planning.filter(b => b.item === id && b.soort !== "reis" && new Date(b.eind) > nu)
+  .sort((a, b) => a.start.localeCompare(b.start));
+
+/**
+ * Staat dit item ingepland?
+ *   ja     — alle nog benodigde tijd staat in de agenda (of een ander/gelinkt account heeft het ingepland)
+ *   deels  — een deel staat erin
+ *   niet   — nog niets in de toekomst
+ *   klaar  — afgerond
+ */
+export function planStatus(it, nu = new Date()) {
+  if (it.status === "klaar") return { soort: "klaar" };
+  const bl = blokkenVan(it.id, nu);
+  const nodig = nogNodig(it);
+  if (!bl.length) {
+    // door een ander (toegewezen) of door je gelinkte account ingepland: dat staat op de taak zelf
+    if ((!isMijn(it) || vanGelinkt(it.overzicht)) && it.gepland?.tot && new Date(it.gepland.tot) > nu) return { soort: "ja", elders: true, van: it.gepland.van, nodig, min: nodig, rest: 0, blokken: [] };
+    return { soort: "niet", nodig, min: 0, rest: nodig, blokken: [] };
+  }
+  const min = bl.reduce((s, b) => s + minuten(new Date(b.start), new Date(b.eind)), 0);
+  const rest = Math.max(0, nodig - min);
+  return { soort: rest <= 5 ? "ja" : "deels", van: bl[0].start, nodig, min, rest, blokken: bl };
+}
+
+// Alles wat tijd bezet rond een moment (afspraken, planning, gelinkte accounts), behalve de blokken van één item
+function bezetBehalve(itemId) {
+  const d = opslag.d, f = familieHaak.agenda();
+  return [
+    ...d.bezet.filter(ev => eventSoort(ev) === "bezet" && !ev.eigen).map(ev => ({ a: new Date(ev.start), b: new Date(ev.eind), titel: ev.titel || "Afspraak" })),
+    ...d.planning.filter(b => b.item !== itemId).map(b => ({ a: new Date(b.start), b: new Date(b.eind), titel: b.titel || "Gepland", reis: b.soort === "reis" })),
+    ...f.bezet.filter(ev => ev.soortF === "bezet" && !ev.eigen).map(ev => ({ a: new Date(ev.start), b: new Date(ev.eind), titel: ev.titel || "Afspraak (gelinkt account)" })),
+    ...f.planning.map(b => ({ a: new Date(b.start), b: new Date(b.eind), titel: b.titel || "Gepland (gelinkt account)", reis: b.soort === "reis" })),
+  ];
+}
+/** Waar en met hoeveel reistijd een item wordt gedaan */
+export function plekVan(it) {
+  const ov = overzicht(it.overzicht), p = it.project ? project(it.project) : null;
+  const eigenLoc = it.locatie || p?.locatie || "";
+  const loc = ov?.modus === "vast" ? eigenLoc : effectieveLocatie(it);
+  return { ov, eigenLoc, loc, reis: ov?.modus === "vrij" ? reisVan(loc) : 0 };
+}
+/** Lijsten van een gelinkt account worden door dat account zelf ingepland */
+export const doorGelinktIngepland = (it) => vanGelinkt(it.overzicht);
+
+/**
+ * Voorstellen voor één blok van `duur` minuten, binnen je beschikbaarheid (vrije tijd of de vaste tijden van de lijst),
+ * om afspraken, andere geplande blokken, reistijd en afwijkingen heen. Per dag hooguit twee voorstellen
+ * (zo vroeg mogelijk, en een later moment op die dag), zodat je echt iets te kiezen hebt.
+ * @returns {{a:Date, b:Date, reis:number, loc:string, naDeadline:boolean, dag:string}[]}
+ */
+export function voorstellen(it, duur, { aantal = 8, dagen = 28, vanaf = new Date() } = {}) {
+  const d = opslag.d, buf = d.instellingen.buffer * MIN;
+  const { ov, eigenLoc, loc, reis } = plekVan(it);
+  if (!ov || !(duur > 0)) return [];
+  const start = rondOp(vanaf, 15);
+  const bezet = bezetBehalve(it.id);
+  // waar dit item op wacht: pas daarna
+  let na = start;
+  for (const id of it.wachtOp || []) {
+    const v = taak(id); if (!v || v.status === "klaar") continue;
+    const eind = d.planning.filter(b => b.item === id && b.soort !== "reis").map(b => new Date(b.eind)).sort((a, b) => b - a)[0];
+    if (eind && eind > na) na = rondOp(new Date(eind.getTime() + buf), 5);
+  }
+  const deadline = harde(it);
+  const uit = [];
+  for (let i = 0; i < dagen && uit.length < aantal; i++) {
+    const dag = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+    const I = dagIndeling(dag);
+    const extra = [...I.reis.map(r => ({ a: r.a, b: r.b, reis: true })), ...I.elders.map(r => ({ a: r.a, b: r.b }))];
+    const vensters = (ov.modus === "vast"
+      ? I.vast.filter(v => v.lijst === ov.id && (!eigenLoc || v.locatie === eigenLoc)).map(v => [v.a, v.b])
+      : I.vrij).map(([a, b]) => [a < na ? na : a, b]).filter(([a, b]) => b - a >= 5 * MIN);
+    const opDag = [];
+    for (const [wa, wb] of vensters) {
+      let c = wa;
+      const lijst = [...bezet, ...extra].filter(x => x.b > wa && x.a < wb).sort((p, q) => p.a - q.a);
+      const gaten = [];
+      for (const x of lijst) {
+        const tot = new Date(Math.min(wb, x.a - (x.reis ? 0 : buf)));
+        if (tot > c) gaten.push([rondOp(c, 5), tot]);
+        const nx = new Date(x.b.getTime() + (x.reis ? 0 : buf));
+        if (nx > c) c = nx;
+      }
+      if (wb > c) gaten.push([rondOp(c, 5), wb]);
+      for (const [a, b] of gaten) if (minuten(a, b) >= duur + 2 * reis) opDag.push([a, b]);
+    }
+    if (!opDag.length) continue;
+    const maak = (a) => { const t0 = new Date(a.getTime() + reis * MIN), t1 = new Date(t0.getTime() + duur * MIN);
+      return { a: t0, b: t1, reis, loc, dag: dagStr(dag), naDeadline: !!deadline && dagStr(t1) > deadline }; };
+    const eerste = maak(opDag[0][0]);
+    uit.push(eerste);
+    // een tweede keuze later op de dag (minstens 3 uur later, of in een ander gat)
+    const later = opDag.map(([a, b]) => { const s = a < new Date(eerste.b.getTime() + 2 * 36e5) ? new Date(eerste.b.getTime() + 2 * 36e5) : a;
+      return minuten(rondOp(s, 15), b) >= duur + 2 * reis ? rondOp(s, 15) : null; }).find(Boolean);
+    if (later && uit.length < aantal) uit.push(maak(later));
+  }
+  return uit;
+}
+
+/** Wat botst er met dit tijdvak (afspraken, andere blokken, en of het buiten je beschikbaarheid valt) */
+export function botsingen(it, a, b) {
+  const uit = bezetBehalve(it.id).filter(x => !x.reis && x.a < b && x.b > a).map(x => `${x.titel} ${tijdStr(x.a)}–${tijdStr(x.b)}`);
+  const I = dagIndeling(new Date(a.getFullYear(), a.getMonth(), a.getDate()));
+  const { ov } = plekVan(it);
+  if (I.weg) uit.push(`je bent die dag weg${I.weg.reden ? " (" + I.weg.reden + ")" : ""}`);
+  for (const e of I.elders) if (e.a < b && e.b > a) uit.push(`${e.reden || "cursus/elders"} ${tijdStr(e.a)}–${tijdStr(e.b)}`);
+  const binnen = (ov?.modus === "vast" ? I.vast.filter(v => v.lijst === ov.id).map(v => [v.a, v.b]) : I.beschikbaar).some(([x, y]) => x <= a && y >= b);
+  if (!binnen && !I.weg) uit.push(ov?.modus === "vast" ? `buiten de vaste tijden van ${ov.naam}` : "buiten je beschikbaarheid");
+  return uit;
+}
+const tijdStr = (x) => String(x.getHours()).padStart(2, "0") + ":" + String(x.getMinutes()).padStart(2, "0");
+
+/**
+ * Zet zelf een blok in de planning (vastgezet, dus automatisch inplannen laat het staan), met reistijd ervoor en erna.
+ * Nog niet vastgezette (automatisch ingeplande) toekomstige blokken van dit item vervallen: jij kiest nu zelf.
+ */
+export function plaatsBlok(it, a, duur) {
+  const d = opslag.d, nu = new Date();
+  const { loc, reis } = plekVan(it);
+  const vervallen = d.planning.filter(b => b.item === it.id && !b.vast && new Date(b.eind) > nu);
+  d.planning = d.planning.filter(b => !vervallen.includes(b));
+  const basis = { item: it.id, type: it.type, overzicht: it.overzicht, titel: it.titel, locatie: loc, vast: true, handmatig: true };
+  const b = { id: uid(), ...basis, start: a.toISOString(), eind: new Date(a.getTime() + duur * MIN).toISOString() };
+  if (reis) {
+    const naam = locatie(loc)?.naam || "";
+    d.planning.push({ id: uid(), ...basis, soort: "reis", titel: `Reis naar ${naam}`, start: new Date(a.getTime() - reis * MIN).toISOString(), eind: b.start });
+  }
+  d.planning.push(b);
+  if (reis) d.planning.push({ id: uid(), ...basis, soort: "reis", titel: `Reis terug van ${locatie(loc)?.naam || ""}`, start: b.eind, eind: new Date(new Date(b.eind).getTime() + reis * MIN).toISOString() });
+  werkGeplandBij(d.overzichten.map(o => o.id));
+  return { blok: b, vervallen: vervallen.filter(x => x.soort !== "reis").length };
+}
+/** Een blok (met de reistijd die erbij hoort) weer uit de planning halen */
+export function haalBlokWeg(b) {
+  const d = opslag.d;
+  const reisErbij = d.planning.filter(x => x.item === b.item && x.soort === "reis" && (x.eind === b.start || x.start === b.eind));
+  d.planning = d.planning.filter(x => x !== b && !reisErbij.includes(x));
+  werkGeplandBij(d.overzichten.map(o => o.id));
 }
 
 // ---------- links naar agenda's ----------

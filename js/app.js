@@ -3,7 +3,8 @@ import { opslag, bewaar, KWADRANTEN, kwadrant, overzicht, project, taak, takenVa
          nieuweTaak, nieuwProject, werkBij, verwijder, koppel, rondAf, heropen, linkInfo, kalibratie, uid, locatie, effectieveLocatie, sessie,
          map, submappen, lijstenIn, lijstenOnder, mappenOnder, mapPad, boom, lijstVolgorde, idsVan,
          afspraak, koersVan, binnenDoel, koersScore, koersSuggesties, koppelKoers, mijnId, isIk, personen, naamVanPersoon, isMijn, isTeam, wie, wachtNogOp, wachtenOp, maaktKring, anderen as andereLeden } from "./data.js";
-import { familieHaak, planAutomatisch, werkGeplandBij, doelDatum, harde, prioriteit, googleLink, outlookLink, maakIcs, leesIcs, dagStr, dagIndeling, eventSoort, SOORTEN } from "./plan.js";
+import { familieHaak, planAutomatisch, werkGeplandBij, doelDatum, harde, prioriteit, googleLink, outlookLink, maakIcs, leesIcs, dagStr, dagIndeling, eventSoort, SOORTEN,
+  AFWIJKING, standaardTijden, afwijkingOp, planStatus, voorstellen as planVoorstellen, botsingen, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
 import { ids, verbindingen as alleVerbindingen, heeft, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, zonderDoel, koppelHaak, neemGedeeldeOver } from "./koppeling.js";
 import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroniseerAlles, naamVan, lijstWeg } from "./schijf.js";
 import { verversAgendas, zetNaarAgendas, verversLinks, linkBron } from "./sync.js";
@@ -98,6 +99,7 @@ function wieKeuze() {
 
 // ---------- opmaak ----------
 const DAG = ["zo", "ma", "di", "wo", "do", "vr", "za"];
+const DAGLANG = ["zondag", "maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag"];
 const MAAND = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
 
 export function fmtDuur(min) {
@@ -185,17 +187,28 @@ ${esc(wacht.map(x => "• " + x.titel + " (" + wieTekst(x) + ")").join("\n"))}">
     uit.push(`<span class="tag hierop" title="Wacht hierop:
 ${esc(op.map(x => "• " + x.titel + " (" + wieTekst(x) + ")").join("\n"))}">⏳ ${namen.length ? esc(namen.join(", ")) + " wacht" + (namen.length > 1 ? "en" : "") : op.length === 1 ? "1 taak wacht" : op.length + " taken wachten"} hierop</span>`);
   }
-  if (t.gepland && new Date(t.gepland.tot) > new Date()) uit.push(`<span title="Ingepland${isMijn(t) ? "" : " door " + esc(wieTekst(t))}">📅 ${fmtDatum(dagStr(new Date(t.gepland.van)))}</span>`);
   return uit.join("");
 }
+
+// Ingepland of niet: altijd op dezelfde plek (eerste label), in kleur, en klikbaar om zelf in te plannen
+const wanneer = (iso) => `${fmtDatum(dagStr(new Date(iso)))} ${fmtTijd(iso)}`;
+function planTag(t) {
+  if (t.status === "klaar" || (t.type === "project" && d().taken.some(x => x.project === t.id && x.status !== "klaar"))) return "";
+  const s = planStatus(t);
+  const door = isMijn(t) && !doorGelinktIngepland(t) ? "" : " door " + wieTekst(t);
+  if (s.soort === "ja") return `<button type="button" class="plantag ja" data-plan="${t.id}" data-ptype="${t.type}" title="Ingepland${esc(door)}${s.blokken.length > 1 ? ` in ${s.blokken.length} blokken` : ""} — klik om te verplaatsen of bij te plannen">📅 ${wanneer(s.van)}${s.blokken.length > 1 ? ` <small>+${s.blokken.length - 1}</small>` : ""}</button>`;
+  if (s.soort === "deels") return `<button type="button" class="plantag deels" data-plan="${t.id}" data-ptype="${t.type}" title="Deels ingepland: ${fmtDuur(s.min)} van ${fmtDuur(s.nodig)} — klik om de rest in te plannen">◐ ${wanneer(s.van)} · nog ${fmtDuur(s.rest)}</button>`;
+  return `<button type="button" class="plantag niet" data-plan="${t.id}" data-ptype="${t.type}" title="${isMijn(t) ? "Nog niet ingepland — klik voor voorstellen op basis van je beschikbaarheid" : "Toegewezen aan " + esc(wieTekst(t)) + " en nog niet ingepland"}">○ Nog niet ingepland</button>`;
+}
+const planKlasse = (t) => t.status === "klaar" ? "" : " pl-" + planStatus(t).soort;
 
 function itemRij(t, { toonProject = true, toonOv = true } = {}) {
   const p = t.project ? project(t.project) : null;
   const ov = overzicht(t.overzicht);
-  return `<div class="item ${t.status === "klaar" ? "klaar" : ""} ${t.status !== "klaar" && wachtNogOp(t).length ? "geblokt" : ""}" data-id="${t.id}" data-type="taak" style="--ok:${ovKleur(t.overzicht)}">
+  return `<div class="item ${t.status === "klaar" ? "klaar" : ""} ${t.status !== "klaar" && wachtNogOp(t).length ? "geblokt" : ""}${planKlasse(t)}" data-id="${t.id}" data-type="taak" style="--ok:${ovKleur(t.overzicht)}">
     <button class="vink" type="button" aria-label="${t.status === "klaar" ? "Heropenen" : "Afronden"}">${t.status === "klaar" ? "✓" : ""}</button>
     <div class="ibody"><div class="ititel">${esc(t.titel)}</div>
-      <div class="imeta">${qTag(t)}${toonProject && p ? `<span class="tag proj">◆ ${esc(p.titel)}</span>` : ""}${datumTags(t)}
+      <div class="imeta">${planTag(t)}${qTag(t)}${toonProject && p ? `<span class="tag proj">◆ ${esc(p.titel)}</span>` : ""}${datumTags(t)}
       ${toonOv && actieveOverzichten().length > 1 && ov ? `<span>${esc(ov.icoon)} ${esc(ov.naam)}</span>` : ""}
       ${t.locatie && locatie(t.locatie) ? `<span title="Locatie">📍 ${esc(locatie(t.locatie).naam)}</span>` : ""}
       ${wieTag(t)}${afhTags(t)}
@@ -463,7 +476,9 @@ function matrix() {
   const kaart = (i) => {
     const p = i.type === "taak" && i.project ? project(i.project) : null;
     const dl = doelDatum(i);
-    return `<div class="kaartje ${i.type === "project" ? "proj" : ""}" data-id="${i.id}" data-type="${i.type}" style="--ok:${ovKleur(i.overzicht)}">
+    const ps = i.type === "project" && d().taken.some(x => x.project === i.id && x.status !== "klaar") ? null : planStatus(i);
+    return `<div class="kaartje ${i.type === "project" ? "proj" : ""}${ps ? " pl-" + ps.soort : ""}" data-id="${i.id}" data-type="${i.type}" style="--ok:${ovKleur(i.overzicht)}">
+      ${ps ? `<small class="plicoon" title="${ps.soort === "ja" ? "Ingepland: " + wanneer(ps.van) : ps.soort === "deels" ? "Deels ingepland, nog " + fmtDuur(ps.rest) : "Nog niet ingepland"}">${ps.soort === "ja" ? "📅" : ps.soort === "deels" ? "◐" : "○"}</small>` : ""}
       ${i.type === "project" ? `<span style="color:var(--ok)">◆</span>` : ""}<span class="ktit">${esc(i.titel)}${p ? ` <small>· ${esc(p.titel)}</small>` : ""}</span>
       ${dl ? `<small>${fmtDatum(dl)}</small>` : ""}${i.schatting ? `<small>${fmtDuur(i.schatting)}</small>` : ""}${i.type === "taak" && wachtNogOp(i).length ? `<small title="Wacht op een andere taak">⛓</small>` : ""}${i.type === "taak" && !isMijn(i) ? `<small>👤 ${esc(wieTekst(i))}</small>` : ""}</div>`;
   };
@@ -572,6 +587,14 @@ function taken() {
       + (losse.length ? `<div class="groep"><div class="groepkop"><span>○</span><h2>Losse taken</h2><span class="tel">${losse.length}</span></div><div class="lijst">${losse.map(t => itemRij(t)).join("")}</div></div>` : "");
   } else if (f.groep === "kwadrant") {
     inhoud = Object.keys(KWADRANTEN).map(q => { const l = lijst.filter(t => kwadrant(t) === q); return l.length ? `<div class="groep"><div class="groepkop"><h2 style="color:${qKleur(q)}">${KWADRANTEN[q].naam}</h2><span class="tel">${KWADRANTEN[q].sub} · ${l.length}</span></div><div class="lijst">${l.map(t => itemRij(t)).join("")}</div></div>` : ""; }).join("");
+  } else if (f.groep === "planning") {
+    const st = new Map(lijst.map(t => [t.id, t.status === "klaar" ? "klaar" : planStatus(t).soort]));
+    const van = (t) => planStatus(t).van || "";
+    const groepen = [["niet", "○ Nog niet ingepland", "Klik op „Nog niet ingepland” voor voorstellen, of laat ⚡ Automatisch inplannen alles verdelen."],
+                     ["deels", "◐ Deels ingepland", "Een deel staat in je agenda; de rest nog niet."],
+                     ["ja", "📅 Ingepland", "Op volgorde van wanneer."], ["klaar", "✓ Afgerond", ""]];
+    inhoud = groepen.map(([k, kop, uitleg]) => { const l = lijst.filter(t => st.get(t.id) === k); if (k === "ja") l.sort((a, b) => van(a).localeCompare(van(b)));
+      return l.length ? `<div class="groep plgroep-${k}"><div class="groepkop"><h2>${kop}</h2><span class="tel">${l.length}</span></div>${uitleg ? `<p class="hint" style="margin:-4px 0 8px">${uitleg}</p>` : ""}<div class="lijst">${l.map(t => itemRij(t)).join("")}</div></div>` : ""; }).join("");
   } else if (f.groep === "datum") {
     lijst.sort((a, b) => (doelDatum(a) || "9999").localeCompare(doelDatum(b) || "9999"));
     inhoud = `<div class="lijst">${lijst.map(t => itemRij(t)).join("")}</div>`;
@@ -582,7 +605,7 @@ function taken() {
   <div class="rij" style="margin-bottom:14px" data-actie="takenFilter">
     <input type="text" name="zoek" placeholder="Zoeken…" value="${esc(f.zoek)}">
     <select name="status">${[["open", "Openstaand"], ["klaar", "Afgerond"], ["alles", "Alles"]].map(([v, n]) => `<option value="${v}" ${f.status === v ? "selected" : ""}>${n}</option>`).join("")}</select>
-    <select name="groep">${[["project", "Per project"], ["kwadrant", "Per kwadrant"], ["datum", "Op datum"], ["geen", "Op prioriteit"]].map(([v, n]) => `<option value="${v}" ${f.groep === v ? "selected" : ""}>${n}</option>`).join("")}</select>
+    <select name="groep">${[["project", "Per project"], ["planning", "Ingepland of niet"], ["kwadrant", "Per kwadrant"], ["datum", "Op datum"], ["geen", "Op prioriteit"]].map(([v, n]) => `<option value="${v}" ${f.groep === v ? "selected" : ""}>${n}</option>`).join("")}</select>
     ${wieKeuze()}
   </div>
   ${inhoud || `<div class="leeg">Geen taken gevonden.</div>`}
@@ -617,6 +640,9 @@ function agenda() {
       return band(v.a, v.b, "venster", `--vk:${esc(o.kleur)}`, `${o.naam}${l ? " · " + l.naam : ""}${v.bron === "rooster" ? " (rooster uit agenda)" : ""}`,
         `<span class="vlabel">${esc(o.icoon)}${l ? " " + esc(l.icoon) : ""}</span>`);
     }).join("");
+    const elders = I.elders.map(v => { const o = overzicht(v.lijst), l = locatie(v.locatie);
+      return band(v.a, v.b, "eldersband", "", `${v.reden || "Cursus / elders"}${l ? " · " + l.naam : ""} (${o?.naam || ""}) — hier wordt niets ingepland`, `<span class="vlabel">🎓 ${esc(v.reden || "")}</span>`); }).join("")
+      + (I.weg ? `<div class="wegband" title="Hele dag weg${esc(I.weg.reden ? " — " + I.weg.reden : "")}: hier wordt niets ingepland"><span>✈️ ${esc(I.weg.reden || "Weg")}</span></div>` : "");
     const reis = [...I.reis, ...I.terPlekke.map(x => ({ ...x, terPlekke: true }))].filter(r => !r.lijst || act.includes(r.lijst)).map(r =>
       band(r.a, r.b, r.terPlekke ? "reisband terplekke" : "reisband", "", r.terPlekke ? `Pauze ter plekke (${locatie(r.locatie)?.naam})` : `Reistijd ${r.richting} ${locatie(r.locatie)?.naam || ""}${r.afspraak ? " — " + r.afspraak : ""}`,
         r.terPlekke ? "" : `<span>🚗</span>`)).join("");
@@ -639,7 +665,7 @@ function agenda() {
         <b>${b.soort === "reis" ? "🚗 " : ""}${esc(b.titel)}</b>${h > 30 ? `${fmtTijd(b.start)}–${fmtTijd(b.eind)}${inAgenda ? " ✓" : ""}` : ""}</div>`;
     }).join("");
     const nulijn = ds === dagStr(nu) && nu.getHours() >= UUR_VAN && nu.getHours() < UUR_TOT ? `<div class="nulijn" style="top:${y(nu)}px"></div>` : "";
-    return `<div class="wdag ${ds === dagStr(nu) ? "vandaag" : ""}" style="height:${hoogte}px;--uurH:${UUR_H}px">${beschikb}${vast}${reis}${afspraken}${famBlokken}${blokken}${nulijn}</div>`;
+    return `<div class="wdag ${ds === dagStr(nu) ? "vandaag" : ""}" style="height:${hoogte}px;--uurH:${UUR_H}px">${beschikb}${vast}${elders}${reis}${afspraken}${famBlokken}${blokken}${nulijn}</div>`;
   }).join("");
 
   const toekomst = d().planning.filter(b => new Date(b.eind) > nu && act.includes(b.overzicht));
@@ -651,6 +677,7 @@ function agenda() {
     <span class="sub">${titel}</span>
     <div class="rechts">
       <button class="knop prim" data-actie="plan">⚡ Automatisch inplannen</button>
+      <button class="knop" data-actie="werkweek" data-w="${dagStr(dagen[0])}" title="Vakantie, cursus, geruilde dag of dagdeel vrij voor deze week">🗓️ Week aanpassen</button>
       ${gekoppeld ? `<button class="knop" data-actie="ophalen" title="${d().agendaSync ? "Laatst opgehaald " + new Date(d().agendaSync).toLocaleString("nl-NL", { weekday: "short", hour: "2-digit", minute: "2-digit" }) : ""}">🔄 Agenda's ophalen</button>` : ""}
       ${gekoppeld && metDoel ? `<button class="knop" data-actie="naarAgenda" ${toekomst.length || Object.keys(d().extern || {}).length ? "" : "disabled"}>📤 In mijn agenda zetten</button>` : ""}
       ${gekoppeld ? "" : `<a class="knop" href="#instellingen" data-tab="koppelingen">🔗 Google/Outlook koppelen</a>`}
@@ -662,11 +689,18 @@ function agenda() {
     </div></div>
   ${laatsteWaarschuwingen.length ? `<div class="waarsch"><b>Let op:</b><ul>${laatsteWaarschuwingen.map(w => `<li>${esc(w)}</li>`).join("")}</ul></div>` : ""}
   <div class="week" style="--dagen:${n}" id="weekRaster">
-    <div class="wkop"></div>${dagen.map(dag => `<div class="wkop ${dagStr(dag) === dagStr(nu) ? "vandaag" : ""}">${DAG[dag.getDay()]}<b>${dag.getDate()}</b></div>`).join("")}
+    <div class="wkop"></div>${dagen.map(dag => { const I = dagIndeling(dag), lab = dagLabel(I);
+      return `<div class="wkop ${dagStr(dag) === dagStr(nu) ? "vandaag" : ""}">${DAG[dag.getDay()]}<b>${dag.getDate()}</b>${lab ? `<button type="button" class="afwlabel" data-actie="werkweek" data-w="${dagStr(dag)}" title="${esc(lab.titel)}">${esc(lab.kort)}</button>` : ""}</div>`; }).join("")}
     <div class="uren" style="height:${hoogte}px">${Array.from({ length: UUR_TOT - UUR_VAN }, (_, i) => i ? `<div style="top:${i * UUR_H}px">${UUR_VAN + i}:00</div>` : "").join("")}</div>
     ${kolommen}
   </div>
-  <div class="legenda"><span><i class="lg venster"></i> vaste tijden van een lijst</span><span><i class="lg reisband"></i> reistijd</span><span><i class="lg beschikb"></i> beschikbaar (vrije tijd)</span>
+  ${(() => { const open = [...d().taken, ...d().projecten.filter(p => !d().taken.some(t => t.project === p.id && t.status !== "klaar"))]
+      .filter(t => t.status !== "klaar" && act.includes(t.overzicht) && isMijn(t) && !doorGelinktIngepland(t))
+      .map(t => [t, planStatus(t)]).filter(([, st]) => st.soort !== "ja").sort(([a], [b]) => prioriteit(b) - prioriteit(a));
+    return open.length ? `<details class="nietgepland" open><summary><h3>○ Nog niet (helemaal) ingepland <span class="tel">${open.length}</span></h3></summary>
+      <p class="hint">Klik op „Nog niet ingepland” voor voorstellen in je eigen beschikbaarheid, of laat ⚡ Automatisch inplannen alles verdelen.</p>
+      <div class="lijst">${open.slice(0, 30).map(([t]) => t.type === "taak" ? itemRij(t) : projectRijPlan(t)).join("")}${open.length > 30 ? `<div class="hint">+ ${open.length - 30} meer — zie Taken → „Ingepland of niet”</div>` : ""}</div></details>` : ""; })()}
+  <div class="legenda"><span><i class="lg venster"></i> vaste tijden van een lijst</span><span><i class="lg reisband"></i> reistijd</span><span><i class="lg beschikb"></i> beschikbaar (vrije tijd)</span><span><i class="lg eldersband"></i> cursus / elders</span>
     <span><i class="lg bezet"></i> afspraak uit je agenda${(sessie.familie || []).length > 1 ? " · gedimd: agenda en planning van je gelinkte account" : ""}</span><span>📌 vastgezet · ✓ staat in je agenda</span>
     ${d().bezet.some(b => !verbindingVanBron(b.bron)) ? `<span>${d().bezet.filter(b => !verbindingVanBron(b.bron)).length} afspraken uit .ics · <a href="#" data-actie="wisBezet">wissen</a></span>` : ""}</div>
   <div class="paneel" style="margin-top:16px;font-size:13px;color:var(--meta)">
@@ -961,13 +995,6 @@ function inzicht() {
 const DAGVOLGORDE = [1, 2, 3, 4, 5, 6, 0];
 const locOpties = (gekozen, leegTekst) => `<option value="">${esc(leegTekst)}</option>` +
   d().locaties.map(l => `<option value="${l.id}" ${l.id === gekozen ? "selected" : ""}>${esc(l.icoon)} ${esc(l.naam)}${l.reistijd ? ` (${l.reistijd} min reizen)` : ""}</option>`).join("");
-function tijdrij(t, attr, metLocatie) {
-  return `<div class="tijdrij" ${attr}>
-    ${DAGVOLGORDE.map(dg => `<button type="button" class="dagknop" data-dag="${dg}" aria-pressed="${t.dagen.includes(dg)}">${DAG[dg]}</button>`).join("")}
-    <input type="time" value="${t.van}" data-veld="van" aria-label="Van"> tot <input type="time" value="${t.tot}" data-veld="tot" aria-label="Tot">
-    ${metLocatie ? `<select data-veld="locatie" aria-label="Locatie" style="width:auto">${locOpties(t.locatie || "", "geen vaste plek")}</select>` : ""}
-    <button type="button" class="x" data-actie="tijdWeg" title="Tijdvak verwijderen">✕</button></div>`;
-}
 function doelAgendaOpties(gekozen) {
   const schrijfbaar = Object.entries(d().agendas).filter(([k, a]) => a.schrijf && verbindingVanBron(k));
   return `<option value="">Niet in een agenda zetten</option>` + schrijfbaar.map(([k, a]) =>
@@ -1108,9 +1135,10 @@ function instRij(r) {
     </div>
     <div class="tijden">
       <div class="hint">${esc(VERDELING[o.verdeling || "samen"][1])}</div>
-      ${o.modus === "vast" ? `${(o.tijden || []).map((t, i) => tijdrij(t, `data-i="${i}"`, true)).join("")}
-        <div><button type="button" class="knop klein" data-actie="tijdBij">＋ tijdvak</button>
-        <span class="hint">Bijv. ma/di/do op kantoor, wo/vr thuis. Reistijd naar de locatie gaat automatisch af van je vrije tijd.</span></div>`
+      ${o.modus === "vast" ? `<div class="hint"><b>Weekrooster</b> — per dag hoe lang en waar (bijv. ma/di/do op kantoor, wo thuis, vr vrij). Reistijd naar de plek gaat automatisch af van je vrije tijd.</div>
+        ${weekRooster(o.tijden || [], "ov:" + o.id, { metLocatie: true, leeg: "vrij" })}
+        <div class="rij" style="align-items:center"><button type="button" class="knop klein" data-actie="werkweek">🗓️ Afwijkende week (vakantie, cursus, ruildag, dagdeel vrij)</button>
+        ${(() => { const n = Object.keys(o.afwijkingen || {}).filter(k => k >= vandaagStr()).length; return n ? `<span class="hint">${n} ${n === 1 ? "dag" : "dagen"} met een afwijking gepland</span>` : ""; })()}</div>`
       : `<div class="hint">Wordt ingepland in je vrije tijd (zie <a href="#" data-actie="instTab" data-w="locaties">beschikbaarheid</a>), na aftrek van vaste tijden, reistijd en afspraken.
          ${l?.reistijd ? `Elke sessie op ${esc(l.naam)} krijgt ${l.reistijd} min reistijd heen en terug; taken op dezelfde plek worden achter elkaar gezet.` : ""}</div>`}
       ${ledenBlok(o)}
@@ -1170,8 +1198,8 @@ function instLocaties() {
 
   <h3>Beschikbaarheid</h3>
   <p class="hint">Wanneer ben je op z'n vroegst en laatst beschikbaar? Lijsten in de vrije tijd worden alleen hierbinnen ingepland — na aftrek van werk, reistijd en afspraken.</p>
-  <div class="paneel"><div class="tijden">${d().beschikbaar.map((t, i) => tijdrij(t, `data-besch="${i}"`, false)).join("")}
-    <div><button type="button" class="knop klein" data-actie="beschBij">＋ tijdvak</button></div></div></div>
+  <div class="paneel">${weekRooster(d().beschikbaar, "besch", { leeg: "niet beschikbaar" })}
+    <div style="margin-top:8px"><button type="button" class="knop klein" data-actie="werkweek">🗓️ Dagen weg (vakantie)</button></div></div>
 
   <h3>Inplannen</h3>
   <div class="paneel"><div class="rij" data-actie="inst">
@@ -1677,6 +1705,7 @@ function openEditor(item, standaard = {}) {
       ${nieuw ? "" : `<button type="button" class="knop gevaar" data-actie="weg">Verwijderen</button>`}
       ${!nieuw && !isProj && c.project ? `<button type="button" class="knop" data-actie="uitProject">⤴ Uit project</button>` : ""}
       <div class="rechts">
+        ${nieuw || c.status === "klaar" || (isProj && takenVan(item.id).some(t => t.status !== "klaar")) ? "" : `<button type="button" class="knop" data-actie="inplannen" title="Zelf een moment kiezen, met voorstellen op basis van je beschikbaarheid">📅 Inplannen</button>`}
         ${nieuw ? "" : c.status === "klaar" ? `<button type="button" class="knop" data-actie="heropen">Heropenen</button>` : `<button type="button" class="knop" data-actie="klaar">✓ Afronden</button>`}
         <button class="knop prim" value="ok">${nieuw ? "Toevoegen" : "Opslaan"}</button></div>
     </div></form>`;
@@ -1764,6 +1793,7 @@ function openEditor(item, standaard = {}) {
       const extra = isProj && takenVan(item.id).length ? `\nDe ${takenVan(item.id).length} taken blijven bestaan als losse taken.` : "";
       if (confirm(`„${item.titel}” verwijderen?${extra}`)) { verwijder(item); dlg.close(); toast("Verwijderd"); }
     } else if (a === "klaar") { if (opslaan()) { dlg.close(); vraagAfronden(item); } }
+    else if (a === "inplannen") { if (opslaan()) { dlg.close(); planTaak(item); } }
     else if (a === "heropen") { if (opslaan()) { heropen(item); dlg.close(); } }
   };
   dlg.oninput = (e) => { if ((e.target.name === "titel" || e.target.name === "notitie") && $("#koersTip")) { lees(); $("#koersTip").innerHTML = koersTip(c, item); } };
@@ -1989,6 +2019,312 @@ function nieuweLijst({ map: inMap = "", soort = "lijst" } = {}) {
   dlg2.showModal();
 }
 
+// ---------- zelf inplannen: voorstellen op basis van je beschikbaarheid ----------
+function projectRijPlan(p) {
+  return `<div class="item${planKlasse(p)}" data-id="${p.id}" data-type="project" style="--ok:${ovKleur(p.overzicht)}"><span style="color:var(--ok)">◆</span>
+    <div class="ibody"><div class="ititel">${esc(p.titel)}</div><div class="imeta">${planTag(p)}${qTag(p)}${datumTags(p)}</div></div>${duurTekst(p)}</div>`;
+}
+const dagKort = (x) => `${DAG[x.getDay()]} ${x.getDate()} ${MAAND[x.getMonth()]}`;
+function planTaak(it) {
+  if (!it) return;
+  let duur = null, melding = "";
+  const inst = d().instellingen;
+  const teken = () => {
+    const s = planStatus(it), { ov, loc, reis } = plekVan(it), l = locatie(loc);
+    if (!ov) { dlg2.close(); return; }
+    if (duur == null) duur = Math.max(5, Math.min(s.rest || s.nodig || 30, Math.max(inst.blokMax, 30)));
+    const gelinkt = doorGelinktIngepland(it);
+    const vs = gelinkt || it.status === "klaar" ? [] : planVoorstellen(it, duur);
+    const perDag = [];
+    for (const v of vs) { const g = perDag.find(x => x.dag === v.dag); if (g) g.v.push(v); else perDag.push({ dag: v.dag, v: [v] }); }
+    const dl = harde(it), doel = doelDatum(it);
+    const waar = ov.modus === "vast" ? `binnen de vaste tijden van ${esc(ov.icoon)} ${esc(ov.naam)}` : "in je vrije tijd (beschikbaarheid min werk, reistijd en afspraken)";
+    const morgen = new Date(Date.now() + 864e5);
+    dlg2.innerHTML = `<form method="dialog" id="planForm"><div class="dkop"><span class="soort" style="color:${ovKleur(it.overzicht)}">📅 Inplannen</span><button type="button" class="sluit" data-sluit aria-label="Sluiten">×</button></div>
+    <div class="dlijf">
+      <h2 style="margin:0">${esc(it.titel)}</h2>
+      <div class="hint">Voorstellen ${waar}${l && l.id !== "thuis" ? ` · 📍 ${esc(l.naam)}${reis ? ` (${reis} min reizen heen en terug)` : ""}` : ""}${dl ? ` · ⏰ deadline ${fmtDatum(dl)}` : doel ? ` · 🎯 ${fmtDatum(doel)}` : ""}</div>
+      <div class="planstand pl-${s.soort}">${s.soort === "klaar" ? "✓ Afgerond" : `Nodig: <b>${fmtDuur(s.nodig) || "–"}</b>${it.schatting ? "" : " (geen schatting: 30 min aangenomen)"} · ingepland: <b>${fmtDuur(s.min) || "niets"}</b>${s.rest ? ` · nog in te plannen: <b>${fmtDuur(s.rest)}</b>` : " ✓"}`}</div>
+      ${melding ? `<div class="hint" style="color:var(--groen)">${melding}</div>` : ""}
+      ${s.blokken.length ? `<div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">Staat ingepland</div><div class="lijst">${s.blokken.map(b =>
+        `<div class="linkrij"><span>${b.vast ? "📌" : "⚡"}</span><span>${dagKort(new Date(b.start))} ${fmtTijd(b.start)}–${fmtTijd(b.eind)}</span><span class="hint">${b.vast ? "vastgezet" : "automatisch"}</span>
+          <button type="button" class="x" data-blokweg="${b.id}" title="Uit de planning halen">✕</button></div>`).join("")}</div></div>` : ""}
+      ${gelinkt ? `<div class="hint">Deze lijst hoort bij je gelinkte account; die plant hem zelf in (log daar in om hem te plannen).</div>`
+      : it.status === "klaar" ? "" : `
+      ${isMijn(it) ? "" : `<div class="hint">👤 Toegewezen aan ${esc(wieTekst(it))}. Plan je hem zelf in, dan staat hij in jóuw agenda.</div>`}
+      <div class="rij" style="align-items:end">
+        <label class="veld">Duur van dit blok<input type="text" name="pduur" value="${fmtDuur(duur)}" style="max-width:110px"></label>
+        <button type="button" class="knop klein" data-actie="pduur">Opnieuw zoeken</button>
+        ${s.rest > duur ? `<span class="hint" style="align-self:center">Daarna nog ${fmtDuur(s.rest - duur)} — dat kun je in een volgend blok plannen.</span>` : ""}
+      </div>
+      <div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">Voorstellen — kies er een</div>
+        ${perDag.length ? `<div class="voorstellen">${perDag.map(g => `<div class="vdag"><b>${fmtDatum(g.dag)}</b>${g.v.map(v =>
+          `<button type="button" class="voorstel${v.naDeadline ? " laat" : ""}" data-zet="${v.a.toISOString()}" title="${v.naDeadline ? "Ná de deadline" : "Hier plaatsen"}">${fmtTijd(v.a.toISOString())}–${fmtTijd(v.b.toISOString())}${v.reis ? `<small>🚗 ${v.reis}m heen/terug</small>` : ""}${v.naDeadline ? "<small>na deadline</small>" : ""}</button>`).join("")}</div>`).join("")}</div>`
+          : `<div class="leeg" style="padding:14px">Geen plek voor ${fmtDuur(duur)} aaneengesloten in de komende 4 weken ${waar}. Probeer een kortere duur, of kies hieronder zelf een moment.</div>`}
+      </div>
+      <div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">Of kies zelf</div>
+        <div class="rij" style="align-items:end"><label class="veld">Dag<input type="date" name="pdag" value="${dagStr(morgen)}"></label>
+          <label class="veld">Begintijd<input type="time" name="ptijd" value="09:00" step="300"></label>
+          <button type="button" class="knop" data-actie="pzelf">Hier plaatsen</button></div></div>`}
+      <p class="hint" style="margin:0">Wat je hier plaatst wordt 📌 vastgezet: ⚡ Automatisch inplannen laat het staan en plant alleen de rest.${ov.doelAgenda ? " Het komt in je agenda bij „📤 In mijn agenda zetten”." : ""}</p>
+    </div>
+    <div class="dvoet"><div class="rechts"><button type="button" class="knop" data-actie="popen">Open ${it.type === "project" ? "project" : "taak"}</button><button class="knop prim" value="ok">Klaar</button></div></div></form>`;
+  };
+  const zet = (a) => {
+    const r = plaatsBlok(it, a, duur);
+    melding = `✓ Ingepland: ${dagKort(a)} ${fmtTijd(a.toISOString())}–${fmtTijd(r.blok.eind)}${r.vervallen ? ` · ${r.vervallen} automatisch ingepland${r.vervallen === 1 ? " blok" : "e blokken"} van deze taak vervangen` : ""}`;
+    duur = null; bewaar(); teken();
+  };
+  dlg2.onclick = (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.zet) { zet(new Date(b.dataset.zet)); return; }
+    if (b.dataset.blokweg) { const x = d().planning.find(y => y.id === b.dataset.blokweg); if (x) { haalBlokWeg(x); melding = "Blok uit de planning gehaald"; duur = null; bewaar(); teken(); } return; }
+    const a = b.dataset.actie;
+    if (a === "pduur") { const v = leesDuur($("[name=pduur]", dlg2).value); if (v > 0) { duur = Math.round(v / 5) * 5 || 5; melding = ""; teken(); } else toast("Vul een duur in, bv. 45m of 1u30"); }
+    else if (a === "pzelf") {
+      const dag = $("[name=pdag]", dlg2).value, tijd = $("[name=ptijd]", dlg2).value;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dag) || !/^\d{2}:\d{2}$/.test(tijd)) { toast("Kies een dag en begintijd"); return; }
+      const v = leesDuur($("[name=pduur]", dlg2).value); if (v > 0) duur = Math.round(v / 5) * 5 || 5;
+      const start = new Date(dag + "T" + tijd), eind = new Date(start.getTime() + duur * 60000);
+      if (eind <= new Date()) { toast("Dat moment is al voorbij"); return; }
+      const bots = botsingen(it, start, eind);
+      if (bots.length && !confirm(`Let op:\n• ${bots.join("\n• ")}\n\nToch hier plaatsen?`)) return;
+      zet(start);
+    }
+    else if (a === "popen") { dlg2.close(); openEditor(it); }
+  };
+  dlg2.onkeydown = (e) => { if (e.key === "Enter" && e.target.name === "pduur") { e.preventDefault(); $('[data-actie="pduur"]', dlg2).click(); } };
+  dlg2.onchange = null; dlg2.onclose = () => { dlg2.onkeydown = null; dlg2.onclose = null; };
+  teken();
+  if (!dlg2.open) dlg2.showModal();
+}
+
+// ---------- weekrooster: per dag hoe lang en waar ----------
+const minVan = (hhmm) => { const [h, m] = String(hhmm || "0:0").split(":").map(Number); return h * 60 + (m || 0); };
+const hhmm = (min) => String(Math.floor(min / 60)).padStart(2, "0") + ":" + String(min % 60).padStart(2, "0");
+const duurVak = (t) => Math.max(0, minVan(t.tot) - minVan(t.van));
+function roosterLijst(sleutel) {
+  if (sleutel === "besch") return d().beschikbaar;
+  const o = overzicht(sleutel.slice(3)); if (!o) return null;
+  o.tijden ||= []; return o.tijden;
+}
+// Een tijdvak dat voor meerdere dagen geldt, splitsen zodat je één dag apart kunt aanpassen
+function losMaken(lijst, i, dg) {
+  const t = lijst[i]; if (!t) return null;
+  if ((t.dagen || []).length <= 1) return t;
+  t.dagen = t.dagen.filter(x => x !== dg);
+  const n = { ...structuredClone(t), dagen: [dg] }; lijst.push(n); return n;
+}
+function weekRooster(lijst, sleutel, { metLocatie = false, leeg = "vrij" } = {}) {
+  let week = 0;
+  const rijen = DAGVOLGORDE.map(dg => {
+    const slots = lijst.map((t, i) => ({ t, i })).filter(({ t }) => (t.dagen || []).includes(dg)).sort((a, b) => a.t.van.localeCompare(b.t.van));
+    const totaal = slots.reduce((s, { t }) => s + duurVak(t), 0); week += totaal;
+    return `<div class="rdag${slots.length ? "" : " leeg"}"><b class="rdnaam" title="${DAGLANG[dg]}">${DAG[dg]}</b>
+      <div class="rdslots">${slots.map(({ t, i }) => `<div class="rslot" data-ri="${i}" data-dg="${dg}">
+        <input type="time" value="${esc(t.van)}" data-rveld="van" aria-label="${DAGLANG[dg]} van"><span>–</span><input type="time" value="${esc(t.tot)}" data-rveld="tot" aria-label="${DAGLANG[dg]} tot">
+        ${metLocatie ? `<select data-rveld="locatie" aria-label="Waar op ${DAGLANG[dg]}">${locOpties(t.locatie || "", "geen vaste plek")}</select>` : ""}
+        <button type="button" class="x" data-actie="roosterWeg" title="Dit tijdvak op ${DAGLANG[dg]} weghalen">✕</button></div>`).join("") || `<span class="hint">${leeg}</span>`}</div>
+      <span class="rdduur">${totaal ? fmtDuur(totaal) : ""}</span>
+      <button type="button" class="knop klein" data-actie="roosterBij" data-w="${dg}" title="Tijdvak toevoegen op ${DAGLANG[dg]}">＋</button></div>`;
+  }).join("");
+  return `<div class="rooster" data-rooster="${esc(sleutel)}">${rijen}<div class="rtotaal">Per week: <b>${fmtDuur(week) || "0"}</b></div></div>`;
+}
+function roosterKlik(el, a) {
+  const r = el.closest("[data-rooster]"), lijst = r && roosterLijst(r.dataset.rooster); if (!lijst) return;
+  const besch = r.dataset.rooster === "besch";
+  if (a === "roosterBij") {
+    const dg = +el.dataset.w;
+    const zelfde = lijst.filter(t => t.dagen.includes(dg)).sort((x, y) => y.tot.localeCompare(x.tot))[0];
+    // tweede tijdvak op dezelfde dag (bijv. gesplitste dienst) of de tijden van de dag ervoor overnemen
+    const vorige = DAGVOLGORDE.slice(0, DAGVOLGORDE.indexOf(dg)).reverse().map(x => lijst.find(t => t.dagen.includes(x))).find(Boolean) || lijst[0];
+    const nieuw = zelfde ? { van: hhmm(Math.min(minVan(zelfde.tot) + 60, 22 * 60)), tot: hhmm(Math.min(minVan(zelfde.tot) + 240, 23 * 60 + 45)), locatie: zelfde.locatie || "" }
+      : vorige ? { van: vorige.van, tot: vorige.tot, locatie: vorige.locatie || "" } : besch ? { van: "07:00", tot: "22:30" } : { van: "09:00", tot: "17:00", locatie: "" };
+    if (besch) delete nieuw.locatie;
+    lijst.push({ dagen: [dg], ...nieuw });
+  } else if (a === "roosterWeg") {
+    const s = el.closest("[data-ri]"), i = +s.dataset.ri, dg = +s.dataset.dg, t = lijst[i]; if (!t) return;
+    if (besch && lijst.length === 1 && t.dagen.length === 1) { toast("Er moet minstens één tijdvak blijven"); return; }
+    if (t.dagen.length > 1) t.dagen = t.dagen.filter(x => x !== dg); else lijst.splice(i, 1);
+  }
+  bewaar();
+}
+function roosterWijzig(e) {
+  const s = e.target.closest("[data-ri]"), r = e.target.closest("[data-rooster]"), lijst = r && roosterLijst(r.dataset.rooster);
+  if (!s || !lijst) return false;
+  const t = losMaken(lijst, +s.dataset.ri, +s.dataset.dg); if (!t) return true;
+  const veld = e.target.dataset.rveld, w = e.target.value;
+  if ((veld === "van" || veld === "tot") && !/^\d{2}:\d{2}$/.test(w)) { render(); return true; }
+  t[veld] = w;
+  if (minVan(t.tot) <= minVan(t.van)) toast("Let op: de eindtijd ligt vóór de begintijd; dit tijdvak telt zo niet mee");
+  bewaar(); return true;
+}
+
+// ---------- afwijkende weken: vakantie, cursus, geruilde dag, dagdeel vrij ----------
+function weekNr(x) {
+  const t = new Date(Date.UTC(x.getFullYear(), x.getMonth(), x.getDate())), dn = (t.getUTCDay() + 6) % 7;
+  t.setUTCDate(t.getUTCDate() - dn + 3);
+  const j = new Date(Date.UTC(t.getUTCFullYear(), 0, 4));
+  return 1 + Math.round(((t - j) / 864e5 - 3 + ((j.getUTCDay() + 6) % 7)) / 7);
+}
+const maandagVan = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate() - ((x.getDay() + 6) % 7));
+const vasteLijsten = () => d().overzichten.filter(o => o.modus === "vast" && !o.slot);
+function dagLabel(I) {
+  if (I.weg) return { kort: "✈️", titel: "Hele dag weg" + (I.weg.reden ? ": " + I.weg.reden : "") };
+  if (!I.afwijkingen.length) return null;
+  return { kort: [...new Set(I.afwijkingen.map(a => AFWIJKING[a.soort]?.icoon || ""))].join(""),
+           titel: I.afwijkingen.map(a => `${overzicht(a.lijst)?.naam || ""}: ${AFWIJKING[a.soort]?.naam || ""}${a.reden ? " — " + a.reden : ""}`).join("\n") + "\n(klik om aan te passen)" };
+}
+const tijdenTekst = (tijden, o) => (tijden || []).map(t => `${t.van}–${t.tot}${t.locatie && locatie(t.locatie) && t.locatie !== o?.locatie ? " " + locatie(t.locatie).icoon + " " + locatie(t.locatie).naam : ""}`).join(", ");
+// Tijden waarmee een afwijking begint: die van die dag, anders de meest gebruikte van de lijst
+function beginTijden(o, weekdag) {
+  const st = standaardTijden(o, weekdag);
+  if (st.length) return st.map(t => ({ van: t.van, tot: t.tot, locatie: t.locatie ?? o.locatie ?? "" }));
+  const t = (o.tijden || [])[0];
+  return [t ? { van: t.van, tot: t.tot, locatie: t.locatie ?? o.locatie ?? "" } : { van: "09:00", tot: "17:00", locatie: o.locatie || "" }];
+}
+// Dagdeel vrij: de dag in tweeën knippen (midden afgerond op een half uur)
+function dagdeel(o, weekdag, welk) {
+  const st = beginTijden(o, weekdag), a = Math.min(...st.map(t => minVan(t.van))), b = Math.max(...st.map(t => minVan(t.tot)));
+  const mid = Math.round((a + b) / 2 / 30) * 30;
+  const [x, y] = welk === "ochtend" ? [mid, b] : [a, mid];
+  return st.map(t => ({ ...t, van: hhmm(Math.max(minVan(t.van), x)), tot: hhmm(Math.min(minVan(t.tot), y)) })).filter(t => minVan(t.tot) > minVan(t.van));
+}
+function openWeek(begin) {
+  let ma = maandagVan(begin ? new Date(begin + "T12:00") : new Date());
+  let periode = { van: "", tot: "", soort: "vrij", reden: "" };
+  const teken = () => {
+    const dagen = Array.from({ length: 7 }, (_, i) => new Date(ma.getFullYear(), ma.getMonth(), ma.getDate() + i));
+    const lijsten = vasteLijsten(), zo = dagen[6];
+    const vandaag = vandaagStr();
+    const dagRij = (dag) => {
+      const ds = dagStr(dag), wd = dag.getDay(), weg = d().afwezig?.[ds];
+      return `<div class="wdagrij${weg ? " weg" : ""}${ds === vandaag ? " vandaag" : ""}${ds < vandaag ? " voorbij" : ""}" data-ds="${ds}">
+        <div class="wdkop"><b>${DAGLANG[wd]} ${dag.getDate()} ${MAAND[dag.getMonth()]}</b>
+          <label class="schakel" title="Vakantie of anders weg: die dag wordt niets ingepland, ook niet uit andere lijsten"><input type="checkbox" data-weg ${weg ? "checked" : ""}> ✈️ Hele dag weg</label>
+          ${weg ? `<input type="text" data-wegreden value="${esc(weg.reden || "")}" placeholder="Reden, bijv. vakantie" maxlength="100" aria-label="Reden">` : ""}</div>
+        ${weg ? "" : lijsten.map(o => {
+          const afw = afwijkingOp(o, ds), st = standaardTijden(o, wd);
+          const stTekst = st.length ? tijdenTekst(st, null) : "geen vaste tijden";
+          return `<div class="wdlijst" data-wl="${o.id}" style="--ok:${esc(o.kleur)}">
+            <span class="wdnaam">${esc(o.icoon)} ${esc(o.naam)}</span>
+            <select data-wsoort aria-label="${esc(o.naam)} op ${DAGLANG[wd]}">
+              <option value="" ${afw ? "" : "selected"}>Zoals altijd (${esc(stTekst)})</option>
+              ${Object.entries(AFWIJKING).map(([k, x]) => `<option value="${k}" ${afw?.soort === k ? "selected" : ""}>${x.icoon} ${x.naam}</option>`).join("")}
+            </select>
+            ${!afw && st.length ? `<span class="chips"><button type="button" data-actie="halfVrij" data-w="ochtend" title="Alleen 's middags werken">🌅 Ochtend vrij</button><button type="button" data-actie="halfVrij" data-w="middag" title="Alleen 's ochtends werken">🌇 Middag vrij</button></span>` : ""}
+            ${afw ? `<div class="wddetail">
+              ${afw.soort === "vrij" ? "" : (afw.tijden || []).map((t, i) => `<div class="rslot" data-wi="${i}">
+                <input type="time" value="${esc(t.van)}" data-wveld="van" aria-label="Van"><span>–</span><input type="time" value="${esc(t.tot)}" data-wveld="tot" aria-label="Tot">
+                <select data-wveld="locatie" aria-label="Waar">${locOpties(t.locatie || "", "geen vaste plek")}</select>
+                <button type="button" class="x" data-actie="wTijdWeg" title="Weghalen">✕</button></div>`).join("")}
+              ${afw.soort === "vrij" ? "" : `<button type="button" class="knop klein" data-actie="wTijdBij">＋ tijdvak</button>`}
+              <input type="text" data-wreden value="${esc(afw.reden || "")}" maxlength="100" placeholder="${afw.soort === "vrij" ? "Reden, bijv. vakantie of geruild met woensdag" : afw.soort === "bezet" ? "Wat, bijv. cursus projectleiden" : "Reden, bijv. geruild met vrijdag"}" aria-label="Reden">
+              <span class="hint">${esc(AFWIJKING[afw.soort].uitleg)}</span></div>` : ""}
+          </div>`; }).join("")}
+      </div>`;
+    };
+    // komende afwijkingen (overzicht)
+    const komend = [];
+    for (const [ds, x] of Object.entries(d().afwezig || {})) if (ds >= vandaag) komend.push({ ds, tekst: `✈️ Hele dag weg${x.reden ? " — " + x.reden : ""}`, weg: true });
+    for (const o of lijsten) for (const [ds, x] of Object.entries(o.afwijkingen || {})) if (ds >= vandaag)
+      komend.push({ ds, lijst: o.id, tekst: `${o.icoon} ${o.naam}: ${AFWIJKING[x.soort].icoon} ${AFWIJKING[x.soort].naam}${x.tijden?.length ? " " + tijdenTekst(x.tijden, o) : ""}${x.reden ? " — " + x.reden : ""}` });
+    komend.sort((a, b) => a.ds.localeCompare(b.ds));
+    dlg2.innerHTML = `<form method="dialog" id="weekForm"><div class="dkop"><span class="soort">🗓️ Week aanpassen</span><button type="button" class="sluit" data-sluit aria-label="Sluiten">×</button></div>
+    <div class="dlijf">
+      <div class="weeknav"><button type="button" class="knop klein" data-wnav="-1" aria-label="Vorige week">◀</button>
+        <b>Week ${weekNr(ma)} · ${ma.getDate()} ${MAAND[ma.getMonth()]} – ${zo.getDate()} ${MAAND[zo.getMonth()]} ${zo.getFullYear()}</b>
+        <button type="button" class="knop klein" data-wnav="1" aria-label="Volgende week">▶</button>
+        ${maandagVan(new Date()).getTime() === ma.getTime() ? "" : `<button type="button" class="knop klein" data-wnav="0">Deze week</button>`}</div>
+      <p class="hint" style="margin:0">Alleen voor deze datums; je gewone weekrooster blijft zoals het is${lijsten.length ? ` (aan te passen bij ⚙️ ${lijsten.map(o => esc(o.naam)).join(", ")})` : ""}.
+        Geruilde dag? Zet de oude dag op 🏖️ Vrij en de nieuwe op 🕘 Andere tijden.</p>
+      ${lijsten.length ? "" : `<div class="hint">Je hebt nog geen lijst met 🕘 vaste tijden (zoals Werk). Die stel je in bij een lijst → Soort: Vaste tijden. „Hele dag weg” werkt altijd.</div>`}
+      <div class="weekdagen">${dagen.map(dagRij).join("")}</div>
+      <details class="paneel"><summary><b>Langere periode in één keer</b> <span class="hint">— bijv. twee weken vakantie</span></summary>
+        <div class="rij" style="align-items:end;margin-top:8px">
+          <label class="veld">Van<input type="date" name="pvan" value="${esc(periode.van)}"></label>
+          <label class="veld">Tot en met<input type="date" name="ptot" value="${esc(periode.tot)}"></label>
+          <label class="veld">Wat<select name="psoort"><option value="vrij" ${periode.soort === "vrij" ? "selected" : ""}>🏖️ Vrij van ${lijsten.length === 1 ? esc(lijsten[0].naam) : "vaste tijden"} (vrije tijd blijft)</option><option value="weg" ${periode.soort === "weg" ? "selected" : ""}>✈️ Helemaal weg: niets inplannen</option></select></label>
+          <label class="veld">Reden<input type="text" name="preden" value="${esc(periode.reden)}" placeholder="bijv. zomervakantie" maxlength="100"></label>
+          <button type="button" class="knop" data-actie="periode">Toepassen</button></div></details>
+      ${komend.length ? `<div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">Komende afwijkingen</div><div class="lijst">${komend.slice(0, 40).map(k =>
+        `<div class="linkrij"><button type="button" class="knop klein" data-naarweek="${k.ds}">${dagKort(new Date(k.ds + "T12:00"))}</button><span>${esc(k.tekst)}</span>
+          <button type="button" class="x" data-afwweg="${k.ds}" data-afwlijst="${k.lijst || ""}" title="Weghalen (weer zoals altijd)">✕</button></div>`).join("")}${komend.length > 40 ? `<div class="hint">+ ${komend.length - 40} meer</div>` : ""}</div></div>` : ""}
+    </div>
+    <div class="dvoet"><span class="hint">Klaar? Laat ⚡ Automatisch inplannen de planning hierop aanpassen.</span><div class="rechts"><button type="button" class="knop" data-actie="wPlan">⚡ Opnieuw inplannen</button><button class="knop prim" value="ok">Klaar</button></div></div></form>`;
+  };
+  const rij = (el) => { const r = el.closest("[data-ds]"); return r ? { ds: r.dataset.ds, wd: new Date(r.dataset.ds + "T12:00").getDay() } : null; };
+  const lijstVan = (el) => overzicht(el.closest("[data-wl]")?.dataset.wl);
+  const zetAfw = (o, ds, x) => { o.afwijkingen = { ...(o.afwijkingen || {}) }; if (x) o.afwijkingen[ds] = x; else delete o.afwijkingen[ds]; };
+  const leesPeriode = () => { const v = (n) => $(`[name=${n}]`, dlg2)?.value ?? ""; if ($("#weekForm")) periode = { van: v("pvan"), tot: v("ptot"), soort: v("psoort") || "vrij", reden: v("preden").trim() }; };
+  dlg2.onclick = (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.wnav !== undefined) { leesPeriode(); ma = b.dataset.wnav === "0" ? maandagVan(new Date()) : new Date(ma.getFullYear(), ma.getMonth(), ma.getDate() + 7 * +b.dataset.wnav); teken(); return; }
+    if (b.dataset.naarweek) { leesPeriode(); ma = maandagVan(new Date(b.dataset.naarweek + "T12:00")); teken(); return; }
+    if (b.dataset.afwweg) {
+      const ds = b.dataset.afwweg;
+      if (b.dataset.afwlijst) { const o = overzicht(b.dataset.afwlijst); if (o) zetAfw(o, ds, null); }
+      else { d().afwezig = { ...(d().afwezig || {}) }; delete d().afwezig[ds]; }
+      leesPeriode(); bewaar(); teken(); return;
+    }
+    const a = b.dataset.actie;
+    if (a === "halfVrij") {
+      const r = rij(b), o = lijstVan(b); if (!r || !o) return;
+      zetAfw(o, r.ds, { soort: "anders", tijden: dagdeel(o, r.wd, b.dataset.w), reden: b.dataset.w === "ochtend" ? "Ochtend vrij" : "Middag vrij" });
+    } else if (a === "wTijdBij") {
+      const r = rij(b), o = lijstVan(b), x = afwijkingOp(o, r.ds); if (!x) return;
+      const laatste = x.tijden.at(-1);
+      zetAfw(o, r.ds, { ...x, tijden: [...x.tijden, laatste ? { van: laatste.tot, tot: hhmm(Math.min(minVan(laatste.tot) + 120, 23 * 60 + 45)), locatie: laatste.locatie } : beginTijden(o, r.wd)[0]] });
+    } else if (a === "wTijdWeg") {
+      const r = rij(b), o = lijstVan(b), x = afwijkingOp(o, r.ds), i = +b.closest("[data-wi]").dataset.wi; if (!x) return;
+      const tijden = x.tijden.filter((_, j) => j !== i);
+      zetAfw(o, r.ds, tijden.length ? { ...x, tijden } : { ...x, soort: "vrij", tijden: [] });
+    } else if (a === "periode") {
+      leesPeriode();
+      const { van, tot, soort, reden } = periode;
+      if (!van || !tot || tot < van) { toast("Kies een begin- en einddatum"); return; }
+      const lijsten = vasteLijsten(); let n = 0;
+      for (let x = new Date(van + "T12:00"), i = 0; dagStr(x) <= tot && i < 400; x.setDate(x.getDate() + 1), i++) {
+        const ds = dagStr(x);
+        if (soort === "weg") { d().afwezig = { ...(d().afwezig || {}), [ds]: { reden } }; n++; }
+        else for (const o of lijsten) if (standaardTijden(o, x.getDay()).length) { zetAfw(o, ds, { soort: "vrij", tijden: [], reden }); n++; }
+      }
+      if (!n) { toast(soort === "weg" ? "Geen dagen in die periode" : "In die periode zijn geen dagen met vaste tijden"); return; }
+      ma = maandagVan(new Date(van + "T12:00")); periode = { van: "", tot: "", soort, reden: "" };
+      toast(soort === "weg" ? `${n} ${n === 1 ? "dag" : "dagen"} op „weg” gezet` : `${n} ${n === 1 ? "dag" : "dagen"} vrij gezet`);
+    } else if (a === "wPlan") {
+      const r = planAutomatisch(actieveOverzichten()); laatsteWaarschuwingen = r.waarschuwingen; bewaar(); dlg2.close();
+      toast(`${r.blokken} blokken ingepland${r.waarschuwingen.length ? " · " + r.waarschuwingen.length + " waarschuwing(en)" : ""}`); return;
+    } else return;
+    leesPeriode(); bewaar(); teken();
+  };
+  dlg2.onchange = (e) => {
+    const t = e.target, r = rij(t);
+    if (t.name?.startsWith("p")) return;                       // periodevelden: pas bij Toepassen
+    if (!r) return;
+    if (t.matches("[data-weg]")) { d().afwezig = { ...(d().afwezig || {}) }; if (t.checked) d().afwezig[r.ds] = { reden: "" }; else delete d().afwezig[r.ds]; }
+    else if (t.matches("[data-wegreden]")) { d().afwezig = { ...(d().afwezig || {}), [r.ds]: { reden: t.value.trim().slice(0, 100) } }; }
+    else {
+      const o = lijstVan(t); if (!o) return;
+      const x = afwijkingOp(o, r.ds);
+      if (t.matches("[data-wsoort]")) {
+        const soort = t.value;
+        zetAfw(o, r.ds, !soort ? null : { soort, reden: x?.reden || "", tijden: soort === "vrij" ? [] : (x?.tijden?.length ? x.tijden : beginTijden(o, r.wd)) });
+      } else if (t.matches("[data-wreden]") && x) zetAfw(o, r.ds, { ...x, reden: t.value.trim().slice(0, 100) });
+      else if (t.dataset.wveld && x) {
+        const i = +t.closest("[data-wi]").dataset.wi, veld = t.dataset.wveld;
+        if ((veld === "van" || veld === "tot") && !/^\d{2}:\d{2}$/.test(t.value)) { teken(); return; }
+        zetAfw(o, r.ds, { ...x, tijden: x.tijden.map((y, j) => j === i ? { ...y, [veld]: t.value } : y) });
+      } else return;
+    }
+    leesPeriode(); bewaar(); teken();
+  };
+  dlg2.onkeydown = (e) => { if (e.key === "Enter" && e.target.tagName === "INPUT" && e.target.type === "text") { e.preventDefault(); e.target.blur(); } };
+  dlg2.onclose = () => { dlg2.onkeydown = null; dlg2.onclose = null; };
+  teken();
+  if (!dlg2.open) dlg2.showModal();
+}
+
 // ---------- blok in agenda ----------
 function openBlok(id) {
   const b = d().planning.find(x => x.id === id); if (!b) return;
@@ -2004,11 +2340,12 @@ function openBlok(id) {
       <label class="schakel"><input type="checkbox" id="blokVast" ${b.vast ? "checked" : ""}> 📌 Vastzetten (blijft staan bij opnieuw inplannen)</label>
     </div>
     <div class="dvoet"><button type="button" class="knop gevaar" data-actie="blokWeg">Blok verwijderen</button>
-      <div class="rechts">${it ? `<button type="button" class="knop" data-actie="blokItem">Open ${b.type === "project" ? "project" : "taak"}</button>` : ""}<button class="knop prim" value="ok">Sluiten</button></div></div></form>`;
+      <div class="rechts">${it && b.soort !== "reis" ? `<button type="button" class="knop" data-actie="blokPlan" title="Ander moment kiezen">📅 Verplaatsen</button>` : ""}${it ? `<button type="button" class="knop" data-actie="blokItem">Open ${b.type === "project" ? "project" : "taak"}</button>` : ""}<button class="knop prim" value="ok">Sluiten</button></div></div></form>`;
   dlg2.onclick = (e) => {
     const a = e.target.closest("button")?.dataset.actie;
-    if (a === "blokWeg") { d().planning = d().planning.filter(x => x !== b); bewaar(); dlg2.close(); }
+    if (a === "blokWeg") { if (b.soort === "reis") d().planning = d().planning.filter(x => x !== b); else haalBlokWeg(b); bewaar(); dlg2.close(); }
     if (a === "blokItem") { dlg2.close(); openEditor(it); }
+    if (a === "blokPlan") { haalBlokWeg(b); bewaar(); dlg2.onclick = null; dlg2.onchange = null; planTaak(it); }
   };
   dlg2.onchange = (e) => { if (e.target.id === "blokVast") { b.vast = e.target.checked; bewaar(); } };
   dlg2.onclose = null;
@@ -2097,6 +2434,8 @@ async function hoofdKlik(e) {
     return;
   }
   const vink = e.target.closest(".vink");
+  const pl = e.target.closest("[data-plan]");
+  if (pl) { planTaak(pl.dataset.ptype === "project" ? project(pl.dataset.plan) : taak(pl.dataset.plan)); return; }
   const el = e.target.closest("[data-actie]");
   if (vink) {
     const rij = vink.closest("[data-id]"); const t = rij.dataset.type === "project" ? project(rij.dataset.id) : taak(rij.dataset.id);
@@ -2124,6 +2463,8 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
     else if (a === "matrixToon" && w) { voorkeur.zet("matrixToon", w); render(); }
     else if (a === "thema" && w) { voorkeur.zet("thema", w); zetThema(); render(); }
     else if (a === "themaKies" && w) { d().instellingen.thema = w; voorkeur.zet("thema", w); bewaar(); zetThema(); }
+    else if (a === "roosterBij" || a === "roosterWeg") roosterKlik(el, a);
+    else if (a === "werkweek") openWeek(w || "");
     else if (a === "week") { weekVerschuiving = w === "0" ? 0 : weekVerschuiving + +w; render(); }
     else if (a === "plan") {
       const r = planAutomatisch(actieveOverzichten()); laatsteWaarschuwingen = r.waarschuwingen; bewaar();
@@ -2181,7 +2522,6 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
         d().locaties = d().locaties.filter(x => x !== l); bewaar();
       }
     }
-    else if (a === "beschBij") { d().beschikbaar.push({ dagen: [6, 0], van: "09:00", tot: "22:00" }); bewaar(); }
     else if (["login", "koppelAccount", "uitloggen", "inlogBij", "inlogWeg", "mailLink", "mailKoppel", "koppelVraag", "koppelGebruik", "koppelJa", "koppelNee", "koppelStop", "mailBevestig", "mailBevestigd"].includes(a)) accountActie(a, w);
     else if (a === "accepteer") { accepteer(w).then(() => toast("Je doet nu mee met deze lijst")).catch(e => toast(e.message)); }
     else if (a === "weiger") { weiger(w).catch(e => toast(e.message)); }
@@ -2251,13 +2591,6 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
       }
       lijstVerwijderen(o);
     }
-    else if (a === "tijdBij") { const o = overzicht(el.closest("[data-ov]").dataset.ov); o.tijden.push({ dagen: [1, 2, 3, 4, 5], van: "09:00", tot: "17:00", locatie: o.locatie || "" }); bewaar(); }
-    else if (a === "tijdWeg") {
-      const b = el.closest("[data-besch]");
-      if (b) { if (d().beschikbaar.length > 1) d().beschikbaar.splice(+b.dataset.besch, 1); else toast("Er moet minstens één tijdvak blijven"); }
-      else overzicht(el.closest("[data-ov]").dataset.ov).tijden.splice(+el.closest("[data-i]").dataset.i, 1);
-      bewaar();
-    }
     else if (a === "ovDelen") {
       const dd = deelDoel(el), o = dd.x;
       if (!ingelogd()) { toast("Log eerst in om te delen"); $("#accountKnop").click(); return; }
@@ -2271,12 +2604,6 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
       } else if (m) toast("Dat lijkt geen e-mailadres");
     }
     return;
-  }
-  const dag = e.target.closest(".dagknop");
-  if (dag) {
-    const b = dag.closest("[data-besch]");
-    const t = b ? d().beschikbaar[+b.dataset.besch] : overzicht(dag.closest("[data-ov]").dataset.ov).tijden[+dag.closest("[data-i]").dataset.i], x = +dag.dataset.dag;
-    t.dagen = t.dagen.includes(x) ? t.dagen.filter(y => y !== x) : [...t.dagen, x]; bewaar(); return;
   }
   const blok = e.target.closest("[data-blok]");
   if (blok) { openBlok(blok.dataset.blok); return; }
@@ -2305,6 +2632,7 @@ main.addEventListener("submit", async (e) => {
   }
 });
 function hoofdWijzig(e) {
+  if (e.target.dataset?.rveld && roosterWijzig(e)) return;
   if (e.target.matches?.("[data-linkkleur]")) {
     const l = d().agendaLinks.find(x => x.id === e.target.closest("[data-link]").dataset.link);
     l.kleur = e.target.value; if (d().agendas[linkBron(l)]) d().agendas[linkBron(l)].kleur = l.kleur; bewaar(); return;
@@ -2325,8 +2653,7 @@ function hoofdWijzig(e) {
     if (lijstId) doeTakenSync(false); else render();
     return;
   }
-  const bes = e.target.closest("[data-besch]"), loc = e.target.closest("[data-loc]"), ag = e.target.closest("[data-agenda]");
-  if (bes && e.target.dataset.veld) { d().beschikbaar[+bes.dataset.besch][e.target.dataset.veld] = e.target.value; bewaar(); return; }
+  const loc = e.target.closest("[data-loc]"), ag = e.target.closest("[data-agenda]");
   if (loc && e.target.dataset.locveld) {
     const l = locatie(loc.dataset.loc), k = e.target.dataset.locveld;
     l[k] = k === "reistijd" ? Math.max(0, +e.target.value || 0) : e.target.value; bewaar(); return;
@@ -2347,7 +2674,7 @@ function hoofdWijzig(e) {
   }
   const ov0 = e.target.closest("[data-ov]");
   if (ov0 && e.target.dataset.veld) {
-    const o = overzicht(ov0.dataset.ov), veld = e.target.dataset.veld, rij = e.target.closest("[data-i]");
+    const o = overzicht(ov0.dataset.ov), veld = e.target.dataset.veld;
     if (veld === "opslag") {
       const w = e.target.value;
       if (w === "+google" || w === "+ms") { e.target.value = o.opslag || ""; doeKoppel(w === "+ms" ? "ms" : "google", "schijf", o.id); return; }
@@ -2356,7 +2683,7 @@ function hoofdWijzig(e) {
     }
     const waarde = veld === "doelAgenda" ? (e.target.value || null) : e.target.value;
     if (veld === "map") { const oud = o.map; o.map = waarde; verhuisd(o, waarde, oud); bewaar(); return; }
-    if (rij) o.tijden[+rij.dataset.i][veld] = waarde; else o[veld] = waarde;
+    o[veld] = waarde;
     bewaar(); return;
   }
   if (e.target.name === "wie") { voorkeur.zet("wie", e.target.value); render(); return; }
