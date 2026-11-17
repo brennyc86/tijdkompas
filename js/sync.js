@@ -1,6 +1,6 @@
 // Tijdkompas — afstemming met externe agenda's (ophalen + ingeplande blokken wegschrijven)
 import { opslag, bewaar, overzicht, locatie, sessie } from "./data.js";
-import { verbindingen as alleVerbindingen, heeft, VerlopenFout, agendaLijst, haalAfspraken, zetAfspraak, verwijderAfspraak } from "./koppeling.js";
+import { verbindingen as alleVerbindingen, heeft, VerlopenFout, agendaLijst, haalAfspraken, zetAfspraak, verwijderAfspraak, verplaatsAfspraak } from "./koppeling.js";
 import { omschrijving, leesIcs, familieHaak } from "./plan.js";
 import { CONFIG } from "./config.js";
 
@@ -64,6 +64,16 @@ export async function verversAgendas() {
   d().agendaSync = new Date().toISOString();
   bewaar();
   return { verlopen, fouten };
+}
+
+/** Kan Tijdkompas deze afspraak in Google/Outlook aanpassen? (agenda waarin je mag schrijven, hier gekoppeld, met een id) */
+export const kanVerplaatsen = (ev) => !!(ev?.extId && d().agendas?.[ev.bron]?.schrijf && verbindingVan(ev.bron));
+/** Een afspraak uit je agenda naar een ander moment zetten — in Google/Outlook zelf, en hier meteen */
+export async function verplaatsAgendaAfspraak(ev, start, eind) {
+  const v = verbindingVan(ev.bron); if (!v || !ev.extId) throw new Error("Deze agenda kan Tijdkompas niet aanpassen");
+  await verplaatsAfspraak(v, agendaIdVan(ev.bron), ev.extId, start, eind);
+  const x = d().bezet.find(e => e.id === ev.id); if (x) { x.start = start; x.eind = eind; }
+  bewaar();
 }
 
 // ---------- in welke agenda komt een ingepland blok? ----------

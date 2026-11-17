@@ -642,3 +642,5 @@ a.koersitem{text-decoration:none;color:inherit}
 #planForm .plvast .knop{align-self:flex-start}
 #planForm .plvast .balk{background:var(--rand)}
 #planForm .plvast .balk i{background:var(--groen)}
+.wblok.herinnering{z-index:4;height:15px;padding:0 4px;font-size:10px;line-height:15px;background:color-mix(in srgb,var(--oranje) 14%,var(--paneel));border:1px dashed color-mix(in srgb,var(--oranje) 55%,transparent);color:var(--meta);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.85}
+.botsingen.buiten{border-color:color-mix(in srgb,var(--accent) 60%,var(--rand))}

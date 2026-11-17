@@ -281,21 +281,21 @@ export async function haalAfspraken(v, agendaId, van, tot) {
         if (e.transparency === "transparent") continue;          // staat op "beschikbaar"
         if ((e.attendees || []).some(a => a.self && a.responseStatus === "declined")) continue;
         uit.push({ extId: e.id, start: new Date(e.start.dateTime).toISOString(), eind: new Date(e.end.dateTime).toISOString(),
-                   titel: e.summary || "Bezet", plaats: e.location || "", eigen: !!e.extendedProperties?.private?.tijdkompas, kleur: (e.colorId && kleuren[e.colorId]) || "" });
+                   titel: e.summary || "Bezet", plaats: e.location || "", eigen: !!e.extendedProperties?.private?.tijdkompas, kleur: (e.colorId && kleuren[e.colorId]) || "", herhalend: !!e.recurringEventId });
       }
       pagina = r.nextPageToken;
     } while (pagina);
     return uit;
   }
   let url = `${M}/me/calendars/${enc(agendaId)}/calendarView?startDateTime=${enc(van.toISOString())}&endDateTime=${enc(tot.toISOString())}` +
-            `&$top=500&$select=id,subject,start,end,showAs,isAllDay,isCancelled,location,categories`;
+            `&$top=500&$select=id,subject,start,end,showAs,isAllDay,isCancelled,location,categories,type`;
   while (url) {
     const r = await api(v, url, { headers: { Prefer: 'outlook.timezone="UTC"' } });
     for (const e of r.value || []) {
       if (e.isAllDay || e.isCancelled || e.showAs === "free") continue;
       uit.push({ extId: e.id, start: new Date(e.start.dateTime.replace(/Z?$/, "Z")).toISOString(), eind: new Date(e.end.dateTime.replace(/Z?$/, "Z")).toISOString(),
                  titel: e.subject || "Bezet", plaats: e.location?.displayName || "", eigen: (e.categories || []).includes("Tijdkompas"),
-                 kleur: (e.categories || []).map(c => kleuren[c]).find(Boolean) || "" });
+                 kleur: (e.categories || []).map(c => kleuren[c]).find(Boolean) || "", herhalend: e.type === "occurrence" || e.type === "exception" });
     }
     url = r["@odata.nextLink"] || "";
   }
@@ -322,6 +322,13 @@ export async function zetAfspraak(v, agendaId, ev, bestaandId) {
     if (r) return r.id;
   }
   return (await api(v, `${M}/me/calendars/${enc(agendaId)}/events`, { method: "POST", body })).id;
+}
+/** Alleen de tijden van een bestaande afspraak aanpassen (verder blijft alles zoals het was) */
+export async function verplaatsAfspraak(v, agendaId, id, start, eind) {
+  if (v.soort === "google")
+    return api(v, `${G}/calendars/${enc(agendaId)}/events/${enc(id)}`, { method: "PATCH", body: JSON.stringify({ start: { dateTime: start }, end: { dateTime: eind } }) });
+  const utc = (iso) => new Date(iso).toISOString().slice(0, 19);
+  return api(v, `${M}/me/events/${enc(id)}`, { method: "PATCH", body: JSON.stringify({ start: { dateTime: utc(start), timeZone: "UTC" }, end: { dateTime: utc(eind), timeZone: "UTC" } }) });
 }
 export async function verwijderAfspraak(v, agendaId, id) {
   if (v.soort === "google") await api(v, `${G}/calendars/${enc(agendaId)}/events/${enc(id)}`, { method: "DELETE", weg: true });

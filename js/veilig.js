@@ -124,11 +124,14 @@ export function ontsmet(n) {
   n.feeds = (Array.isArray(n.feeds) ? n.feeds : []).filter(f => f && typeof f.id === "string" && /^[A-Za-z0-9_-]{32,64}$/.test(f.id)).slice(0, 10)
     .map(f => ({ id: f.id, naam: tekst(f.naam, 100) || "Tijdkompas", lijsten: idLijst(f.lijsten), titels: f.titels !== false, reis: !!f.reis, aangemaakt: tekst(f.aangemaakt, 40) }));
   // afspraken die niet altijd meetellen: per naam + agenda alleen op werkdagen, of losse keren verborgen
-  n.afspraakRegels = (Array.isArray(n.afspraakRegels) ? n.afspraakRegels : []).filter(r => r && typeof r.bron === "string" && r.bron.length <= 400 && ["werkdag", "rolwerk", "rolprive"].includes(r.soort) && veiligId(r.lijst))
-    .slice(0, 200).map(r => ({ id: veiligId(r.id) ? r.id : "r" + Math.random().toString(36).slice(2, 10), bron: r.bron, titel: tekst(r.titel, 200), lijst: r.lijst, soort: r.soort }));
+  n.afspraakRegels = (Array.isArray(n.afspraakRegels) ? n.afspraakRegels : []).filter(r => r && typeof r.bron === "string" && r.bron.length <= 400 && ["werkdag", "rolwerk", "rolprive", "herinnering"].includes(r.soort) && (r.soort === "herinnering" || veiligId(r.lijst)))
+    .slice(0, 200).map(r => ({ id: veiligId(r.id) ? r.id : "r" + Math.random().toString(36).slice(2, 10), bron: r.bron, titel: tekst(r.titel, 200), lijst: veiligId(r.lijst) ? r.lijst : "", soort: r.soort }));
   const grensV = new Date(Date.now() - 31 * 864e5).toISOString();
   n.verborgen = Object.fromEntries(Object.entries(n.verborgen && typeof n.verborgen === "object" && !Array.isArray(n.verborgen) ? n.verborgen : {})
     .filter(([k, v]) => k.length <= 500 && typeof v === "string" && v.length <= 40 && (k.split("|").at(-2) || "") >= grensV).slice(-500));
+  // losse afspraken die een herinnering zijn, en meldingen "buiten je beschikbaarheid" die kloppen
+  for (const veld of ["herinneringen", "buitenOk"]) n[veld] = Object.fromEntries(Object.entries(n[veld] && typeof n[veld] === "object" && !Array.isArray(n[veld]) ? n[veld] : {})
+    .filter(([k, v]) => k.length <= 500 && typeof v === "string" && v.length <= 40).slice(-500));
   // per losse afspraak: hoort hij bij de rol van een lijst (werk) of juist niet (privé)
   n.rolKeuzes = Object.fromEntries(Object.entries(n.rolKeuzes && typeof n.rolKeuzes === "object" && !Array.isArray(n.rolKeuzes) ? n.rolKeuzes : {})
     .filter(([k, v]) => k.length <= 500 && v && ["werk", "prive"].includes(v.rol) && veiligId(v.lijst) && (k.split("|").at(-2) || "") >= grensV)

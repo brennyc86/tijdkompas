@@ -111,8 +111,14 @@ function dubbeleAfspraken() {
   return weg;
 }
 export const isDubbel = (ev) => dubbeleAfspraken().has(evId(ev));
+/** Een herinnering (bijv. "medicijnen" om 07:00): staat er wel, maar telt niet als bezet */
+export function isHerinnering(ev) {
+  const f = familieHaak.regels(), k = afspraakSleutel(ev);
+  return !!(opslag.d.herinneringen?.[k] || f.herinneringen?.[k] || regelVoor(ev, ["herinnering"]));
+}
 export function telt(ev) {
   if (!ev.eigen && isDubbel(ev)) return false;
+  if (isHerinnering(ev)) return false;
   const d = opslag.d, f = familieHaak.regels(), k = afspraakSleutel(ev);
   if (d.verborgen?.[k] || f.verborgen?.[k]) return false;
   const r = regelVoor(ev);
@@ -210,6 +216,39 @@ export function tijdenMet(tijden, slot) {
   const l = [...tijden.map(t => ({ ...t })), { ...slot }].sort((p, q) => mv(p.van) - mv(q.van)), uit = [];
   for (const t of l) { const z = uit.at(-1); if (z && mv(t.van) <= mv(z.tot)) { if (mv(t.tot) > mv(z.tot)) z.tot = t.tot; } else uit.push(t); }
   return uit;
+}
+
+// ---------- buiten je beschikbaarheid ----------
+/**
+ * Wat de komende dagen (deels) buiten je beschikbaarheid valt:
+ *   afspraak — een afspraak uit je agenda buiten je beschikbare uren (of werktijden), bijv. 06:30 of 23:00
+ *   blok     — een ingepland blok buiten de tijden van zijn lijst (vrije tijd: beschikbaarheid; vaste lijst: de werktijden)
+ * Wat je al "klopt zo" hebt genoemd (d.buitenOk) komt niet terug. Herinneringen tellen niet mee.
+ */
+export function buitenBeschikbaarheid({ dagen = 14 } = {}) {
+  const d = opslag.d, nu = new Date(), tot = new Date(nu.getTime() + dagen * 864e5), ok = d.buitenOk || {}, uit = [], cache = new Map();
+  const ind = (t) => { const dag = new Date(t.getFullYear(), t.getMonth(), t.getDate()), k = dagStr(dag); if (!cache.has(k)) cache.set(k, dagIndeling(dag)); return cache.get(k); };
+  const buitenMin = (a, b, ramen) => minuten(a, b) - ramen.reduce((s, [x, y]) => s + Math.max(0, minuten(x > a ? x : a, y < b ? y : b)), 0);
+  for (const ev of d.bezet || []) {
+    if (ev.eigen || eventSoort(ev) !== "bezet") continue;
+    const a = new Date(ev.start), b = new Date(ev.eind);
+    if (b <= nu || a >= tot || b - a >= 864e5) continue;
+    const k = afspraakSleutel(ev); if (ok[k]) continue;
+    const I = ind(a), ramen = I.weg ? [] : [...I.beschikbaar, ...I.vast.map(v => [v.a, v.b])];
+    const m = buitenMin(a, b, ramen);
+    if (m >= 15) uit.push({ soort: "afspraak", ev, sleutel: k, ds: dagStr(a), min: m, weg: !!I.weg });
+  }
+  for (const bl of d.planning || []) {
+    if (!bl.item || bl.soort === "reis" || bl.soort === "uitloop") continue;
+    const a = new Date(bl.start), b = new Date(bl.eind);
+    if (b <= nu || a >= tot) continue;
+    const k = "blok:" + bl.id + "|" + bl.start; if (ok[k]) continue;
+    const I = ind(a), o = effLijst(overzicht(bl.overzicht));
+    const ramen = I.weg ? [] : o?.modus === "vast" ? I.vast.filter(v => v.lijst === bl.overzicht).map(v => [v.a, v.b]) : I.beschikbaar;
+    const m = buitenMin(a, b, ramen);
+    if (m >= 5) uit.push({ soort: "blok", blok: bl, sleutel: k, ds: dagStr(a), min: m, weg: !!I.weg });
+  }
+  return uit.sort((p, q) => (p.ev || p.blok).start.localeCompare((q.ev || q.blok).start));
 }
 
 // ---------- werk en privé door elkaar ----------

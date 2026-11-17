@@ -4,10 +4,10 @@ import { opslag, bewaar, KWADRANTEN, kwadrant, overzicht, project, taak, takenVa
          map, submappen, lijstenIn, lijstenOnder, mappenOnder, mapPad, boom, lijstVolgorde, idsVan,
          afspraak, koersVan, binnenDoel, koersScore, koersSuggesties, koppelKoers, mijnId, isIk, personen, naamVanPersoon, isMijn, isTeam, wie, wachtNogOp, wachtenOp, maaktKring, anderen as andereLeden } from "./data.js";
 import { familieHaak, planAutomatisch, werkGeplandBij, doelDatum, harde, prioriteit, googleLink, outlookLink, maakIcs, leesIcs, dagStr, dagIndeling, eventSoort, SOORTEN,
-  AFWIJKING, telt, regelVoor, rolKeuze, afspraakSleutel, standaardTijden, afwijkingOp, afwijkingDatums, zetAfwijking, dagTijden, tijdenZonder, tijdenMet, effLijst, rolBotsingen, planStatus, grootsteGat, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, volgendeMomenten, plaatsVanaf, vrijkomend, vrijeTijd, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
+  AFWIJKING, telt, isHerinnering, buitenBeschikbaarheid, regelVoor, rolKeuze, afspraakSleutel, standaardTijden, afwijkingOp, afwijkingDatums, zetAfwijking, dagTijden, tijdenZonder, tijdenMet, effLijst, rolBotsingen, planStatus, grootsteGat, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, volgendeMomenten, plaatsVanaf, vrijkomend, vrijeTijd, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
 import { ids, verbindingen as alleVerbindingen, heeft, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, zonderDoel, koppelHaak, neemGedeeldeOver } from "./koppeling.js";
 import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroniseerAlles, naamVan, lijstWeg } from "./schijf.js";
-import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD, eigenAgenda, viaEigenaar, vingerafdruk } from "./sync.js";
+import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD, eigenAgenda, viaEigenaar, vingerafdruk, kanVerplaatsen, verplaatsAgendaAfspraak } from "./sync.js";
 import { syncTaken, takenVerbindingen, koppelTakenlijst, takenlijstVan, takenVerbindingVan } from "./takensync.js";
 import { kiesEmoji, voorstellen } from "./emoji.js";
 import { veiligeUrl, veiligeFoto } from "./veilig.js";
@@ -473,6 +473,7 @@ function vandaag() {
     ${ids().google || ids().microsoft ? `<a class="knop" href="#instellingen" data-tab="koppelingen">✅ Takenlijst van Google of Microsoft gebruiken</a>` : ""}</div></div>`}
   ${herplanBlok()}
   ${botsingBlok()}
+  ${buitenBlok()}
   ${snelInvoer()}
   <div class="raster2">
     <section>
@@ -713,6 +714,10 @@ function agenda() {
       return `<div class="wblok bezet${ander ? " ander" : ""}" data-ev="${esc(ev.id)}" data-evfam="${ev.vanFamilie ? 1 : ""}" style="--ak:${esc(kleur)};top:${t}px;height:${h - 2}px" title="${esc(ev.titel)} ${fmtTijd(ev.start)}–${fmtTijd(ev.eind)}${k ? " · " + esc(k.naam) : ""}${ev.plaats ? " · " + esc(ev.plaats) : ""}">
         <b>${esc(ev.titel)}</b>${h > 30 ? `<span class="btijd">${fmtTijd(ev.start)}–${fmtTijd(ev.eind)}</span>` : ""}</div>`;
     }).join("");
+    const herinn = d().bezet.filter(ev => !ev.eigen && inDag(ev) && afspraakZichtbaar(ev) && isHerinnering(ev)).map(ev => {
+      const t = Math.max(0, y(ev.start));
+      return `<div class="wblok herinnering" data-ev="${esc(ev.id)}" style="top:${t}px" title="🔔 ${esc(ev.titel)} ${fmtTijd(ev.start)} · herinnering (telt niet als bezet)">🔔 ${esc(ev.titel)}</div>`;
+    }).join("");
     const blokken = d().planning.filter(b => act.includes(b.overzicht)).filter(inDag).map(b => {
       const t = Math.max(0, y(b.start)), h = Math.max(14, Math.min(hoogte, y(b.eind)) - t);
       const inAgenda = d().extern?.[b.id];
@@ -722,7 +727,7 @@ function agenda() {
         <b>${b.soort === "reis" ? "🚗 " : ""}${esc(b.titel)}</b>${h > 30 ? `<span class="btijd">${fmtTijd(b.start)}–${fmtTijd(b.eind)}${inAgenda ? " ✓" : ""}</span>` : ""}</div>`;
     }).join("");
     const nulijn = ds === dagStr(nu) && nu.getHours() >= UUR_VAN && nu.getHours() < UUR_TOT ? `<div class="nulijn" style="top:${y(nu)}px"></div>` : "";
-    return `<div class="wdag ${ds === dagStr(nu) ? "vandaag" : ""}" style="height:${hoogte}px;--uurH:${UUR_H}px">${beschikb}${vast}${elders}${reis}${afspraken}${famBlokken}${blokken}${nulijn}</div>`;
+    return `<div class="wdag ${ds === dagStr(nu) ? "vandaag" : ""}" style="height:${hoogte}px;--uurH:${UUR_H}px">${beschikb}${vast}${elders}${reis}${herinn}${afspraken}${famBlokken}${blokken}${nulijn}</div>`;
   }).join("");
 
   const toekomst = d().planning.filter(b => new Date(b.eind) > nu && act.includes(b.overzicht));
@@ -746,6 +751,7 @@ function agenda() {
     </div></div>
   ${herplanBlok()}
   ${botsingBlok()}
+  ${buitenBlok()}
   ${ingelogd() && cloud.familieFout?.size ? `<div class="waarsch"><b>De planning van ${esc([...cloud.familieFout.keys()].map(u => emailVan(u) || "een gelinkt account").join(", "))} is niet te zien.</b>
     ${esc([...cloud.familieFout.values()][0] || "")} Na het bijwerken: log opnieuw in of ververs de pagina.</div>` : ""}
   ${laatsteWaarschuwingen.length ? `<div class="waarsch"><b>Let op:</b><ul>${laatsteWaarschuwingen.map(w => `<li>${esc(w)}</li>`).join("")}</ul></div>` : ""}
@@ -2561,6 +2567,17 @@ function afspraakRegel(ev, soort, lijst, alles = false) {
     } else d().rolKeuzes = { ...(d().rolKeuzes || {}), [afspraakSleutel(ev)]: { rol: soort, lijst } };
     return;
   }
+  if (soort === "herinnering") {
+    if (alles) d().afspraakRegels = [...(d().afspraakRegels || []).filter(r => !(r.bron === ev.bron && r.soort === "herinnering" && r.titel.trim().toLowerCase() === String(ev.titel || "").trim().toLowerCase())),
+      { id: uid(), bron: ev.bron, titel: String(ev.titel || "").slice(0, 200), lijst: "", soort: "herinnering" }];
+    else d().herinneringen = { ...(d().herinneringen || {}), [afspraakSleutel(ev)]: new Date().toISOString() };
+    return;
+  }
+  if (soort === "geenherinnering") {
+    const t = String(ev.titel || "").trim().toLowerCase(), h = { ...(d().herinneringen || {}) }; delete h[afspraakSleutel(ev)]; d().herinneringen = h;
+    d().afspraakRegels = (d().afspraakRegels || []).filter(r => !(r.bron === ev.bron && r.soort === "herinnering" && r.titel.trim().toLowerCase() === t));
+    return;
+  }
   if (soort === "altijd") {
     const t = String(ev.titel || "").trim().toLowerCase();
     d().afspraakRegels = (d().afspraakRegels || []).filter(r => !(r.bron === ev.bron && r.soort === "werkdag" && r.titel.trim().toLowerCase() === t));
@@ -2583,7 +2600,10 @@ function afspraakVenster(ev) {
         ${vast.length ? (() => { const huidig = rolKeuze(ev, standaardLijst), naam = overzicht(standaardLijst)?.naam || "werk";
           return `<div class="rij" style="gap:6px"><button type="button" class="keuzeknop" style="flex:1" data-akeuze="werk" aria-pressed="${huidig === "werk"}"><b>💼 Hoort bij ${esc(naam)}</b><small>Telt als werktijd</small></button>
           <button type="button" class="keuzeknop" style="flex:1" data-akeuze="prive" aria-pressed="${huidig === "prive"}"><b>🏠 Is privé</b><small>Telt als eigen tijd</small></button></div>
-          <label class="schakel" style="margin:-2px 0 4px 10px"><input type="checkbox" id="arolAlles"> Voor alle „${esc(titel)}” uit deze agenda</label>`; })() : ""}
+`; })() : ""}
+        <label class="schakel" style="margin:-2px 0 4px 10px"><input type="checkbox" id="arolAlles"> Werk/privé en herinnering: voor alle „${esc(titel)}” uit deze agenda</label>
+        ${isHerinnering(ev) ? `<button type="button" class="keuzeknop" data-akeuze="geenherinnering"><b>↩ Geen herinnering meer</b><small>Telt weer als bezet.</small></button>`
+          : `<button type="button" class="keuzeknop" data-akeuze="herinnering"><b>🔔 Is een herinnering</b><small>Blijft als belletje staan, maar telt niet als bezet (er mag doorheen gepland worden).</small></button>`}
         <button type="button" class="keuzeknop" data-akeuze="verberg"><b>🙈 Deze keer niet meetellen</b><small>Alleen deze afspraak; hij verdwijnt hier en er mag doorheen gepland worden.</small></button>
         ${r ? `<button type="button" class="keuzeknop" data-akeuze="altijd"><b>↩ Weer altijd meetellen</b><small>De regel voor „${esc(r.titel)}” vervalt.</small></button>` : ""}
       </div>
@@ -2594,18 +2614,75 @@ function afspraakVenster(ev) {
     if (k === "altijd" && r && !(d().afspraakRegels || []).some(x => x.bron === r.bron && x.titel === r.titel)) { toast("Deze regel is gezet in je andere inlog; haal hem daar weg"); return; }
     const lijst = $("[name=alijst]", dlg2)?.value || standaardLijst;
     afspraakRegel(ev, k, lijst, !!$("#arolAlles", dlg2)?.checked); bewaar(); dlg2.close();
-    toast(k === "werk" || k === "prive" ? `„${titel}” telt als ${k === "werk" ? "werk" : "privé"}` : k === "werkdag" ? `„${titel}” telt voortaan alleen op werkdagen` : k === "verberg" ? "Deze afspraak telt niet meer mee" : `„${titel}” telt weer altijd`);
+    toast(k === "herinnering" ? `„${titel}” is ${$("#arolAlles", dlg2)?.checked ? "voortaan " : ""}een herinnering` : k === "geenherinnering" ? `„${titel}” telt weer als bezet` : k === "werk" || k === "prive" ? `„${titel}” telt als ${k === "werk" ? "werk" : "privé"}` : k === "werkdag" ? `„${titel}” telt voortaan alleen op werkdagen` : k === "verberg" ? "Deze afspraak telt niet meer mee" : `„${titel}” telt weer altijd`);
   };
   dlg2.onchange = null; dlg2.onclose = () => { dlg2.onclick = null; dlg2.onclose = null; };
   if (!dlg2.open) dlg2.showModal();
 }
 function regelsBlok() {
-  const regels = d().afspraakRegels || [], n = Object.keys(d().verborgen || {}).length + Object.keys(d().rolKeuzes || {}).length;
+  const regels = d().afspraakRegels || [], n = Object.keys(d().verborgen || {}).length + Object.keys(d().rolKeuzes || {}).length + Object.keys(d().herinneringen || {}).length;
   if (!regels.length && !n) return "";
   return `<h3>Afspraken die niet altijd meetellen</h3>
-  <div class="lijst">${regels.map(r => `<div class="linkrij"><span>${r.soort === "rolwerk" ? "💼" : r.soort === "rolprive" ? "🏠" : "🗓"}</span><span>„${esc(r.titel)}” <span class="hint">· ${esc(d().agendas?.[r.bron]?.naam || "agenda van je andere inlog")} · ${r.soort === "rolwerk" ? "telt als " + esc(overzicht(r.lijst)?.naam || "werk") : r.soort === "rolprive" ? "telt als privé (niet " + esc(overzicht(r.lijst)?.naam || "werk") + ")" : "alleen op werkdagen van " + esc(overzicht(r.lijst)?.naam || "?")}</span></span>
+  <div class="lijst">${regels.map(r => `<div class="linkrij"><span>${r.soort === "rolwerk" ? "💼" : r.soort === "rolprive" ? "🏠" : r.soort === "herinnering" ? "🔔" : "🗓"}</span><span>„${esc(r.titel)}” <span class="hint">· ${esc(d().agendas?.[r.bron]?.naam || "agenda van je andere inlog")} · ${r.soort === "herinnering" ? "herinnering (telt niet als bezet)" : r.soort === "rolwerk" ? "telt als " + esc(overzicht(r.lijst)?.naam || "werk") : r.soort === "rolprive" ? "telt als privé (niet " + esc(overzicht(r.lijst)?.naam || "werk") + ")" : "alleen op werkdagen van " + esc(overzicht(r.lijst)?.naam || "?")}</span></span>
     <button type="button" class="x" data-regelweg="${esc(r.id)}" title="Weer altijd meetellen">✕</button></div>`).join("")}
   ${n ? `<div class="linkrij"><span>🙈</span><span>${n} losse ${n === 1 ? "afspraak" : "afspraken"} niet meegeteld of zelf als werk/privé aangeduid</span><button type="button" class="knop klein" data-actie="verborgenWeg">Weer meetellen</button></div>` : ""}</div>`;
+}
+
+// ---------- buiten je beschikbaarheid: verplaatsen, herinnering, of klopt zo ----------
+let laatsteBuiten = [];
+function buitenBlok() {
+  const bots = new Set(laatsteBotsingen.map(c => c.ev.start + "|" + c.ev.titel));   // al gemeld als botsing werk/privé
+  laatsteBuiten = buitenBeschikbaarheid().filter(c => c.soort === "blok" || !bots.has(c.ev.start + "|" + c.ev.titel));
+  if (!laatsteBuiten.length) return "";
+  const regel = (c, i) => { const x = c.ev || c.blok, a = new Date(x.start);
+    return `<div class="linkrij"><span>${c.soort === "blok" ? "📅" : "📌"}</span>
+      <span><b>${dagKort(a)} ${fmtTijd(x.start)}–${fmtTijd(x.eind)}</b> ${esc(x.titel || "Afspraak")}<br><small class="hint">${c.weg ? "op een dag dat je weg bent" : `${fmtDuur(c.min)} buiten je ${c.soort === "blok" && effLijst(overzicht(c.blok.overzicht))?.modus === "vast" ? "werktijden" : "beschikbaarheid"}`}${c.soort === "blok" ? " · ingepland blok" : ""}</small></span>
+      <button type="button" class="knop klein" data-actie="buiten" data-w="${i}">Kiezen…</button></div>`; };
+  return `<div class="paneel botsingen buiten"><b>🌙 Buiten je beschikbaarheid (${laatsteBuiten.length})</b>
+    <p class="hint" style="margin:4px 0 8px">Verplaats het, geef aan dat het een herinnering is (telt dan niet als bezet), of laat het zo.</p>
+    <div class="lijst">${laatsteBuiten.slice(0, 6).map(regel).join("")}${laatsteBuiten.length > 6 ? `<div class="hint">+ ${laatsteBuiten.length - 6} meer</div>` : ""}</div></div>`;
+}
+function buitenVenster(c) {
+  const x = c.ev || c.blok, a = new Date(x.start), b = new Date(x.eind), titel = x.titel || "Afspraak", duur = Math.round((b - a) / 60000);
+  const it = c.blok ? (taak(c.blok.item) || project(c.blok.item)) : null, kan = c.ev ? kanVerplaatsen(c.ev) : false;
+  // voorstel: hetzelfde tijdstip binnen je beschikbaarheid van die dag (begin of eind ervan)
+  const besch = dagIndeling(new Date(a.getFullYear(), a.getMonth(), a.getDate())).beschikbaar;
+  const eerste = besch[0], laatste = besch.at(-1);
+  const voor = !eerste ? a : a < eerste[0] ? eerste[0] : laatste && b > laatste[1] ? new Date(laatste[1].getTime() - duur * 60000) : a;
+  dlg2.innerHTML = `<form method="dialog"><div class="dkop"><span class="soort">🌙 Buiten je beschikbaarheid</span><button type="button" class="sluit" data-sluit aria-label="Sluiten">×</button></div>
+    <div class="dlijf">
+      <h2 style="margin:0">${esc(titel)}</h2>
+      <div class="planstand">${DAGLANG[a.getDay()]} ${a.getDate()} ${MAAND[a.getMonth()]} · ${fmtTijd(x.start)}–${fmtTijd(x.eind)} · ${c.weg ? "je bent die dag weg" : fmtDuur(c.min) + " buiten je " + (c.blok ? "tijden voor deze lijst" : "beschikbare uren")}</div>
+      <div class="keuzes">
+        ${c.blok ? `<button type="button" class="keuzeknop" data-bkeuze="blokverplaats"><b>🕘 Verplaatsen</b><small>Kies een ander moment binnen je beschikbaarheid.</small></button>`
+        : `<button type="button" class="keuzeknop" data-bkeuze="herinnering"><b>🔔 Het is een herinnering</b><small>Blijft als belletje in je agenda, maar telt niet als bezet en wordt hier niet meer gemeld.</small></button>
+        <label class="schakel" style="margin:-2px 0 4px 10px"><input type="checkbox" id="bAlles"> Voor alle „${esc(titel)}” uit deze agenda</label>
+        ${kan ? `<div class="paneel"><b>🕘 Verplaatsen</b> <small class="hint">— in je ${esc(d().agendas?.[c.ev.bron]?.accountSoort === "ms" ? "Outlook" : "Google")}-agenda zelf</small>
+          <div class="rij" style="align-items:end;margin-top:6px"><label class="veld">Dag<input type="date" name="vdag" value="${dagStr(voor)}"></label>
+          <label class="veld">Van<input type="time" name="vvan" value="${fmtTijd(voor.toISOString())}" step="300"></label>
+          <label class="veld">Tot<input type="time" name="vtot" value="${fmtTijd(new Date(voor.getTime() + duur * 60000).toISOString())}" step="300"></label>
+          <button type="button" class="knop" data-bkeuze="verplaats">Verplaatsen</button></div>
+          ${c.ev.herhalend ? `<div class="hint">Dit is één keer uit een herhalende reeks: alleen deze keer wordt verplaatst.</div>` : ""}</div>`
+        : `<div class="hint">🕘 Verplaatsen kan Tijdkompas hier niet: ${c.ev.extId ? "deze agenda is alleen-lezen of niet op dit apparaat gekoppeld" : "deze afspraak komt via een link (alleen lezen)"}. Verplaats hem in je agenda zelf.</div>`}`}
+        <button type="button" class="keuzeknop" data-bkeuze="klopt"><b>✓ Klopt zo</b><small>Niet meer melden.</small></button>
+      </div>
+    </div></form>`;
+  dlg2.onclick = async (e) => {
+    const k = e.target.closest("[data-bkeuze]")?.dataset.bkeuze; if (!k) return;
+    if (k === "klopt") { d().buitenOk = { ...(d().buitenOk || {}), [c.sleutel]: new Date().toISOString() }; bewaar(); dlg2.close(); toast("Wordt niet meer gemeld"); return; }
+    if (k === "herinnering") { const alles = !!$("#bAlles", dlg2)?.checked; afspraakRegel(c.ev, "herinnering", "", alles); bewaar(); dlg2.close(); toast(`„${titel}” is ${alles ? "voortaan " : ""}een herinnering`); return; }
+    if (k === "blokverplaats") { const bl = d().planning.find(y => y.id === c.blok.id); if (bl) haalBlokWeg(bl); bewaar(); if (it) naSluiten(dlg2, () => planTaak(it)); else dlg2.close(); return; }
+    if (k === "verplaats") {
+      const v = (n) => $(`[name=${n}]`, dlg2)?.value || "";
+      const dag = v("vdag"), van = v("vvan"), tot = v("vtot");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dag) || !/^\d{2}:\d{2}$/.test(van) || !/^\d{2}:\d{2}$/.test(tot) || tot <= van) { toast("Kies een dag en van–tot"); return; }
+      const knop = e.target.closest("button"); knop.disabled = true;
+      try { await verplaatsAgendaAfspraak(c.ev, new Date(dag + "T" + van).toISOString(), new Date(dag + "T" + tot).toISOString()); dlg2.close(); toast(`„${titel}” verplaatst naar ${fmtDatum(dag)} ${van}`); }
+      catch (err) { knop.disabled = false; toast("Verplaatsen lukte niet: " + (err?.message || err)); }
+    }
+  };
+  dlg2.onchange = null; dlg2.onclose = () => { dlg2.onclick = null; dlg2.onclose = null; };
+  if (!dlg2.open) dlg2.showModal();
 }
 
 // ---------- werk en privé door elkaar: melden en zelf kiezen ----------
@@ -3100,8 +3177,9 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
     else if (a?.startsWith("feed")) feedActie(a, el);
     else if (a === "herplanAlles") { const r = planAutomatisch(actieveOverzichten()); laatsteWaarschuwingen = r.waarschuwingen; bewaar(); toast(`${r.blokken} blokken ingepland`); }
     else if (a === "herplanWis") { zetHerplan([]); render(); }
-    else if (a === "verborgenWeg") { d().verborgen = {}; d().rolKeuzes = {}; bewaar(); toast("Alles telt weer zoals de agenda zegt"); }
+    else if (a === "verborgenWeg") { d().verborgen = {}; d().rolKeuzes = {}; d().herinneringen = {}; bewaar(); toast("Alles telt weer zoals de agenda zegt"); }
     else if (a === "famToggle" && w) { const l = famUit(); voorkeur.zet("famUit", l.includes(w) ? l.filter(x => x !== w) : [...l, w]); render(); }
+    else if (a === "buiten") { const c = laatsteBuiten[+w]; if (c) buitenVenster(c); }
     else if (a === "botsing") { const c = laatsteBotsingen[+w]; if (c) botsingVenster(c); }
     else if (a === "werkweek") openWeek(w || "");
     else if (a === "week") { weekVerschuiving = w === "0" ? 0 : weekVerschuiving + +w; render(); }

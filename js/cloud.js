@@ -396,13 +396,14 @@ export function familieBezetRuw() {
 }
 /** Afspraakregels en verborgen afspraken van je gelinkte accounts (gelden ook hier) */
 export function familieRegels() {
-  const regels = [], verborgen = {}, rolKeuzes = {};
+  const regels = [], verborgen = {}, rolKeuzes = {}, herinneringen = {};
   for (const [, x] of familieDocs) {
-    for (const r of Array.isArray(x.afspraakRegels) ? x.afspraakRegels : []) if (r && typeof r.bron === "string" && ["werkdag", "rolwerk", "rolprive"].includes(r.soort) && veiligId(r.lijst)) regels.push({ bron: r.bron, titel: String(r.titel || ""), lijst: r.lijst, soort: r.soort, id: String(r.id || "") });
+    for (const r of Array.isArray(x.afspraakRegels) ? x.afspraakRegels : []) if (r && typeof r.bron === "string" && ["werkdag", "rolwerk", "rolprive", "herinnering"].includes(r.soort) && (r.soort === "herinnering" || veiligId(r.lijst))) regels.push({ bron: r.bron, titel: String(r.titel || ""), lijst: r.lijst, soort: r.soort, id: String(r.id || "") });
     for (const [k, v] of Object.entries(x.verborgen && typeof x.verborgen === "object" ? x.verborgen : {})) if (typeof k === "string") verborgen[k] = v;
+    for (const [k, v] of Object.entries(x.herinneringen && typeof x.herinneringen === "object" ? x.herinneringen : {})) if (typeof v === "string") herinneringen[k] = v;
     for (const [k, v] of Object.entries(x.rolKeuzes && typeof x.rolKeuzes === "object" ? x.rolKeuzes : {})) if (v && ["werk", "prive"].includes(v.rol) && veiligId(v.lijst)) rolKeuzes[k] = { rol: v.rol, lijst: v.lijst };
   }
-  return { regels, verborgen, rolKeuzes };
+  return { regels, verborgen, rolKeuzes, herinneringen };
 }
 /** De instellingen van een lijst bij je gelinkte accounts (o.a. hun afwijkingen en wat ze hebben laten zo) */
 export function familieLijstInst(lijstId) {
@@ -523,7 +524,7 @@ function bouw() {
   const items = ids.flatMap(id => (itemDocs.get(id) || []).map(x => ({ ...x, overzicht: id })));
   const titels = leesTitels();
   const d = aanvullen({
-    locaties: u.locaties, beschikbaar: u.beschikbaar, afwezig: u.afwezig || {}, afspraakRegels: u.afspraakRegels || [], verborgen: u.verborgen || {}, rolKeuzes: u.rolKeuzes || {}, feeds: u.feeds || [], instellingen: u.instellingen, agendas: u.agendas || {}, extern: u.extern || {},
+    locaties: u.locaties, beschikbaar: u.beschikbaar, afwezig: u.afwezig || {}, afspraakRegels: u.afspraakRegels || [], verborgen: u.verborgen || {}, rolKeuzes: u.rolKeuzes || {}, herinneringen: u.herinneringen || {}, buitenOk: u.buitenOk || {}, feeds: u.feeds || [], instellingen: u.instellingen, agendas: u.agendas || {}, extern: u.extern || {},
     planning: u.planning || [], agendaSync: u.agendaSync, gewijzigd: u.gewijzigd, takenlijsten: u.takenlijsten || {}, takenSync: u.takenSync || "", koppelingen: u.koppelingen, agendaLinks: u.agendaLinks || [],
     bezet: (u.bezet || []).map(e => ({ ...e, titel: titels.bezet?.[e.id]?.titel || e.titel || "Bezet", plaats: titels.bezet?.[e.id]?.plaats || e.plaats || "" })),
     overzichten: ids.map(id => {
@@ -579,7 +580,7 @@ function naarDocs(d) {
   const schijfLijst = new Set(d.overzichten.filter(o => o.opslag).map(o => o.id));
   onthoudTitels(d);
   docs.set("gebruikers/" + ik, schoon({
-    locaties: d.locaties, beschikbaar: d.beschikbaar, afwezig: d.afwezig || {}, afspraakRegels: d.afspraakRegels || [], verborgen: d.verborgen || {}, rolKeuzes: d.rolKeuzes || {}, feeds: d.feeds || [], instellingen: d.instellingen, agendas: d.agendas || {},
+    locaties: d.locaties, beschikbaar: d.beschikbaar, afwezig: d.afwezig || {}, afspraakRegels: d.afspraakRegels || [], verborgen: d.verborgen || {}, rolKeuzes: d.rolKeuzes || {}, herinneringen: d.herinneringen || {}, buitenOk: d.buitenOk || {}, feeds: d.feeds || [], instellingen: d.instellingen, agendas: d.agendas || {},
     extern: Object.fromEntries(Object.entries(d.extern || {}).map(([k, x]) => { const { titel, ...r } = x; return [k, titel !== undefined && !r.th ? { ...r, th: vingerafdruk(titel) } : r]; })),
     planning: (d.planning || []).map(b => schijfLijst.has(b.overzicht) && b.soort !== "reis" ? { ...b, titel: "" } : b),
     // afspraken mét titel: zo ziet elke inlog en elk apparaat van dit Tijdkompas dezelfde agenda
