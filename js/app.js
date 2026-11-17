@@ -2317,7 +2317,7 @@ function planTaak(it) {
     const tijd = (n) => $(`[name=${n}]`, dlg2)?.value || "";
     if (a === "pmin") { const v = leesDuur(tijd("pmin")); if (v > 0) { minDuur = Math.max(5, Math.round(v / 5) * 5); voorkeur.zet("planMin", minDuur); aantal = 16; melding = ""; teken(); } else toast("Vul een lengte in, bv. 1u30 of 45m"); }
     else if (a === "pmeer") { aantal += 16; teken(); }
-    else if (a === "pvoorrang") { dlg2.close(); doenVenster(it); }
+    else if (a === "pvoorrang") naSluiten(dlg2, () => doenVenster(it));
     else if (a === "aWeg") { aanpas = null; teken(); }
     else if (a === "aZet" || a === "pzelf") {
       const dag = a === "aZet" ? aanpas.dag : tijd("pdag"), van = tijd(a === "aZet" ? "avan" : "pvan"), tot = tijd(a === "aZet" ? "atot" : "ptot");
@@ -2331,6 +2331,18 @@ function planTaak(it) {
   dlg2.onclose = () => { clearTimeout(lang); for (const k of ["onkeydown", "oncontextmenu", "onpointerdown", "onpointerup", "onpointercancel", "onpointerleave", "onclose"]) dlg2[k] = null; };
   teken();
   if (!dlg2.open) dlg2.showModal();
+}
+
+// Een venster vervangen door een ander in hetzelfde dialoogvenster: pas verder als het oude écht dicht is.
+// (De browser meldt "dicht" iets later; zou het nieuwe venster al open staan, dan ruimt de afsluiting van het oude
+// de knoppen van het nieuwe op — en kun je nergens meer op klikken.)
+function naSluiten(dl, verder) {
+  if (!dl.open) { verder(); return; }
+  let gedaan = false;
+  const door = () => { if (gedaan) return; gedaan = true; setTimeout(verder, 0); };
+  dl.addEventListener("close", door, { once: true });
+  dl.close();
+  setTimeout(door, 60);                                         // vangnet
 }
 
 // ---------- Doen: meteen, met voorrang ----------
@@ -2375,8 +2387,22 @@ function voerVoorrangUit(it, modus, hierAl) {
   if (weg.length) zetHerplan([...herplanIds(), ...weg]);
   bewaar();
   const moment = `${fmtDatum(dagStr(r.a))} ${fmtTijd(r.a.toISOString())}`;
-  if (r.over.length) overVenster(it, r.over);
-  else toast(`⚡ „${it.titel}” staat ${moment}${weg.length ? ` — ${weg.length} ${weg.length === 1 ? "taak" : "taken"} eruit gehaald, staan bij „Opnieuw in te plannen”` : r.verschoven.length ? ` — ${r.verschoven.length} opgeschoven` : ""}${r.rest ? ` · nog ${fmtDuur(r.rest)} later` : ""}`);
+  if (r.over.length) {
+    // wat niet meer in dit werkmoment past: meteen in de eerstvolgende vrije gaten (in dezelfde volgorde)
+    const over = r.over, niet = plaatsVanaf(over, new Date(r.blok.eind));
+    if (niet.length) zetHerplan([...herplanIds(), ...niet.map(e => e.blok.item).filter(Boolean)]);
+    bewaar();
+    const gezet = over.filter(e => !niet.includes(e)), eerste = gezet[0]?.blok;
+    toast(`⚡ „${it.titel}” staat ${moment} — ${gezet.length} ${gezet.length === 1 ? "taak" : "taken"} doorgeschoven naar de volgende vrije plek${eerste ? ` (vanaf ${fmtDatum(dagStr(new Date(eerste.start)))} ${fmtTijd(eerste.start)})` : ""}${niet.length ? `, ${niet.length} nergens gepast (bij „Opnieuw in te plannen”)` : ""}`,
+      gezet.length ? { label: "Zelf kiezen…", f: () => {
+        const delen = new Set(gezet.flatMap(e => [e.blok, e.heen, e.terug].filter(Boolean)));
+        d().planning = d().planning.filter(b => !delen.has(b));
+        overVenster(it, gezet);
+      } } : undefined);
+    agendaBij([r.blok?.id, ...over.flatMap(e => [e.blok, e.heen, e.terug].filter(Boolean).map(b => b.id)), ...r.verschoven.map(b => b.id)]);
+    return;
+  }
+  toast(`⚡ „${it.titel}” staat ${moment}${weg.length ? ` — ${weg.length} ${weg.length === 1 ? "taak" : "taken"} eruit gehaald, staan bij „Opnieuw in te plannen”` : r.verschoven.length ? ` — ${r.verschoven.length} opgeschoven` : ""}${r.rest ? ` · nog ${fmtDuur(r.rest)} later` : ""}`);
   agendaBij([r.blok?.id, ...r.weg.map(b => b.id), ...r.verschoven.map(b => b.id), ...[...oudeIds].filter(id => !d().planning.some(b => b.id === id))]);
 }
 function doenVenster(it, hierAl = false) {
@@ -2403,10 +2429,10 @@ function doenVenster(it, hierAl = false) {
     const a = e.target.closest("button")?.dataset.actie; if (!a) return;
     if (a === "hierAl") { doenVenster(it, true); return; }
     if (a === "nietNu") { dlg2.close(); return; }
-    if (a === "zelf") { dlg2.close(); planTaak(it); return; }
+    if (a === "zelf") { naSluiten(dlg2, () => planTaak(it)); return; }
     if (a === "weg" || a === "schuif") {
       if ($("#doenOnthoud", dlg2)?.checked) { d().instellingen.doenModus = a; }
-      dlg2.close(); voerVoorrangUit(it, a, hierAl);
+      naSluiten(dlg2, () => voerVoorrangUit(it, a, hierAl));
     }
   };
   dlg2.onchange = null; dlg2.onclose = () => { dlg2.onclick = null; dlg2.onclose = null; };
@@ -2421,7 +2447,7 @@ function overVenster(it, over) {
   const morgen = new Date(Date.now() + 864e5);
   dlg2.innerHTML = `<form method="dialog"><div class="dkop"><span class="soort">⏩ Opgeschoven — waar moet de rest heen?</span></div>
     <div class="dlijf">
-      <p class="hint" style="margin:0">„${esc(it.titel)}” staat erin; alles erna is opgeschoven. Dit past niet meer in dit werkmoment (${fmtDuur(totaal)}):</p>
+      <p class="hint" style="margin:0">„${esc(it.titel)}” staat erin; alles erna is opgeschoven. Dit past niet meer in dat werkmoment (${fmtDuur(totaal)}). Kies waar het heen gaat:</p>
       <div class="lijst">${over.map(e => `<div class="linkrij"><span>○</span><span>${esc(e.blok.titel)}</span><span class="hint">${fmtDuur(e.duur)}</span></div>`).join("")}</div>
       <div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">Kies het volgende werkmoment — daar komen ze achter elkaar</div>
         ${ms.length ? `<div class="voorstellen">${ms.map(v => `<button type="button" class="voorstel" data-vanaf="${v.a.toISOString()}">${fmtDatum(v.dag)}<small>vanaf ${fmtTijd(v.a.toISOString())} · ${fmtDuur(v.duur)} vrij</small></button>`).join("")}</div>` : `<div class="hint">Geen vrije momenten gevonden.</div>`}</div>
