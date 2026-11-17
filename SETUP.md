@@ -8,7 +8,7 @@ Gebruikers merken er niets van. Zij klikken alleen in de app op „Inloggen met 
 
 | Stap | Waarvoor | Status |
 |---|---|---|
-| **A** Firebase | inloggen met Google of met een link per e-mail (2b), online opslag, delen | ✅ gedaan — ⚠️ **plak de nieuwste `firestore.rules` opnieuw** (zie [Beveiligingsregels bijwerken](#beveiligingsregels-bijwerken); nieuw op 17-11-2026: abonneer-link voor je werkagenda) |
+| **A** Firebase | inloggen met Google of met een link per e-mail (2b), online opslag, delen | ✅ gedaan — ⚠️ **plak de nieuwste `firestore.rules` opnieuw** (zie [Beveiligingsregels bijwerken](#beveiligingsregels-bijwerken); nieuw op 17-11-2026: abonneer-link voor je werkagenda, en gelinkte accounts zien elkaars planning ook onderling) |
 | **B** Microsoft-omgeving + app | inloggen met Microsoft (B0: eenmalig een gratis eigen omgeving) | ✅ gedaan — maak het geheim (B2) opnieuw aan als het ooit in een chat of mail heeft gestaan |
 | **C-Google** | Google Agenda, Google Taken en Google Drive koppelen | Client ID ✅ ingevuld; controleer de rest van stap C-Google |
 | **C-Microsoft** | Outlook-agenda, Microsoft To Do (Outlook-taken) en OneDrive koppelen | ✅ client-ID ingevuld, redirect-URI (SPA) staat |

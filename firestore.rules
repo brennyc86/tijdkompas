@@ -1,6 +1,7 @@
 rules_version = '2';
 // Tijdkompas — wie mag wat
-//   gebruikers/{uid}               alleen jijzelf, en de accounts die je aan je Tijdkompas hebt gelinkt (aliassen).
+//   gebruikers/{uid}               alleen jijzelf, en de accounts die je aan je Tijdkompas hebt gelinkt (aliassen),
+//                                  ook onderling (werk ziet hobby als beide aan hetzelfde hoofd hangen).
 //                                  Hierin staan je agenda, planning, koppelingen en persoonlijke koers: niemand anders kan dit lezen.
 //   lijsten/{id}, mappen/{id}      leden lezen en schrijven taken; alleen de eigenaar (en diens gelinkte accounts) wijzigt
 //                                  naam, kleur, icoon en wie er is uitgenodigd. Niemand komt in een lijst zonder zelf te accepteren
@@ -99,6 +100,13 @@ service cloud.firestore {
 
     match /gebruikers/{uid} {
       function familie() { return resource != null && request.auth.uid in resource.data.get('aliassen', []); }
+      // Twee gelinkte accounts van hetzelfde hoofd (bijv. werk en hobby onder privé) mogen elkaars agenda en planning
+      // ook zien — maar alleen als alle drie het eens zijn: beide staan in de aliassen van het hoofd én wijzen zelf naar dat hoofd.
+      function zelfdeFamilie() {
+        let h = resource == null ? '' : resource.data.get('hoofd', '');
+        return h is string && h != '' && h != uid && h != request.auth.uid
+          && familieVan(uid, h) && gebr(request.auth.uid).get('hoofd', '') == h;
+      }
       // Een account linkt zichzelf aan dit (hoofd)account met een koppelcode die het hoofd heeft gebruikt:
       // alleen zichzelf toevoegen, alleen als de code net (in dezelfde schrijfactie) door hem bevestigd wordt.
       function koppelOk() {
@@ -107,7 +115,7 @@ service cloud.firestore {
         let na = getAfter(/databases/$(db)/documents/koppelcodes/$(id)).data;
         return voor.status == 'verzocht' && na.status == 'klaar' && voor.uid == request.auth.uid && voor.van.uid == uid;
       }
-      allow read: if ingelogd() && (request.auth.uid == uid || familie());
+      allow read: if ingelogd() && (request.auth.uid == uid || familie() || zelfdeFamilie());
       allow create, delete: if ingelogd() && request.auth.uid == uid;
       allow update: if ingelogd() && (request.auth.uid == uid
                     || (familie() && request.resource.data.get('aliassen', []) == resource.data.get('aliassen', []))

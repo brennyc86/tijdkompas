@@ -549,3 +549,4 @@ a.koersitem{text-decoration:none;color:inherit}
 .feedurl{display:flex;gap:6px;align-items:center}
 .feedurl input{flex:1;min-width:0;font-family:ui-monospace,Consolas,monospace;font-size:12px}
 .feedlijsten{display:flex;flex-wrap:wrap;gap:4px 14px}
+.legenda .lg.famblok{background:color-mix(in srgb,var(--zacht) 30%,var(--paneel));border-left:2px dashed var(--zacht);opacity:.7}

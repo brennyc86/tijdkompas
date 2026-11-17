@@ -11,7 +11,7 @@ import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, 
 import { syncTaken, takenVerbindingen, koppelTakenlijst, takenlijstVan, takenVerbindingVan } from "./takensync.js";
 import { kiesEmoji, voorstellen } from "./emoji.js";
 import { veiligeUrl, veiligeFoto } from "./veilig.js";
-import { feedsLater, feedsBijwerken, feedStand, feedUrl, feedWeg, nieuweFeedSleutel, feedBlokken, cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda, gelinkteInfo, stuurInlogLink,
+import { emailVan, feedsLater, feedsBijwerken, feedStand, feedUrl, feedWeg, nieuweFeedSleutel, feedBlokken, cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda, gelinkteInfo, stuurInlogLink,
          koppel as koppelStaat, vraagKoppelcode, gebruikKoppelcode, beantwoordKoppel, stopKoppelcode, stuurBevestiging, controleerBevestiging } from "./cloud.js";
 familieHaak.agenda = familieAgenda;
 
@@ -687,6 +687,8 @@ function agenda() {
         <button class="knop gevaar" data-actie="wisPlanning" ${toekomst.length ? "" : "disabled"}>Planning wissen</button>
       </div></details>
     </div></div>
+  ${ingelogd() && cloud.familieFout?.size ? `<div class="waarsch"><b>De planning van ${esc([...cloud.familieFout.keys()].map(u => emailVan(u) || "een gelinkt account").join(", "))} is niet te zien.</b>
+    ${esc([...cloud.familieFout.values()][0] || "")} Na het bijwerken: log opnieuw in of ververs de pagina.</div>` : ""}
   ${laatsteWaarschuwingen.length ? `<div class="waarsch"><b>Let op:</b><ul>${laatsteWaarschuwingen.map(w => `<li>${esc(w)}</li>`).join("")}</ul></div>` : ""}
   <div class="week" style="--dagen:${n}" id="weekRaster">
     <div class="wkop"></div>${dagen.map(dag => { const I = dagIndeling(dag), lab = dagLabel(I);
@@ -701,7 +703,7 @@ function agenda() {
       <p class="hint">Klik op „Nog niet ingepland” voor voorstellen in je eigen beschikbaarheid, of laat ⚡ Automatisch inplannen alles verdelen.</p>
       <div class="lijst">${open.slice(0, 30).map(([t]) => t.type === "taak" ? itemRij(t) : projectRijPlan(t)).join("")}${open.length > 30 ? `<div class="hint">+ ${open.length - 30} meer — zie Taken → „Ingepland of niet”</div>` : ""}</div></details>` : ""; })()}
   <div class="legenda"><span><i class="lg venster"></i> vaste tijden van een lijst</span><span><i class="lg reisband"></i> reistijd</span><span><i class="lg beschikb"></i> beschikbaar (vrije tijd)</span><span><i class="lg eldersband"></i> cursus / elders</span>
-    <span><i class="lg bezet"></i> afspraak uit je agenda${(sessie.familie || []).length > 1 ? " · gedimd: agenda en planning van je gelinkte account" : ""}</span><span>📌 vastgezet · ✓ staat in je agenda</span>
+    <span><i class="lg bezet"></i> afspraak uit je agenda</span>${(sessie.familie || []).length > 1 ? `<span><i class="lg famblok"></i> gedimd: agenda en planning van ${esc(sessie.familie.filter(u => u !== sessie.ik).map(u => emailVan(u) || "gelinkt account").join(", "))}</span>` : ""}<span>📌 vastgezet · ✓ staat in je agenda</span>
     ${d().bezet.some(b => !verbindingVanBron(b.bron)) ? `<span>${d().bezet.filter(b => !verbindingVanBron(b.bron)).length} afspraken uit .ics · <a href="#" data-actie="wisBezet">wissen</a></span>` : ""}</div>
   <div class="paneel" style="margin-top:16px;font-size:13px;color:var(--meta)">
     <b style="color:var(--tekst)">Zo werkt inplannen</b> — Taken gaan op volgorde van kwadrant en deadline/streefdatum.

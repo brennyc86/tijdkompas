@@ -35,7 +35,7 @@ const B = "https://www.gstatic.com/firebasejs/10.14.1/";
 let A = null, F = null, auth = null, db = null;
 let tweede = null;   // { auth, db }: een tweede Firebase-app om een extra account toe te voegen zonder jezelf uit te loggen
 
-export const cloud = { geladen: false, gebruiker: null, uitnodigingen: [], bezig: false, fout: "", melding: "",
+export const cloud = { geladen: false, gebruiker: null, uitnodigingen: [], bezig: false, fout: "", melding: "", familieFout: new Map(),
                        familie: [], aliasInfo: {}, hoofdInfo: null, hoofdUid: null };   // familie: alle gelinkte uid's (incl. jij)
 const familie = () => (cloud.familie.length ? cloud.familie : [sessie.ik]);
 const authUid = () => cloud.gebruiker?.uid || sessie.ik;
@@ -191,7 +191,7 @@ function stop() {
   lijstDocs.clear(); itemDocs.clear(); mapDocs.clear(); wachtend = new Map(); bekend.clear(); gebruikerDoc = null; inGeheugen = new Set();
   geladen = { gebruiker: false, lijsten: false, mappen: false };
   clearTimeout(schrijfTimer); schrijfTimer = null;
-  familieSubs.forEach(f => f()); familieSubs.clear(); familieDocs.clear();
+  familieSubs.forEach(f => f()); familieSubs.clear(); familieDocs.clear(); cloud.familieFout.clear();
 }
 
 // JSON met gesorteerde sleutels, zodat Firestore-volgorde geen schijnverschillen geeft
@@ -344,7 +344,7 @@ function abonneerFamilie() {
   const andere = cloud.familie.filter(u => u !== sessie.ik);
   for (const [u, f] of familieSubs) if (!andere.includes(u)) { f(); familieSubs.delete(u); familieDocs.delete(u); }
   for (const u of andere) if (!familieSubs.has(u)) familieSubs.set(u, F.onSnapshot(F.doc(db, "gebruikers", u), (s) => {
-    const x = s.data() || {}; familieDocs.set(u, x);
+    const x = s.data() || {}; familieDocs.set(u, x); cloud.familieFout.delete(u);
     if (u === cloud.hoofdUid) {            // als gelinkt account: de familie staat bij het hoofd
       if (!(x.aliassen || []).includes(sessie.ik)) { opnieuw(); return; }   // losgekoppeld terwijl ingelogd
       cloud.familie = [u, ...x.aliassen]; sessie.familie = [...cloud.familie];
@@ -352,7 +352,11 @@ function abonneerFamilie() {
       abonneerFamilie();
     }
     verhuisStraks(); bouwStraks(); meld();
-  }, () => { familieDocs.delete(u); if (u === cloud.hoofdUid) opnieuw(); }));
+  }, (e) => {
+    // niet te lezen (meestal: de nieuwste beveiligingsregels staan nog niet in Firebase) — laten zien in plaats van stil weglaten
+    familieDocs.delete(u); familieSubs.delete(u); cloud.familieFout.set(u, foutTekst(e)); meld(); bouwStraks();
+    if (u === cloud.hoofdUid) opnieuw();
+  }));
 }
 const accVan = (k) => String(k || "").match(/^(?:google|ms):([^|]+)/)?.[1]?.toLowerCase() || "";
 export function emailVan(uid) {
