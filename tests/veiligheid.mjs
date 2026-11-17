@@ -52,6 +52,12 @@ const regels = fs.readFileSync(ROOT + "/firestore.rules", "utf8");
 for (const f of ["uitgenodigd", "muitgenodigd"]) if (!new RegExp(`function ${f}\\(\\) \\{[^}]*geverifieerd\\(\\)`).test(regels)) fout(`firestore.rules: ${f}() controleert het e-mailadres niet`);
 if (!/email_verified/.test(regels)) fout("firestore.rules: email_verified wordt nergens gecontroleerd");
 if (/hasOnly\(\['uid', 'email', 'naam'/.test(regels)) fout("firestore.rules: koppelcode met zelfgekozen naam");
+// Abonneer-link: alleen op te halen met de lange sleutel, nooit op te sommen; het doorgeefluik haalt hem alleen uit Firestore
+if (!/match \/feeds\/\{sleutel\} \{[\s\S]*?allow list: if false;/.test(regels)) fout("firestore.rules: feeds zijn op te sommen");
+if (!/sleutel\.matches\('\^\[A-Za-z0-9_-\]\{32,64\}\$'\)/.test(regels)) fout("firestore.rules: feed-sleutel niet lang genoeg afgedwongen");
+if (!/const FEED = \/\^\\\/feed\\\/\(\[A-Za-z0-9_-\]\{32,64\}\)\\\.ics\$\//.test(wk)) fout("doorgeefluik: feed-route zonder strikte sleutel");
+const wkRuw = fs.readFileSync(ROOT + "/worker/agenda-doorgeef.js", "utf8");
+if (!/fetch\(url[^)]*\)/.test(wkRuw) || !/const url = `https:\/\/firestore\.googleapis\.com\/v1\/projects\/\$\{FIREBASE_PROJECT\}\/databases\/\(default\)\/documents\/feeds\/\$\{sleutel\}`/.test(wkRuw)) fout("doorgeefluik: feed komt niet (alleen) uit Firestore");
 
 // ---------- 2. dynamisch ----------
 const P = `"'><xss-x data-xss="1" onmouseover="alert(1)">`;

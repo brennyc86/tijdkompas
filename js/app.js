@@ -11,7 +11,7 @@ import { verversAgendas, zetNaarAgendas, verversLinks, linkBron } from "./sync.j
 import { syncTaken, takenVerbindingen, koppelTakenlijst, takenlijstVan, takenVerbindingVan } from "./takensync.js";
 import { kiesEmoji, voorstellen } from "./emoji.js";
 import { veiligeUrl, veiligeFoto } from "./veilig.js";
-import { cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda, gelinkteInfo, stuurInlogLink,
+import { feedsLater, feedsBijwerken, feedStand, feedUrl, feedWeg, nieuweFeedSleutel, feedBlokken, cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda, gelinkteInfo, stuurInlogLink,
          koppel as koppelStaat, vraagKoppelcode, gebruikKoppelcode, beantwoordKoppel, stopKoppelcode, stuurBevestiging, controleerBevestiging } from "./cloud.js";
 familieHaak.agenda = familieAgenda;
 
@@ -368,7 +368,7 @@ function render() {
   if (dlg3.open && instOpen) tekenInst();
 }
 window.addEventListener("hashchange", () => { render(); window.scrollTo(0, 0); });
-opslag.luister(({ stil } = {}) => { if (!stil) planSchrijven(); render(); });
+opslag.luister(({ stil } = {}) => { if (!stil) planSchrijven(); feedsLater(); render(); });
 // Enter in het e-mailveld: inloglink sturen (niet het venster sluiten)
 document.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.id === "inlogMail") { e.preventDefault(); e.target.closest("div").parentElement.querySelector("[data-actie=mailLink]")?.click(); } }, true);
 opCloud(() => {
@@ -1270,6 +1270,8 @@ function instKoppelingen() {
 
   ${linkBlok()}
 
+  ${feedBlok()}
+
   ${kanAgenda ? `<h3>Opslag in je eigen Drive of OneDrive</h3>
   <p class="hint">Je kunt per lijst kiezen om hem in je eigen Google Drive of OneDrive te bewaren (Instellingen → Lijsten → Opslag), bijvoorbeeld je werklijst in je zakelijke OneDrive.
     Tijdkompas krijgt dan alleen toegang tot een eigen verborgen map, niet tot je andere bestanden. Zulke lijsten zijn persoonlijk: delen kan alleen vanuit de Tijdkompas-cloud.
@@ -1287,6 +1289,59 @@ function instKoppelingen() {
   ${icsBronnen.length ? `<div class="paneel agendagroep"><div class="hint" style="margin-bottom:6px">Agenda's via link en .ics-bestanden</div>${icsBronnen.map(b => agendaRij([b, d().agendas[b]])).join("")}</div>` : ""}
   ${lijst.length ? `<div style="margin-top:8px"><button class="knop" data-actie="ophalen">🔄 Agenda's ophalen</button>
     <span class="hint">${d().agendaSync ? "Laatst: " + new Date(d().agendaSync).toLocaleString("nl-NL", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}</span></div>` : ""}` : ""}`;
+}
+
+// ---------- abonneer-link (.ics) voor je werkagenda ----------
+function feedBlok() {
+  const feeds = d().feeds || [];
+  const keuze = d().overzichten.filter(o => !o.opslag && !o.slot);
+  const wanneer = (iso) => iso ? new Date(iso).toLocaleString("nl-NL", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+  const rij = (f) => {
+    const st = feedStand.get(f.id) || {}, n = feedBlokken(f).length;
+    return `<div class="paneel feedrij" data-feed="${esc(f.id)}">
+      <label class="veld">Naam van de agenda<input type="text" data-feedveld="naam" value="${esc(f.naam)}" maxlength="100"></label>
+      <div class="feedurl"><input type="text" readonly value="${esc(feedUrl(f.id))}" aria-label="Abonneer-link" data-feedurl>
+        <button type="button" class="knop klein prim" data-actie="feedKopie">📋 Kopiëren</button></div>
+      <div><div class="hint" style="margin-bottom:4px">Welke lijsten erin staan</div><div class="chips feedlijsten">${keuze.map(o =>
+        `<label class="schakel"><input type="checkbox" data-feedlijst="${o.id}" ${(f.lijsten || []).includes(o.id) ? "checked" : ""}> ${esc(o.icoon)} ${esc(o.naam)}</label>`).join("")}</div></div>
+      <label class="schakel"><input type="checkbox" data-feedopt="titels" ${f.titels !== false ? "checked" : ""}> Namen van de taken meesturen (anders staat er alleen „Werkblok”)</label>
+      <label class="schakel"><input type="checkbox" data-feedopt="reis" ${f.reis ? "checked" : ""}> Reistijd meesturen</label>
+      <div class="hint">${n} ${n === 1 ? "blok" : "blokken"} (vanaf twee weken terug)${st.fout ? ` · <span style="color:var(--rood)">bijwerken mislukt: ${esc(st.fout)}</span>` : st.bijgewerkt ? ` · link bijgewerkt ${esc(wanneer(st.bijgewerkt))}` : ""}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="knop klein" data-actie="feedNieuw" title="Maak een nieuwe link; de oude werkt daarna niet meer">🔄 Nieuwe link</button>
+        <button type="button" class="knop klein gevaar" data-actie="feedIntrekken">Link intrekken</button></div>
+    </div>`;
+  };
+  return `<h3>📡 Abonneer-link voor je werkagenda</h3>
+  <p class="hint">Een link (.ics, alleen lezen) met je ingeplande blokken. Geef hem aan Copilot om de blokken in je werkagenda te zetten, of voeg hem in Outlook toe via <i>Agenda toevoegen → Abonneren vanaf het web</i>.
+    Alle blokken staan op <b>vrij</b>, zodat ze collega's niet blokkeren en Tijdkompas ze bij het ophalen niet als bezet ziet. De link wordt bijgewerkt zodra je iets wijzigt (op een apparaat waar je bent ingelogd).
+    Wie de link heeft, kan hem lezen: deel hem alleen met je eigen agenda of Copilot. Uitgelekt? Maak een nieuwe link.</p>
+  ${!ingelogd() ? `<div class="hint">Log in om een link te maken: de link haalt je planning uit de Tijdkompas-cloud.</div>`
+    : `${feeds.map(rij).join("")}<div style="margin-top:8px"><button type="button" class="knop" data-actie="feedBij">＋ Link maken</button></div>`}`;
+}
+const feedVan = (el) => (d().feeds || []).find(f => f.id === el.closest("[data-feed]")?.dataset.feed);
+async function feedActie(a, el) {
+  if (a === "feedBij") {
+    const werk = d().overzichten.filter(o => o.modus === "vast" && !o.opslag && !o.slot);
+    const lijsten = (werk.length ? werk : d().overzichten.filter(o => !o.opslag && !o.slot).slice(0, 1)).map(o => o.id);
+    d().feeds = [...(d().feeds || []), { id: nieuweFeedSleutel(), naam: "Tijdkompas – " + (werk[0]?.naam || "planning"), lijsten, titels: true, reis: false, aangemaakt: new Date().toISOString() }];
+    bewaar(); await feedsBijwerken(); render(); toast("Link gemaakt — kopieer hem en geef hem aan Copilot of Outlook");
+    return;
+  }
+  const f = feedVan(el); if (!f) return;
+  if (a === "feedKopie") {
+    const url = feedUrl(f.id);
+    try { await navigator.clipboard.writeText(url); toast("Link gekopieerd"); }
+    catch { const i = el.closest("[data-feed]").querySelector("[data-feedurl]"); i?.select?.(); toast("Selecteer de link en kopieer hem"); }
+  } else if (a === "feedNieuw") {
+    if (!confirm("Een nieuwe link maken? De oude link werkt daarna niet meer; geef de nieuwe opnieuw aan Copilot of Outlook.")) return;
+    const oud = f.id; f.id = nieuweFeedSleutel(); bewaar();
+    try { await feedWeg(oud); } catch {}
+    await feedsBijwerken(); render(); toast("Nieuwe link gemaakt; de oude is ingetrokken");
+  } else if (a === "feedIntrekken") {
+    if (!confirm("Deze link intrekken? Agenda's die hem gebruiken krijgen dan niets meer binnen.")) return;
+    try { await feedWeg(f.id); } catch (e) { toast("Intrekken mislukt: " + foutTekst(e)); return; }
+    d().feeds = d().feeds.filter(x => x !== f); bewaar(); toast("Link ingetrokken");
+  }
 }
 
 // ---------- takenlijsten (Google Taken / Microsoft To Do) ----------
@@ -2486,6 +2541,7 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
     else if (a === "thema" && w) { voorkeur.zet("thema", w); zetThema(); render(); }
     else if (a === "themaKies" && w) { d().instellingen.thema = w; voorkeur.zet("thema", w); bewaar(); zetThema(); }
     else if (a === "roosterBij" || a === "roosterWeg") roosterKlik(el, a);
+    else if (a?.startsWith("feed")) feedActie(a, el);
     else if (a === "werkweek") openWeek(w || "");
     else if (a === "week") { weekVerschuiving = w === "0" ? 0 : weekVerschuiving + +w; render(); }
     else if (a === "plan") {
@@ -2654,6 +2710,14 @@ main.addEventListener("submit", async (e) => {
   }
 });
 function hoofdWijzig(e) {
+  const fd = e.target.closest?.("[data-feed]");
+  if (fd && (e.target.dataset.feedlijst || e.target.dataset.feedopt || e.target.dataset.feedveld)) {
+    const f = feedVan(e.target); if (!f) return;
+    if (e.target.dataset.feedlijst) { const id = e.target.dataset.feedlijst; f.lijsten = e.target.checked ? [...new Set([...(f.lijsten || []), id])] : (f.lijsten || []).filter(x => x !== id); }
+    else if (e.target.dataset.feedopt) f[e.target.dataset.feedopt] = e.target.checked;
+    else f.naam = e.target.value.trim().slice(0, 100) || "Tijdkompas";
+    bewaar(); feedsBijwerken().then(render).catch(() => {}); return;
+  }
   if (e.target.dataset?.rveld && roosterWijzig(e)) return;
   if (e.target.matches?.("[data-linkkleur]")) {
     const l = d().agendaLinks.find(x => x.id === e.target.closest("[data-link]").dataset.link);

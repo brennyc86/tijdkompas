@@ -26,7 +26,7 @@
 import { CONFIG } from "./config.js";
 import { opslag, sessie, uid as nieuwId, startData, isIk, bewaar } from "./data.js";
 import { aanvullen, haak, laadOntbrekende, vergeet } from "./schijf.js";
-import { herkenLocatie } from "./plan.js";
+import { herkenLocatie, maakFeedIcs } from "./plan.js";
 import { vingerafdruk } from "./sync.js";
 import { veiligIcoon, veiligeKleur, veiligId } from "./veilig.js";
 import { vergeetSleutels } from "./koppeling.js";
@@ -482,7 +482,7 @@ function bouw() {
   const items = ids.flatMap(id => (itemDocs.get(id) || []).map(x => ({ ...x, overzicht: id })));
   const titels = leesTitels();
   const d = aanvullen({
-    locaties: u.locaties, beschikbaar: u.beschikbaar, afwezig: u.afwezig || {}, instellingen: u.instellingen, agendas: u.agendas || {}, extern: u.extern || {},
+    locaties: u.locaties, beschikbaar: u.beschikbaar, afwezig: u.afwezig || {}, feeds: u.feeds || [], instellingen: u.instellingen, agendas: u.agendas || {}, extern: u.extern || {},
     planning: u.planning || [], agendaSync: u.agendaSync, gewijzigd: u.gewijzigd, takenlijsten: u.takenlijsten || {}, takenSync: u.takenSync || "", koppelingen: u.koppelingen, agendaLinks: u.agendaLinks || [],
     bezet: (u.bezet || []).map(e => ({ ...e, titel: titels.bezet?.[e.id]?.titel || e.titel || "Bezet", plaats: titels.bezet?.[e.id]?.plaats || e.plaats || "" })),
     overzichten: ids.map(id => {
@@ -538,7 +538,7 @@ function naarDocs(d) {
   const schijfLijst = new Set(d.overzichten.filter(o => o.opslag).map(o => o.id));
   onthoudTitels(d);
   docs.set("gebruikers/" + ik, schoon({
-    locaties: d.locaties, beschikbaar: d.beschikbaar, afwezig: d.afwezig || {}, instellingen: d.instellingen, agendas: d.agendas || {},
+    locaties: d.locaties, beschikbaar: d.beschikbaar, afwezig: d.afwezig || {}, feeds: d.feeds || [], instellingen: d.instellingen, agendas: d.agendas || {},
     extern: Object.fromEntries(Object.entries(d.extern || {}).map(([k, x]) => { const { titel, ...r } = x; return [k, titel !== undefined && !r.th ? { ...r, th: vingerafdruk(titel) } : r]; })),
     planning: (d.planning || []).map(b => schijfLijst.has(b.overzicht) && b.soort !== "reis" ? { ...b, titel: "" } : b),
     // afspraken mét titel: zo ziet elke inlog en elk apparaat van dit Tijdkompas dezelfde agenda
@@ -601,6 +601,55 @@ function naarDocs(d) {
     docs.set(`lijsten/${overzicht}/items/${x.id}`, schoon(rest));
   }
   return docs;
+}
+
+// ---------- abonneer-link (.ics) voor je (werk)agenda ----------
+// De app zet bij elke wijziging een .ics van de gekozen lijsten in feeds/{sleutel}; het doorgeefluik geeft die door
+// op <doorgeefluik>/feed/<sleutel>.ics. Wie de link heeft kan hem lezen (net als het "geheime adres" van Google Agenda),
+// dus de sleutel is lang en willekeurig, en een nieuwe link maakt de oude onbruikbaar.
+export const feedStand = new Map();   // sleutel → { hash, bijgewerkt, fout }
+const feedGelezen = new Set();
+export const feedUrl = (sleutel) => `${CONFIG.icsProxy}/feed/${sleutel}.ics`;
+export function nieuweFeedSleutel() {
+  const b = crypto.getRandomValues(new Uint8Array(24));
+  return btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+const hash = (t) => { let h = 2166136261; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36) + ":" + t.length; };
+export function feedBlokken(f) {
+  const lijsten = new Set(f.lijsten || []), grens = Date.now() - 14 * 864e5, uit = new Map();
+  const schijf = new Set(opslag.d.overzichten.filter(o => o.opslag).map(o => o.id));     // lijsten in je eigen Drive/OneDrive: nooit naar buiten
+  for (const b of [...(opslag.d.planning || []), ...familieAgenda().planning])
+    if (lijsten.has(b.overzicht) && !schijf.has(b.overzicht) && (f.reis || b.soort !== "reis") && new Date(b.eind).getTime() > grens && !uit.has(b.id)) uit.set(b.id, b);
+  return [...uit.values()];
+}
+let feedTimer = null;
+export function feedsLater(ms = 3000) {
+  if (!cloud.gebruiker || !(opslag.d.feeds || []).length) return;
+  clearTimeout(feedTimer); feedTimer = setTimeout(() => { feedTimer = null; feedsBijwerken().catch(() => {}); }, ms);
+}
+export async function feedsBijwerken() {
+  if (!cloudGeladen()) return;
+  for (const f of opslag.d.feeds || []) {
+    const ref = F.doc(db, "feeds", f.id);
+    const { ics, kern } = maakFeedIcs(feedBlokken(f), { naam: f.naam, titels: f.titels !== false });
+    const h = hash(kern);
+    try {
+      if (!feedGelezen.has(f.id)) {
+        feedGelezen.add(f.id);
+        const s = await F.getDoc(ref).catch(() => null);
+        if (s?.exists()) feedStand.set(f.id, { hash: s.data().hash, bijgewerkt: s.data().bijgewerkt });
+      }
+      if (feedStand.get(f.id)?.hash === h) continue;
+      const bijgewerkt = new Date().toISOString();
+      await F.setDoc(ref, { eigenaar: sessie.ik, naam: String(f.naam || "Tijdkompas").slice(0, 100), ics, hash: h, bijgewerkt });
+      feedStand.set(f.id, { hash: h, bijgewerkt });
+    } catch (e) { feedStand.set(f.id, { ...(feedStand.get(f.id) || {}), fout: foutTekst(e) }); }
+  }
+}
+/** Link intrekken: het document weg, dan geeft het doorgeefluik "onbekende link" */
+export async function feedWeg(sleutel) {
+  feedStand.delete(sleutel); feedGelezen.delete(sleutel);
+  if (cloud.gebruiker) await F.deleteDoc(F.doc(db, "feeds", sleutel));
 }
 
 let schrijfTimer = null;

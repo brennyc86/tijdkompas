@@ -94,6 +94,9 @@ export function ontsmet(n) {
     if (!o.afwijkingen || typeof o.afwijkingen !== "object" || Array.isArray(o.afwijkingen)) { o.afwijkingen = {}; continue; }
     o.afwijkingen = Object.fromEntries(Object.entries(o.afwijkingen).filter(([k]) => datum(k) && k >= grens).map(([k, x]) => [k, afw(x)]).filter(([, x]) => x));
   }
+  // abonneer-links: lange willekeurige sleutel, alleen bestaande lijsten
+  n.feeds = (Array.isArray(n.feeds) ? n.feeds : []).filter(f => f && typeof f.id === "string" && /^[A-Za-z0-9_-]{32,64}$/.test(f.id)).slice(0, 10)
+    .map(f => ({ id: f.id, naam: tekst(f.naam, 100) || "Tijdkompas", lijsten: idLijst(f.lijsten), titels: f.titels !== false, reis: !!f.reis, aangemaakt: tekst(f.aangemaakt, 40) }));
   const weg = n.afwezig && typeof n.afwezig === "object" && !Array.isArray(n.afwezig) ? n.afwezig : {};
   n.afwezig = Object.fromEntries(Object.entries(weg).filter(([k, x]) => datum(k) && k >= grens && x && typeof x === "object").map(([k, x]) => [k, { reden: tekst(x.reden, 100) }]));
   return n;

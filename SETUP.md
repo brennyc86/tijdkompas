@@ -8,12 +8,12 @@ Gebruikers merken er niets van. Zij klikken alleen in de app op „Inloggen met 
 
 | Stap | Waarvoor | Status |
 |---|---|---|
-| **A** Firebase | inloggen met Google of met een link per e-mail (2b), online opslag, delen | ✅ gedaan — ⚠️ **plak de nieuwste `firestore.rules` opnieuw** (zie [Beveiligingsregels bijwerken](#beveiligingsregels-bijwerken); nieuw op 16-11-2026: koppelcode, gedeelde Koers, strengere regels voor delen) |
+| **A** Firebase | inloggen met Google of met een link per e-mail (2b), online opslag, delen | ✅ gedaan — ⚠️ **plak de nieuwste `firestore.rules` opnieuw** (zie [Beveiligingsregels bijwerken](#beveiligingsregels-bijwerken); nieuw op 17-11-2026: abonneer-link voor je werkagenda) |
 | **B** Microsoft-omgeving + app | inloggen met Microsoft (B0: eenmalig een gratis eigen omgeving) | ✅ gedaan — maak het geheim (B2) opnieuw aan als het ooit in een chat of mail heeft gestaan |
 | **C-Google** | Google Agenda, Google Taken en Google Drive koppelen | Client ID ✅ ingevuld; controleer de rest van stap C-Google |
 | **C-Microsoft** | Outlook-agenda, Microsoft To Do (Outlook-taken) en OneDrive koppelen | ✅ client-ID ingevuld, redirect-URI (SPA) staat |
 | **E** Extra afschermen (aanbevolen) | API-sleutel beperken tot deze site; controleren wie bij het Firebase-project kan | zie [E. Extra afschermen](#e-extra-afschermen-aanbevolen-10-minuten) |
-| **D** Outlook-agenda via een link | Outlook-agenda zien en eromheen plannen (alleen lezen), zonder Microsoft-registratie | ⚠️ **plak de nieuwe code in het doorgeefluik** (D1 → Bijwerken; geen cache meer) — of haal het weg als je de Microsoft-koppeling gebruikt (E3) |
+| **D** Doorgeefluik (Cloudflare) | Outlook-agenda via een link lezen, én de **abonneer-link** waarmee je je blokken in je werkagenda krijgt (D4) | ⚠️ **plak de nieuwe code in het doorgeefluik** (D1 → Bijwerken; nieuw op 17-11-2026: `/feed/…`-route voor de abonneer-link). Laat het doorgeefluik staan als je de abonneer-link gebruikt |
 
 **Over de knoppen in deze handleiding:** de Firebase-console is altijd Engels. Google Cloud en Microsoft tonen soms Nederlands, afhankelijk van je instellingen.
 Daarom staat elke knop er zo: **English label** (Nederlandse vertaling). Kijk dus naar wat jouw scherm toont.
@@ -224,7 +224,7 @@ Het slaat niets op en geeft alleen links van Outlook, Google en iCloud door.
 6. Bovenaan staat het adres, iets als `https://tijdkompas-agenda.<jouwnaam>.workers.dev`. **Stuur dat adres naar Claude**
    (of zet het zelf in `js/config.js` bij `icsProxy`).
 
-**Bijwerken** (als Claude `worker/agenda-doorgeef.js` heeft aangepast, zoals op 16-11-2026: niets meer in de cache, alleen nog Tijdkompas zelf):
+**Bijwerken** (als Claude `worker/agenda-doorgeef.js` heeft aangepast, zoals op 17-11-2026: de abonneer-link, D4):
 https://dash.cloudflare.com → **Workers & Pages** → **tijdkompas-agenda** → **Edit code** (Code bewerken) → Ctrl+A, plak de nieuwe inhoud → **Deploy**.
 Controle: open https://tijdkompas-agenda.brennycc86.workers.dev/?url=x in je browser. Je hoort **Niet toegestaan** te zien (de site zelf mag hem wel gebruiken).
 
@@ -244,6 +244,26 @@ hebben uitgezet; dan zie je de optie niet. Spijt? Klik daar op **Unpublish** (Pu
 2. Vul een naam in (bv. *Outlook werk*), plak de ICS-link en klik op **＋ Toevoegen**.
 3. De afspraken verschijnen in de agenda en op Vandaag, en worden elk kwartier bijgewerkt. Kies eventueel een kleur bij de link,
    en bij **Agenda's — wat staat erin?** of hij „bezet” is, een rooster, of alleen ter info.
+
+### D4. Abonneer-link: je blokken in je werkagenda (via Copilot of Outlook)
+
+Lukt het niet om Tijdkompas rechtstreeks in je werkagenda te laten schrijven (bijvoorbeeld omdat IT dat niet toestaat), dan maakt Tijdkompas
+een **alleen-lezen agendalink (.ics)** met je ingeplande blokken. Alle blokken staan daarin op **vrij**, zodat ze collega's niet blokkeren
+en Tijdkompas ze bij het ophalen niet als bezet terugleest.
+
+Eenmalig: plak de nieuwste [`firestore.rules`](#beveiligingsregels-bijwerken) en werk het doorgeefluik bij (D1 → Bijwerken).
+
+1. Tijdkompas → **⚙️ Instellingen → Agenda's & accounts → 📡 Abonneer-link voor je werkagenda** → **＋ Link maken** (je moet ingelogd zijn).
+2. Vink aan welke lijsten erin moeten (standaard je lijst(en) met vaste tijden, zoals Werk), en of de namen van taken en de reistijd mee moeten.
+3. Klik op **📋 Kopiëren** en gebruik de link:
+   - **Copilot**: geef hem de link en vraag bijvoorbeeld: *„Zet de afspraken uit deze agenda in mijn agenda, als vrij (beschikbaar), met dezelfde titel en tijden.”*
+     (Of Copilot een link mag openen hangt af van hoe je werk Copilot heeft ingesteld; anders: zie hieronder.)
+   - **Outlook (web)**: Agenda → **Agenda toevoegen** → **Abonneren vanaf het web** → link plakken → naam → **Importeren**.
+     Outlook haalt hem dan zelf regelmatig op (meestal een paar keer per dag); de blokken staan als aparte agenda naast je werkagenda.
+4. De link wordt bijgewerkt zodra je in Tijdkompas iets wijzigt, op een apparaat waar je bent ingelogd.
+
+Wie de link heeft, kan je blokken zien (zoals bij het „geheime adres” van Google Agenda). Uitgelekt of niet meer nodig?
+**🔄 Nieuwe link** (de oude werkt meteen niet meer) of **Link intrekken**. Lijsten die in je eigen Drive/OneDrive staan komen er nooit in.
 
 ### Beveiligingsregels bijwerken
 

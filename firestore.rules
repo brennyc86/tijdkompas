@@ -7,6 +7,8 @@ rules_version = '2';
 //                                  (behalve je eigen gelinkte accounts, en leden van een gedeelde map waar de lijst in staat).
 //   lijsten/{id}/items, …/koers    alleen leden van die lijst of map
 //   koppelcodes/{hash}             tijdelijke code om twee accounts te linken (10 minuten, en het andere account moet bevestigen)
+//   feeds/{sleutel}                abonneer-link (.ics) met je ingeplande blokken voor bijv. je werkagenda: alleen te lezen met de
+//                                  (lange, willekeurige) sleutel, niet op te sommen; alleen jij en je gelinkte accounts schrijven hem
 // Een gelinkt account is pas "familie" als beide kanten hebben ingestemd: het hoofd zet het in zijn aliassen, en het account
 // zelf wijst in zijn eigen document naar dat hoofd.
 service cloud.firestore {
@@ -186,6 +188,21 @@ service cloud.firestore {
               && wijziging().hasOnly(['status'])
               && request.resource.data.status in ['klaar', 'geweigerd']));
       allow delete: if ingelogd() && (resource.data.uid == request.auth.uid || vanUid() == request.auth.uid);
+    }
+
+    match /feeds/{sleutel} {
+      function sleutelOk() { return sleutel.matches('^[A-Za-z0-9_-]{32,64}$'); }
+      function magFeed(e) { return ingelogd() && e is string && (e == request.auth.uid || familieVan(request.auth.uid, e)); }
+      function feedOk(x) {
+        return x.keys().hasOnly(['eigenaar', 'naam', 'ics', 'hash', 'bijgewerkt'])
+          && x.ics is string && x.ics.size() < 800000 && x.naam is string && x.naam.size() <= 100
+          && x.hash is string && x.hash.size() <= 40 && x.bijgewerkt is string && x.bijgewerkt.size() <= 40;
+      }
+      allow get: if sleutelOk();
+      allow list: if false;
+      allow create: if sleutelOk() && magFeed(request.resource.data.eigenaar) && feedOk(request.resource.data);
+      allow update: if magFeed(resource.data.eigenaar) && request.resource.data.eigenaar == resource.data.eigenaar && feedOk(request.resource.data);
+      allow delete: if magFeed(resource.data.eigenaar);
     }
   }
 }

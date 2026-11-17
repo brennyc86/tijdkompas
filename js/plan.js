@@ -522,6 +522,39 @@ export function maakIcs(blokken) {
   return r.join("\r\n");
 }
 
+// ---------- .ics voor een abonneer-link (bijv. je werkagenda in Outlook of via Copilot) ----------
+// Alle blokken staan op "vrij" (TRANSP:TRANSPARENT én de Outlook-variant), zodat ze je agenda niet blokkeren
+// en Tijdkompas ze bij het ophalen ook niet als bezet ziet. Vaste UID per blok: een wijziging wordt een update, geen dubbele.
+const vouw = (regel) => {                      // regels van hooguit 75 bytes (RFC 5545), vervolg met een spatie
+  const uit = []; let rest = regel, eerste = true;
+  const enc = new TextEncoder();
+  while (enc.encode(rest).length > (eerste ? 75 : 74)) {
+    let n = Math.min(rest.length, eerste ? 75 : 74);
+    while (enc.encode(rest.slice(0, n)).length > (eerste ? 75 : 74) || /[\uD800-\uDBFF]/.test(rest[n - 1])) n--;
+    uit.push((eerste ? "" : " ") + rest.slice(0, n)); rest = rest.slice(n); eerste = false;
+  }
+  uit.push((eerste ? "" : " ") + rest);
+  return uit.join("\r\n");
+};
+const icsVeilig = (s) => icsTekst(String(s ?? "").replace(/\r/g, "").slice(0, 300));
+/** @returns {{ics:string, kern:string}} kern = zonder tijdstempel, om te zien of er echt iets veranderd is */
+export function maakFeedIcs(blokken, { naam = "Tijdkompas", titels = true } = {}) {
+  const nu = icsTijd(new Date().toISOString());
+  const kop = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Tijdkompas//NL", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+               `X-WR-CALNAME:${icsVeilig(naam)}`, "X-PUBLISHED-TTL:PT1H", "REFRESH-INTERVAL;VALUE=DURATION:PT1H"];
+  const evs = [...blokken].sort((a, b) => String(a.start).localeCompare(String(b.start)) || String(a.id).localeCompare(String(b.id))).map(b => {
+    const loc = titels && b.locatie && b.locatie !== "thuis" ? locatie(b.locatie)?.naam || "" : "";
+    const titel = !titels ? (b.soort === "reis" ? "Reistijd" : "Werkblok") : (b.soort === "reis" ? "🚗 " : "") + (b.titel || "Werkblok");
+    return ["BEGIN:VEVENT", `UID:${String(b.id).replace(/[^A-Za-z0-9_-]/g, "")}@tijdkompas`, "DTSTAMP:@@NU@@", `DTSTART:${icsTijd(b.start)}`, `DTEND:${icsTijd(b.eind)}`,
+            `SUMMARY:${icsVeilig(titel)}`, ...(loc ? [`LOCATION:${icsVeilig(loc)}`] : []),
+            `DESCRIPTION:${icsVeilig(b.soort === "reis" ? "Reistijd, ingepland door Tijdkompas" : "Ingepland door Tijdkompas (staat op vrij)")}`,
+            "CATEGORIES:Tijdkompas", "TRANSP:TRANSPARENT", "X-MICROSOFT-CDO-BUSYSTATUS:FREE", "X-MICROSOFT-CDO-INTENDEDSTATUS:FREE", "END:VEVENT"];
+  }).flat();
+  const regels = [...kop, ...evs, "END:VCALENDAR"].map(vouw);
+  const kern = regels.join("\r\n");
+  return { ics: kern.replaceAll("@@NU@@", nu) + "\r\n", kern };
+}
+
 // ---------- .ics import (bezette tijden) ----------
 function leesIcsDatum(waarde, params) {
   const m = waarde.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?$/);
