@@ -107,11 +107,19 @@ export function standaardAgenda(b) {
   const it = d().taken.find(t => t.id === b.item) || d().projecten.find(p => p.id === b.item);
   const k = it?.ext?.bron || Object.entries(d().takenlijsten || {}).find(([, x]) => x.lijst === b.overzicht)?.[0];
   // lijst van een gelinkt account (zelfde persoon, andere rol): de agenda die dát account voor de lijst gebruikt,
-  // anders de hoofdagenda van dat account — als die op dit apparaat gekoppeld is
+  // anders de hoofdagenda van dat account — als die hier gekoppeld is. Is hij hier niet gekoppeld, dan zet dat account
+  // het blok zelf in zijn agenda (zie voorMij), en dus níet in de agenda van het account waarmee je nu bent ingelogd.
   const eig = familieHaak.eigenaar(overzicht(b.overzicht));
   const vanEigenaar = eig ? ((eig.agenda && eig.agenda !== "geen" && schrijfbaar(eig.agenda) ? eig.agenda : null) || agendaVanAccount(eig.email)) : null;
-  // waar de taak staat → de agenda van de lijst → die van het account van de lijst → die van het account waarmee je bent ingelogd
-  return (k && agendaVanTakenlijst(k)) || lijstAgenda || vanEigenaar || eigenAgenda();
+  if (eig) return (k && agendaVanTakenlijst(k)) || vanEigenaar || null;
+  // waar de taak staat → de agenda van de lijst → die van het account waarmee je bent ingelogd
+  return (k && agendaVanTakenlijst(k)) || lijstAgenda || eigenAgenda();
+}
+/** Wordt dit blok door het gelinkte account van de lijst in diens agenda gezet? Dan dat account ({email}), anders null */
+export function viaEigenaar(b) {
+  if (b.agenda) return null;
+  const eig = familieHaak.eigenaar(overzicht(b.overzicht));
+  return eig && !standaardAgenda(b) ? eig : null;
 }
 /** In welke agenda dit blok komt (null = in geen enkele) */
 export function doelAgendaVan(b) {
@@ -128,7 +136,9 @@ export async function zetNaarAgendas({ alleen = null } = {}) {   // alleen: Set 
   let nieuw = 0, bij = 0, weg = 0;
   d().extern ||= {};
   const doel = (b) => doelAgendaVan(b);
-  const teZetten = d().planning.filter(b => new Date(b.eind) > nu && doel(b) && hoort(b.id));
+  const fam = familieHaak.voorMij() || { blokken: [], klaar: false };
+  const alle = [...d().planning, ...fam.blokken];
+  const teZetten = alle.filter(b => new Date(b.eind) > nu && doel(b) && hoort(b.id));
   const welkom = new Set(teZetten.map(b => b.id));
 
   // 0. na opnieuw inplannen hebben blokken nieuwe id's: hergebruik het bestaande agenda-item van dezelfde taak (verschuiven i.p.v. weg + nieuw)
@@ -143,7 +153,8 @@ export async function zetNaarAgendas({ alleen = null } = {}) {   // alleen: Set 
   // 1. vervallen of verplaatste-naar-andere-agenda blokken verwijderen
   for (const [blokId, x] of Object.entries(d().extern)) {
     if (!hoort(blokId)) continue;
-    const b = d().planning.find(p => p.id === blokId);
+    if (x.fam && !fam.klaar) continue;                    // planning van gelinkte accounts nog niet (helemaal) binnen: niets weghalen
+    const b = alle.find(p => p.id === blokId);
     if (b && welkom.has(blokId) && doel(b) === x.bron) continue;
     if (new Date(x.eind) <= nu && !b) { delete d().extern[blokId]; continue; }   // verleden: laten staan
     const v = verbindingVan(x.bron); if (!v) continue;
@@ -161,7 +172,7 @@ export async function zetNaarAgendas({ alleen = null } = {}) {   // alleen: Set 
       const eventId = await zetAfspraak(v, agendaIdVan(bron), {
         titel: (b.soort === "reis" ? "🚗 " : "") + b.titel, omschrijving: omschrijving(b), start: b.start, eind: b.eind,
         plaats: b.locatie && b.locatie !== "thuis" ? locatie(b.locatie)?.adres || locatie(b.locatie)?.naam : "", tkId: b.id }, x?.eventId);
-      d().extern[b.id] = { bron, eventId, item: b.item, start: b.start, eind: b.eind, th: vingerafdruk(b.titel) };
+      d().extern[b.id] = { bron, eventId, item: b.item, start: b.start, eind: b.eind, th: vingerafdruk(b.titel), ...(b.vanFamilie ? { fam: true } : {}) };
       x?.eventId === eventId ? bij++ : nieuw++;
     } catch (e) { e instanceof VerlopenFout ? verlopen.set(v.id, v) : fouten.push(e.message); }
   }

@@ -628,3 +628,6 @@ a.koersitem{text-decoration:none;color:inherit}
 .titelrij{display:flex;align-items:center;gap:8px}
 .titelrij .grootTitel{flex:1;min-width:0}
 .titelrij .emojiknop{flex:none;font-size:22px}
+.wblok.famblok.mijnfam{cursor:pointer}
+.item.vangelinkt{opacity:.6;border-left-color:var(--zacht)}
+.item.vangelinkt:hover{opacity:1}

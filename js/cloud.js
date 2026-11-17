@@ -374,6 +374,20 @@ export function gelinkteInfo(x) {
            locatie: (X.locaties || []).find(l => l.id === inst.locatie)?.naam || "",
            locNaam: (id) => (X.locaties || []).find(l => l.id === id)?.naam || "" };
 }
+/**
+ * Blokken die een gelinkt account (jij in een andere rol) voor één van míjn lijsten heeft ingepland en zelf niet in een agenda
+ * kon zetten (daar is mijn agenda niet gekoppeld). Die zet dit account in zijn eigen agenda. klaar = alle gelinkte accounts zijn binnen.
+ */
+export function familieVoorMij() {
+  const nu = Date.now(), mijn = new Set(opslag.d.overzichten.filter(o => !o.eigenaar || o.eigenaar === sessie.ik).map(o => o.id));
+  const blokken = [];
+  for (const [u, x] of familieDocs) for (const b of x.planning || []) {
+    if (!mijn.has(b.overzicht) || b.agenda || x.extern?.[b.id] || new Date(b.eind).getTime() <= nu) continue;
+    blokken.push({ ...b, vanFamilie: emailVan(u) || "gelinkt account", titel: b.titel || "Gepland" });
+  }
+  const andere = cloud.familie.filter(u => u !== sessie.ik);
+  return { blokken, klaar: cloudGeladen() && !cloud.familieFout.size && andere.every(u => familieDocs.has(u)) };
+}
 /** Agenda en planning van gelinkte accounts (alleen om te tonen en om omheen te plannen) */
 export function familieAgenda() {
   const bezet = [], planning = [];

@@ -7,13 +7,14 @@ import { familieHaak, planAutomatisch, werkGeplandBij, doelDatum, harde, priorit
   AFWIJKING, standaardTijden, afwijkingOp, planStatus, grootsteGat, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, volgendeMomenten, plaatsVanaf, vrijkomend, vrijeTijd, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
 import { ids, verbindingen as alleVerbindingen, heeft, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, zonderDoel, koppelHaak, neemGedeeldeOver } from "./koppeling.js";
 import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroniseerAlles, naamVan, lijstWeg } from "./schijf.js";
-import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD, eigenAgenda } from "./sync.js";
+import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD, eigenAgenda, viaEigenaar, vingerafdruk } from "./sync.js";
 import { syncTaken, takenVerbindingen, koppelTakenlijst, takenlijstVan, takenVerbindingVan } from "./takensync.js";
 import { kiesEmoji, voorstellen } from "./emoji.js";
 import { veiligeUrl, veiligeFoto } from "./veilig.js";
-import { emailVan, feedsLater, feedsBijwerken, feedStand, feedUrl, feedWeg, nieuweFeedSleutel, feedBlokken, cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda, gelinkteInfo, stuurInlogLink,
+import { familieVoorMij, emailVan, feedsLater, feedsBijwerken, feedStand, feedUrl, feedWeg, nieuweFeedSleutel, feedBlokken, cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda, gelinkteInfo, stuurInlogLink,
          koppel as koppelStaat, vraagKoppelcode, gebruikKoppelcode, beantwoordKoppel, stopKoppelcode, stuurBevestiging, controleerBevestiging } from "./cloud.js";
 familieHaak.agenda = familieAgenda;
+familieHaak.voorMij = () => ingelogd() ? familieVoorMij() : { blokken: [], klaar: false };
 familieHaak.eigenaar = (o) => { const gl = o && gelinkteInfo(o); return gl ? { email: gl.email, agenda: gl.inst?.doelAgenda || "" } : null; };
 
 // Niet in een frame van een andere site laten draaien (tegen "clickjacking": je onzichtbaar laten klikken op bijv. Koppelen)
@@ -372,7 +373,21 @@ function render() {
   if (dlg3.open && instOpen) tekenInst();
 }
 window.addEventListener("hashchange", () => { render(); window.scrollTo(0, 0); });
-opslag.luister(({ stil } = {}) => { if (!stil) planSchrijven(); feedsLater(); render(); });
+opslag.luister(({ stil } = {}) => { if (!stil) planSchrijven(); feedsLater(); famAgendaLater(); render(); });
+// Een gelinkt account (jij in een andere rol) plande iets uit één van mijn lijsten: dat zet ik in mijn eigen agenda,
+// en ik werk het bij of haal het weg als dat account het verschuift of verwijdert.
+let famTimer = null;
+function famAgendaLater() {
+  clearTimeout(famTimer);
+  famTimer = setTimeout(() => {
+    if (!ingelogd() || !verbindingen().length) return;
+    const { blokken, klaar } = familieVoorMij(); if (!klaar) return;
+    const ids = new Set(), ext = d().extern || {};
+    for (const b of blokken) { const x = ext[b.id]; if (doelAgendaVan(b) && (!x || x.start !== b.start || x.eind !== b.eind || x.th !== vingerafdruk(b.titel))) ids.add(b.id); }
+    for (const [id, x] of Object.entries(ext)) if (x.fam && new Date(x.eind) > new Date() && !blokken.some(b => b.id === id)) ids.add(id);
+    if (ids.size) doeNaarAgenda(ids, { stil: true }).catch(() => {});
+  }, 4000);
+}
 // Enter in het e-mailveld: inloglink sturen (niet het venster sluiten)
 document.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.id === "inlogMail") { e.preventDefault(); e.target.closest("div").parentElement.querySelector("[data-actie=mailLink]")?.click(); } }, true);
 opCloud(() => {
@@ -417,7 +432,7 @@ function vandaag() {
   const doenOpen = openItems.filter(t => rel(t) === "doen").sort((a, b) => prioriteit(b) - prioriteit(a));
   const metGat = openItems.filter(t => rel(t) === "gat").sort((a, b) => prioriteit(b) - prioriteit(a));
   const opMij = open.filter(t => doorWie(t, "wachtmij")).filter(t => rel(t));
-  const rij = (i) => i.type === "taak" ? itemRij(i) : projectRijPlan(i);
+  const rij = (i) => { const h = i.type === "taak" ? itemRij(i) : projectRijPlan(i); return doorGelinktIngepland(i) ? h.replace('class="item', 'class="item vangelinkt') : h; };
   const blokken = [
     ...d().planning.filter(b => dagStr(new Date(b.start)) === vd).filter(b => actieveOverzichten().includes(b.overzicht)),
     ...d().bezet.filter(b => dagStr(new Date(b.start)) === vd).map(b => ({ ...b, bezet: true })),
@@ -450,7 +465,8 @@ function vandaag() {
         <div class="lijst">${metGat.slice(0, 8).map(rij).join("")}${metGat.length > 8 ? `<div class="hint">+ ${metGat.length - 8} meer bij Taken</div>` : ""}</div>` : ""}
       <h3>Vandaag in je agenda</h3>
       <div class="tijdlijn">${blokken.map(b => { const st = b.bezet ? afspraakStijl(b) : null;
-          return `<div class="tblok ${b.bezet ? "bezet" : ""}${st?.ander ? " ander" : ""}" style="--ok:${st ? esc(st.kleur) : ovKleur(b.overzicht)}" ${b.bezet ? "" : `data-blok="${b.id}"`}>
+          const gel = !b.bezet && doorGelinktIngepland({ overzicht: b.overzicht });
+          return `<div class="tblok ${b.bezet || gel ? "bezet" : ""}${st?.ander || gel ? " ander" : ""}" style="--ok:${st ? esc(st.kleur) : gel ? "var(--zacht)" : ovKleur(b.overzicht)}" ${b.bezet ? "" : `data-blok="${b.id}"`}>
           <span class="tijd">${fmtTijd(b.start)}–${fmtTijd(b.eind)}</span><span>${b.bezet ? "📅 " : ""}${esc(b.titel)}</span></div>`; }).join("")
         || `<div class="leeg">Nog niets ingepland. <a href="#agenda">Open de agenda</a> en laat Tijdkompas je dag vullen.</div>`}</div>
     </section>
@@ -681,7 +697,9 @@ function agenda() {
     const blokken = d().planning.filter(b => act.includes(b.overzicht)).filter(inDag).map(b => {
       const t = Math.max(0, y(b.start)), h = Math.max(14, Math.min(hoogte, y(b.eind)) - t);
       const inAgenda = d().extern?.[b.id];
-      return `<div class="wblok ${b.soort === "reis" ? "reis" : b.soort === "uitloop" ? "uitloop" : ""} ${b.vast ? "vast" : ""}" data-blok="${b.id}" style="--ok:${ovKleur(b.overzicht)};top:${t}px;height:${h - 2}px" title="${esc(b.titel)} ${fmtTijd(b.start)}–${fmtTijd(b.eind)}${inAgenda ? " · staat in je agenda" : ""}">
+      // uit een lijst van je andere account: net als de rest van dat account licht en onopvallend (maar wel aan te klikken)
+      const gel = doorGelinktIngepland({ overzicht: b.overzicht });
+      return `<div class="wblok ${b.soort === "reis" ? "reis" : b.soort === "uitloop" ? "uitloop" : ""} ${b.vast ? "vast" : ""}${gel ? " ander famblok mijnfam" : ""}" data-blok="${b.id}" style="--ok:${gel ? "var(--zacht)" : ovKleur(b.overzicht)};top:${t}px;height:${h - 2}px" title="${esc(b.titel)} ${fmtTijd(b.start)}–${fmtTijd(b.eind)}${gel ? " · lijst van je andere account" : ""}${inAgenda ? " · staat in je agenda" : ""}">
         <b>${b.soort === "reis" ? "🚗 " : ""}${esc(b.titel)}</b>${h > 30 ? `<span class="btijd">${fmtTijd(b.start)}–${fmtTijd(b.eind)}${inAgenda ? " ✓" : ""}</span>` : ""}</div>`;
     }).join("");
     const nulijn = ds === dagStr(nu) && nu.getHours() >= UUR_VAN && nu.getHours() < UUR_TOT ? `<div class="nulijn" style="top:${y(nu)}px"></div>` : "";
@@ -1020,9 +1038,9 @@ const DAGVOLGORDE = [1, 2, 3, 4, 5, 6, 0];
 const locOpties = (gekozen, leegTekst) => `<option value="">${esc(leegTekst)}</option>` +
   d().locaties.map(l => `<option value="${l.id}" ${l.id === gekozen ? "selected" : ""}>${esc(l.icoon)} ${esc(l.naam)}${l.reistijd ? ` (${l.reistijd} min reizen)` : ""}</option>`).join("");
 // Keuze voor één blok: standaard (met wat dat nu is), een agenda, of geen
-function blokAgendaOpties(gekozen, standaard) {
+function blokAgendaOpties(gekozen, standaard, via = null) {
   const schrijfbaar = Object.entries(d().agendas).filter(([k, a]) => a.schrijf && verbindingVanBron(k));
-  return `<option value="" ${!gekozen ? "selected" : ""}>Standaard${standaard ? " → " + esc(agendaNaam(standaard)) : " (nu: in geen agenda)"}</option>` +
+  return `<option value="" ${!gekozen ? "selected" : ""}>Standaard${standaard ? " → " + esc(agendaNaam(standaard)) : via ? " → de agenda van " + esc(via.email || "je andere account") : " (nu: in geen agenda)"}</option>` +
     schrijfbaar.map(([k]) => `<option value="${esc(k)}" ${k === gekozen ? "selected" : ""}>${esc(agendaNaam(k))}</option>`).join("") +
     `<option value="geen" ${gekozen === "geen" ? "selected" : ""}>Niet in een agenda zetten</option>`;
 }
@@ -1745,10 +1763,11 @@ setInterval(() => { if (document.visibilityState !== "hidden" && takenGekoppeld(
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && takenGekoppeld() && Date.now() - new Date(d().takenSync || 0) > 30e3) doeTakenSync(true);
 });
-async function doeNaarAgenda(alleen = null) {
+async function doeNaarAgenda(alleen = null, { stil = false } = {}) {
   const r = await zetNaarAgendas({ alleen });
   r.verlopen.forEach(v => verlopenSessies.set(v.id, v));
   if (r.fouten.length) toast(r.fouten[0]);
+  else if (stil) { if (r.nieuw || r.weg) toast(`In je agenda gezet wat je vanuit een ander account inplande (${r.nieuw} nieuw${r.weg ? `, ${r.weg} weg` : ""})`); }
   else toast(`Agenda bijgewerkt: ${r.nieuw} nieuw, ${r.bij} gewijzigd, ${r.weg} verwijderd${r.verlopen.length ? " — log opnieuw in voor de rest" : ""}`);
   render();
 }
@@ -2225,7 +2244,8 @@ function planTaak(it) {
         <div class="rij" style="align-items:end"><label class="veld">Van${tijdIn("avan", aanpas.van)}</label><label class="veld">Tot${tijdIn("atot", aanpas.tot)}</label>
           <button type="button" class="knop prim" data-actie="aZet">Plaatsen</button><button type="button" class="knop" data-actie="aWeg">Annuleren</button></div>
         <span class="hint">Het vrije gat loopt van ${aanpas.gatVan} tot ${aanpas.gatTot}.</span></div>` : ""}
-      ${kanAgenda() ? `<label class="veld">In welke agenda<select name="pagenda">${blokAgendaOpties(agendaKeuze, standaardAgenda({ item: it.id, overzicht: it.overzicht }))}</select></label>` : ""}
+      ${kanAgenda() ? `<label class="veld">In welke agenda<select name="pagenda">${blokAgendaOpties(agendaKeuze, standaardAgenda({ item: it.id, overzicht: it.overzicht }), viaEigenaar({ item: it.id, overzicht: it.overzicht }))}</select></label>` : ""}
+      ${!agendaKeuze && viaEigenaar({ item: it.id, overzicht: it.overzicht }) ? `<div class="hint">🔗 Deze lijst hoort bij ${esc(viaEigenaar({ item: it.id, overzicht: it.overzicht }).email || "je andere account")}: dat account zet het blok in zijn eigen agenda zodra Tijdkompas daar open is (op welk apparaat dan ook).</div>` : ""}
       <div class="rij" style="align-items:end">
         <label class="veld" title="Alleen vrije gaten van minstens deze lengte worden voorgesteld">Gaten van minstens<input type="text" name="pmin" value="${fmtDuur(minDuur)}" style="max-width:110px"></label>
         <button type="button" class="knop klein" data-actie="pmin">Zoeken</button>
@@ -2253,8 +2273,8 @@ function planTaak(it) {
     const bots = controleer ? botsingen(it, start, eind) : [];
     if (bots.length && !confirm(`Let op:\n• ${bots.join("\n• ")}\n\nToch hier plaatsen?`)) return;
     const r = plaatsBlok(it, start, duur, agendaKeuze || undefined);
-    const doel = doelAgendaVan(r.blok);
-    melding = `✓ Ingepland: ${dagKort(start)} ${fmtTijd(start.toISOString())}–${fmtTijd(r.blok.eind)}${doel ? " · komt in " + esc(agendaNaam(doel)) : ""}${r.vervallen ? ` · ${r.vervallen} automatisch ingepland${r.vervallen === 1 ? " blok" : "e blokken"} van deze taak vervangen` : ""}`;
+    const doel = doelAgendaVan(r.blok), via = viaEigenaar(r.blok);
+    melding = `✓ Ingepland: ${dagKort(start)} ${fmtTijd(start.toISOString())}–${fmtTijd(r.blok.eind)}${doel ? " · komt in " + esc(agendaNaam(doel)) : via ? " · komt in de agenda van " + esc(via.email || "je andere account") : ""}${r.vervallen ? ` · ${r.vervallen} automatisch ingepland${r.vervallen === 1 ? " blok" : "e blokken"} van deze taak vervangen` : ""}`;
     aanpas = null; minDuur = null; bewaar(); teken();
     if (doel) doeNaarAgenda(new Set(d().planning.filter(x => x.item === it.id && new Date(x.eind) > new Date()).map(x => x.id))).catch(() => {});   // meteen in die agenda (alleen dit blok en de reistijd)
   };
@@ -2688,8 +2708,9 @@ function openBlok(id) {
     <div class="dlijf"><h2>${esc(b.titel)}</h2>
       <div class="hint">${DAG[new Date(b.start).getDay()]} ${new Date(b.start).getDate()} ${MAAND[new Date(b.start).getMonth()]} · ${fmtTijd(b.start)}–${fmtTijd(b.eind)}${b.locatie && locatie(b.locatie) ? " · 📍 " + esc(locatie(b.locatie).naam) : ""}</div>
       ${d().extern?.[b.id] ? `<div class="hint">✓ Staat in je agenda (${esc(agendaNaam(d().extern[b.id].bron) || d().agendas[d().extern[b.id].bron]?.naam || "")})</div>`
-        : doelAgendaVan(b) ? `<div class="hint">Komt in ${esc(agendaNaam(doelAgendaVan(b)))} bij „📤 In mijn agenda zetten”.</div>` : ""}
-      ${b.soort !== "reis" && Object.entries(d().agendas || {}).some(([k, a]) => a.schrijf && verbindingVanBron(k)) ? `<label class="veld">In welke agenda<select id="blokAgenda">${blokAgendaOpties(b.agenda || "", standaardAgenda(b))}</select></label>` : ""}
+        : doelAgendaVan(b) ? `<div class="hint">Komt in ${esc(agendaNaam(doelAgendaVan(b)))} bij „📤 In mijn agenda zetten”.</div>`
+        : viaEigenaar(b) ? `<div class="hint">🔗 Komt in de agenda van ${esc(viaEigenaar(b).email || "je andere account")}: dat account zet het erin zodra Tijdkompas daar open is.</div>` : ""}
+      ${b.soort !== "reis" && Object.entries(d().agendas || {}).some(([k, a]) => a.schrijf && verbindingVanBron(k)) ? `<label class="veld">In welke agenda<select id="blokAgenda">${blokAgendaOpties(b.agenda || "", standaardAgenda(b), viaEigenaar(b))}</select></label>` : ""}
       <div class="chips"><a class="knop" target="_blank" rel="noopener" href="${esc(googleLink(b))}">＋ Google Agenda</a>
         <a class="knop" target="_blank" rel="noopener" href="${esc(outlookLink(b, true))}">＋ Outlook (werk/school)</a>
         <a class="knop" target="_blank" rel="noopener" href="${esc(outlookLink(b, false))}">＋ Outlook.com</a></div>

@@ -11,7 +11,8 @@ import { opslag, kwadrant, kalibratie, project, overzicht, locatie, effectieveLo
 // Agenda en planning van gelinkte accounts (privé ↔ werk): je bent één mens, dus daar plannen we omheen.
 // De app vult dit (cloud.familieAgenda); zonder gelinkte accounts is het leeg.
 export const familieHaak = { agenda: () => ({ bezet: [], planning: [] }),
-  eigenaar: () => null };   // eigenaar(lijst) → { email, agenda } als de lijst van een gelinkt account is
+  eigenaar: () => null,     // eigenaar(lijst) → { email, agenda } als de lijst van een gelinkt account is
+  voorMij: () => ({ blokken: [], klaar: false }) };   // blokken die een gelinkt account voor míjn lijsten plande (ik zet ze in mijn agenda)
 // Lijsten van een gelinkt account plant dat account zelf in (in zijn eigen agenda); hier niet nog eens.
 const vanGelinkt = (ovId) => { const o = overzicht(ovId), f = sessie.familie || []; return !!(o?.eigenaar && f.length > 1 && o.eigenaar !== sessie.ik && f.includes(o.eigenaar)); };
 
