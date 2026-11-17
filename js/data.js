@@ -126,7 +126,22 @@ function laad() {
   return demoData();
 }
 
+/** Titel van een ingepland blok: bij een taak in een project "Project: taak" (zo staat het ook in je agenda) */
+export function blokTitel(it) {
+  const p = it?.type === "taak" && it.project ? data.projecten.find(x => x.id === it.project) : null;
+  return p ? `${p.titel}: ${it.titel}` : it?.titel || "";
+}
+// Blokken volgen de (nieuwe) naam van hun taak en project
+function blokTitelsBij() {
+  for (const b of data.planning || []) {
+    if (!b.item || b.soort === "reis") continue;
+    const it = data.taken.find(t => t.id === b.item) || data.projecten.find(x => x.id === b.item);
+    if (it) { const t = blokTitel(it); if (t && b.titel !== t) b.titel = t; }
+  }
+}
+
 export function bewaar({ stil = false } = {}) {
+  blokTitelsBij();
   if (!stil) data.gewijzigd = new Date().toISOString();
   try { localStorage.setItem(SLEUTEL, JSON.stringify(data)); } catch (e) {}
   luisteraars.forEach(f => f({ stil }));

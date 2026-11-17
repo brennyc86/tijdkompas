@@ -6,7 +6,7 @@
 //  • "vrij"  — alles wat overblijft binnen je beschikbaarheid, na aftrek van vaste tijden, reistijd en afspraken.
 //              Staat de lijst (of taak) op een locatie met reistijd, dan krijgt elke sessie reis heen + terug;
 //              taken op dezelfde locatie worden achter elkaar gezet zodat je maar één keer reist.
-import { opslag, kwadrant, kalibratie, project, overzicht, locatie, effectieveLocatie, uid, linkInfo, isMijn, taak, sessie } from "./data.js";
+import { opslag, kwadrant, kalibratie, project, overzicht, locatie, effectieveLocatie, uid, linkInfo, isMijn, taak, sessie, blokTitel } from "./data.js";
 
 // Agenda en planning van gelinkte accounts (privé ↔ werk): je bent één mens, dus daar plannen we omheen.
 // De app vult dit (cloud.familieAgenda); zonder gelinkte accounts is het leeg.
@@ -267,7 +267,7 @@ export function planAutomatisch(actieveOverzichten) {
     const reis = ov.modus === "vrij" ? reisVan(loc) : 0;      // bij vaste tijden zit reis al in het rooster
     const deadline = harde(it);
     let laatste = null;
-    const basisBlok = { item: it.id, type: it.type, overzicht: it.overzicht, titel: it.titel, locatie: loc };
+    const basisBlok = { item: it.id, type: it.type, overzicht: it.overzicht, titel: blokTitel(it), locatie: loc };
 
     for (let dag = new Date(start.getFullYear(), start.getMonth(), start.getDate()); dag < eind && rest > 0; dag.setDate(dag.getDate() + 1)) {
       const I = ind(dag);
@@ -468,7 +468,7 @@ export function plaatsBlok(it, a, duur) {
   const { loc, reis } = plekVan(it);
   const vervallen = d.planning.filter(b => b.item === it.id && !b.vast && new Date(b.eind) > nu);
   d.planning = d.planning.filter(b => !vervallen.includes(b));
-  const basis = { item: it.id, type: it.type, overzicht: it.overzicht, titel: it.titel, locatie: loc, vast: true, handmatig: true };
+  const basis = { item: it.id, type: it.type, overzicht: it.overzicht, titel: blokTitel(it), locatie: loc, vast: true, handmatig: true };
   const b = { id: uid(), ...basis, start: a.toISOString(), eind: new Date(a.getTime() + duur * MIN).toISOString() };
   if (reis) {
     const naam = locatie(loc)?.naam || "";
