@@ -6,13 +6,16 @@
 //  • "vrij"  — alles wat overblijft binnen je beschikbaarheid, na aftrek van vaste tijden, reistijd en afspraken.
 //              Staat de lijst (of taak) op een locatie met reistijd, dan krijgt elke sessie reis heen + terug;
 //              taken op dezelfde locatie worden achter elkaar gezet zodat je maar één keer reist.
+import { veiligeAfwijkingen, veiligGenegeerd } from "./veilig.js";
 import { opslag, kwadrant, kalibratie, project, overzicht, locatie, effectieveLocatie, uid, linkInfo, isMijn, taak, sessie, blokTitel } from "./data.js";
 
 // Agenda en planning van gelinkte accounts (privé ↔ werk): je bent één mens, dus daar plannen we omheen.
 // De app vult dit (cloud.familieAgenda); zonder gelinkte accounts is het leeg.
 export const familieHaak = { agenda: () => ({ bezet: [], planning: [] }),
   eigenaar: () => null,     // eigenaar(lijst) → { email, agenda } als de lijst van een gelinkt account is
-  voorMij: () => ({ blokken: [], klaar: false }) };   // blokken die een gelinkt account voor míjn lijsten plande (ik zet ze in mijn agenda)
+  voorMij: () => ({ blokken: [], klaar: false }),
+  instVan: () => null,      // instVan(lijst) → de instellingen (soort, tijden, plek) van het account van wie de lijst is
+  instAlle: () => [] };     // instAlle(lijstId) → de instellingen van die lijst bij je gelinkte accounts (hun afwijkingen e.d.)   // blokken die een gelinkt account voor míjn lijsten plande (ik zet ze in mijn agenda)
 // Lijsten van een gelinkt account plant dat account zelf in (in zijn eigen agenda); hier niet nog eens.
 const vanGelinkt = (ovId) => { const o = overzicht(ovId), f = sessie.familie || []; return !!(o?.eigenaar && f.length > 1 && o.eigenaar !== sessie.ik && f.includes(o.eigenaar)); };
 
@@ -95,10 +98,100 @@ export const AFWIJKING = {
   anders: { naam: "Andere tijden of plek", icoon: "🕘", uitleg: "Bijv. geruilde dag, dagdeel vrij of thuis i.p.v. op kantoor" },
   bezet:  { naam: "Cursus of elders",     icoon: "🎓", uitleg: "Die tijd is bezet: er wordt niets in ingepland" },
 };
+/**
+ * Een lijst zoals hij echt geldt: is hij van een gelinkt account (jij in een andere rol), dan zijn soort, tijden en plek
+ * die van dát account — zo zie je de werktijden van je werk-inlog ook als je met privé bent ingelogd, en plant privé eromheen.
+ */
+export function effLijst(o) {
+  const gi = o && familieHaak.instVan(o);
+  if (!gi || !gi.modus) return o;
+  return { ...o, modus: gi.modus, tijden: Array.isArray(gi.tijden) ? gi.tijden : [], locatie: gi.locatie ?? o.locatie };
+}
 /** Standaard tijdvakken van een lijst op een weekdag (zonder afwijkingen) */
-export const standaardTijden = (o, weekdag) => (o.tijden || []).filter(t => (t.dagen || []).includes(weekdag));
-/** Afwijking van een lijst op een dag (of null) */
-export const afwijkingOp = (o, ds) => o?.afwijkingen?.[ds] || null;
+export const standaardTijden = (o, weekdag) => (effLijst(o).tijden || []).filter(t => (t.dagen || []).includes(weekdag));
+// Alle afwijkingen van een lijst: die van jezelf en die van je gelinkte accounts (ontsmet)
+const afwBronnen = (o) => [o?.afwijkingen || {}, ...familieHaak.instAlle(o?.id).map(x => veiligeAfwijkingen(x?.afwijkingen))];
+/** Afwijking van een lijst op een dag (of null) — de nieuwste, van welk van je accounts ook */
+export function afwijkingOp(o, ds) {
+  const x = afwBronnen(o).map(m => m?.[ds]).filter(Boolean).sort((p, q) => String(q.t || "").localeCompare(String(p.t || "")))[0];
+  return x && x.soort !== "standaard" ? x : null;
+}
+/** Datums met een afwijking (eigen of van een gelinkt account) */
+export const afwijkingDatums = (o) => [...new Set(afwBronnen(o).flatMap(m => Object.keys(m || {})))].filter(ds => afwijkingOp(o, ds)).sort();
+/** Afwijking zetten (op de echte lijst, in jouw instellingen); null = weer zoals altijd */
+export function zetAfwijking(o, ds, x) {
+  o.afwijkingen = { ...(o.afwijkingen || {}) };
+  const t = new Date().toISOString();
+  if (x) o.afwijkingen[ds] = { ...x, t };
+  else if (familieHaak.instAlle(o.id).some(i => i?.afwijkingen?.[ds])) o.afwijkingen[ds] = { soort: "standaard", tijden: [], reden: "", t };
+  else delete o.afwijkingen[ds];
+}
+/** Tijdvakken van een lijst op een datum, met afwijkingen ([{van, tot, locatie}]) */
+export function dagTijden(o, ds) {
+  const x = afwijkingOp(o, ds);
+  if (x) return x.soort === "anders" ? x.tijden.map(t => ({ ...t })) : [];
+  const e = effLijst(o);
+  return standaardTijden(o, new Date(ds + "T12:00").getDay()).map(t => ({ van: t.van, tot: t.tot, locatie: t.locatie ?? e.locatie ?? "" }));
+}
+const mv = (s) => { const [h, m] = String(s).split(":").map(Number); return h * 60 + (m || 0); };
+const hm = (n) => String(Math.floor(n / 60)).padStart(2, "0") + ":" + String(n % 60).padStart(2, "0");
+/** Tijdvakken min een stuk (van–tot, "HH:MM"); stukjes korter dan een kwartier vallen weg */
+export function tijdenZonder(tijden, van, tot) {
+  const a = mv(van), b = mv(tot), uit = [];
+  for (const t of tijden) {
+    const x = mv(t.van), y = mv(t.tot);
+    if (b <= x || a >= y) { uit.push(t); continue; }
+    if (a - x >= 15) uit.push({ ...t, tot: hm(a) });
+    if (y - b >= 15) uit.push({ ...t, van: hm(b) });
+  }
+  return uit;
+}
+/** Tijdvakken plus een stuk (overlap wordt samengevoegd) */
+export function tijdenMet(tijden, slot) {
+  const l = [...tijden.map(t => ({ ...t })), { ...slot }].sort((p, q) => mv(p.van) - mv(q.van)), uit = [];
+  for (const t of l) { const z = uit.at(-1); if (z && mv(t.van) <= mv(z.tot)) { if (mv(t.tot) > mv(z.tot)) z.tot = t.tot; } else uit.push(t); }
+  return uit;
+}
+
+// ---------- werk en privé door elkaar ----------
+const hashje = (s) => { let h = 5381; for (const c of String(s ?? "")) h = (h * 33 + c.codePointAt(0)) >>> 0; return h.toString(36); };
+/**
+ * Afspraken die door je rollen heen lopen, voor een lijst met vaste tijden (zoals Werk):
+ *   prive — een afspraak van een andere rol (bijv. je privé-agenda) valt in die vaste tijden
+ *   werk  — een afspraak van die rol zelf (bijv. je werkagenda) valt erbuiten, in je eigen tijd
+ * Welke afspraak bij welke rol hoort: bij gelinkte accounts het account; anders de agenda's die bij de lijst horen.
+ * Wat je al hebt opgelost (een afwijking met deze botsing) of hebt laten zo, komt niet terug.
+ */
+export function rolBotsingen({ dagen = 28 } = {}) {
+  const d = opslag.d, nu = new Date(), tot = new Date(nu.getTime() + dagen * 864e5);
+  const f = familieHaak.agenda(), metFamilie = (sessie.familie || []).length > 1;
+  const evs = [
+    ...d.bezet.filter(ev => eventSoort(ev) === "bezet" && !ev.eigen).map(ev => ({ ...ev, uid: sessie.ik })),
+    ...f.bezet.filter(ev => ev.soortF === "bezet" && !ev.eigen).map(ev => ({ ...ev, uid: ev.vanUid || "" })),
+  ].filter(ev => new Date(ev.eind) > nu && new Date(ev.start) < tot && new Date(ev.eind) - new Date(ev.start) < 864e5);
+  const uit = [], cache = new Map();
+  const ind = (dag) => { const k = dagStr(dag); if (!cache.has(k)) cache.set(k, dagIndeling(dag)); return cache.get(k); };
+  for (const o of d.overzichten.filter(o => !o.slot && effLijst(o).modus === "vast")) {
+    const eigenaar = o.eigenaar || sessie.ik;
+    const gekoppeld = Object.entries(d.agendas || {}).filter(([, a]) => a.lijst === o.id).map(([k]) => k);
+    if (!metFamilie && !gekoppeld.length) continue;               // niet te zeggen welke afspraak bij welke rol hoort
+    const vanRol = (ev) => gekoppeld.includes(ev.bron) || (metFamilie && ev.uid === eigenaar);
+    const bronnen = afwBronnen(o), opgelost = new Set(bronnen.flatMap(m => Object.values(m || {}).flatMap(x => x?.bij || [])));
+    const gelaten = new Set([o.genegeerd || {}, ...familieHaak.instAlle(o.id).map(x => veiligGenegeerd(x?.genegeerd))].flatMap(m => Object.keys(m)));
+    for (const ev of evs) {
+      const a = new Date(ev.start), b = new Date(ev.eind), dag = new Date(a.getFullYear(), a.getMonth(), a.getDate());
+      const I = ind(dag); if (I.weg) continue;
+      const ramen = I.vast.filter(v => v.lijst === o.id);
+      const overlap = ramen.reduce((s, v) => s + Math.max(0, minuten(v.a > a ? v.a : a, v.b < b ? v.b : b)), 0);
+      const sleutel = `${o.id}|${ev.start}|${hashje(ev.titel)}`;
+      if (opgelost.has(sleutel) || gelaten.has(sleutel)) continue;
+      const rol = vanRol(ev), duur = minuten(a, b);
+      if (!rol && overlap >= 15) uit.push({ soort: "prive", lijst: o.id, ev, sleutel, ds: dagStr(dag), min: overlap });
+      else if (rol && duur - overlap >= 15) uit.push({ soort: "werk", lijst: o.id, ev, sleutel, ds: dagStr(dag), min: duur - overlap });
+    }
+  }
+  return uit.sort((p, q) => p.ev.start.localeCompare(q.ev.start));
+}
 export const afwezigOp = (ds) => opslag.d.afwezig?.[ds] || null;
 
 /**
@@ -114,7 +207,7 @@ export function dagIndeling(dag) {
   const opDezeDag = (ev) => new Date(ev.start) < dagEind && new Date(ev.eind) > dag;
   const vast = [], elders = [], afwijkingen = [];
   const geldig = (t) => t && /^\d{2}:\d{2}$/.test(t.van) && /^\d{2}:\d{2}$/.test(t.tot) && t.tot > t.van;
-  for (const o of d.overzichten.filter(o => o.modus === "vast")) {
+  for (const o of d.overzichten.map(effLijst).filter(o => o.modus === "vast")) {
     const afw = afwijkingOp(o, ds);
     if (afw) {
       afwijkingen.push({ lijst: o.id, ...afw });
@@ -405,7 +498,7 @@ function bezetBehalve(itemId, negeer = null) {
 }
 /** Waar en met hoeveel reistijd een item wordt gedaan */
 export function plekVan(it) {
-  const ov = overzicht(it.overzicht), p = it.project ? project(it.project) : null;
+  const ov = effLijst(overzicht(it.overzicht)), p = it.project ? project(it.project) : null;
   const eigenLoc = it.locatie || p?.locatie || "";
   const loc = ov?.modus === "vast" ? eigenLoc : effectieveLocatie(it);
   return { ov, eigenLoc, loc, reis: ov?.modus === "vrij" ? reisVan(loc) : 0 };

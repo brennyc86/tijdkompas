@@ -29,6 +29,29 @@ export function veiligeLeden(info) {
 const idLijst = (l) => (Array.isArray(l) ? l : []).filter(veiligId);
 const KSTATUS = ["loopt", "gehaald", "deels", "niet"];
 
+// Afwijkingen per datum (vakantie, cursus, geruilde dag…) van een lijst — ook die van je gelinkte accounts gaan hierdoor.
+// soort "standaard" = uitdrukkelijk weer zoals altijd (gaat boven een oudere afwijking van een ander account); t = wanneer gezet;
+// bij = welke botsing(en) hiermee zijn opgelost.
+const AFW_SOORT = ["vrij", "anders", "bezet", "standaard"];
+const tijdOk = (t) => typeof t === "string" && /^\d{2}:\d{2}$/.test(t);
+export function veiligeAfwijkingen(m) {
+  if (!m || typeof m !== "object" || Array.isArray(m)) return {};
+  const grens = new Date(Date.now() - 366 * 864e5).toISOString().slice(0, 10), uit = {};
+  for (const [k, x] of Object.entries(m)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(k) || k < grens || !x || typeof x !== "object" || !AFW_SOORT.includes(x.soort)) continue;
+    uit[k] = { soort: x.soort, reden: tekst(x.reden, 100),
+      tijden: ["vrij", "standaard"].includes(x.soort) ? [] : (Array.isArray(x.tijden) ? x.tijden : []).filter(t => t && tijdOk(t.van) && tijdOk(t.tot))
+        .map(t => ({ van: t.van, tot: t.tot, locatie: veiligId(t.locatie) ? t.locatie : "" })),
+      ...(typeof x.t === "string" && x.t.length <= 40 ? { t: x.t } : {}),
+      ...(Array.isArray(x.bij) ? { bij: x.bij.filter(b => typeof b === "string" && b.length <= 200).slice(0, 20) } : {}) };
+  }
+  return uit;
+}
+export function veiligGenegeerd(m) {
+  if (!m || typeof m !== "object" || Array.isArray(m)) return {};
+  return Object.fromEntries(Object.entries(m).filter(([k, v]) => k.length <= 200 && typeof v === "string" && v.length <= 40).slice(-300));
+}
+
 /**
  * Maakt een volledig data-object veilig (in place). Lijsten, mappen, taken en koersafspraken met een onveilige id
  * vallen weg; kleuren, iconen en links worden vervangen door veilige waarden.
@@ -93,13 +116,9 @@ export function ontsmet(n) {
   }
   // afwijkingen per datum (vakantie, cursus, geruilde dag…): alleen geldige datums, soorten en tijden; oud spul (> 1 jaar) valt weg
   const datum = (k) => /^\d{4}-\d{2}-\d{2}$/.test(k), grens = new Date(Date.now() - 366 * 864e5).toISOString().slice(0, 10);
-  const afw = (x) => {
-    if (!x || typeof x !== "object" || !["vrij", "anders", "bezet"].includes(x.soort)) return null;
-    return { soort: x.soort, reden: tekst(x.reden, 100), tijden: x.soort === "vrij" ? [] : tijdvakken(x.tijden).map(t => ({ van: t.van, tot: t.tot, locatie: t.locatie })) };
-  };
   for (const o of n.overzichten) {
-    if (!o.afwijkingen || typeof o.afwijkingen !== "object" || Array.isArray(o.afwijkingen)) { o.afwijkingen = {}; continue; }
-    o.afwijkingen = Object.fromEntries(Object.entries(o.afwijkingen).filter(([k]) => datum(k) && k >= grens).map(([k, x]) => [k, afw(x)]).filter(([, x]) => x));
+    o.afwijkingen = veiligeAfwijkingen(o.afwijkingen);
+    o.genegeerd = veiligGenegeerd(o.genegeerd);
   }
   // abonneer-links: lange willekeurige sleutel, alleen bestaande lijsten
   n.feeds = (Array.isArray(n.feeds) ? n.feeds : []).filter(f => f && typeof f.id === "string" && /^[A-Za-z0-9_-]{32,64}$/.test(f.id)).slice(0, 10)

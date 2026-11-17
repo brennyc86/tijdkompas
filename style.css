@@ -631,3 +631,7 @@ a.koersitem{text-decoration:none;color:inherit}
 .wblok.famblok.mijnfam{cursor:pointer}
 .item.vangelinkt{opacity:.6;border-left-color:var(--zacht)}
 .item.vangelinkt:hover{opacity:1}
+.botsingen{border-color:var(--oranje);margin-bottom:14px}
+.venster.licht{opacity:.55}
+.faminlog{font:inherit;font-size:11.5px;padding:1px 7px;border-radius:999px;border:1px solid var(--rand);background:var(--kaart);color:var(--meta);cursor:pointer;margin-left:4px}
+.faminlog[aria-pressed="false"]{opacity:.6;text-decoration:line-through}

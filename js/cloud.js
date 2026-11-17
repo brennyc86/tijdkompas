@@ -388,13 +388,19 @@ export function familieVoorMij() {
   const andere = cloud.familie.filter(u => u !== sessie.ik);
   return { blokken, klaar: cloudGeladen() && !cloud.familieFout.size && andere.every(u => familieDocs.has(u)) };
 }
+/** De instellingen van een lijst bij je gelinkte accounts (o.a. hun afwijkingen en wat ze hebben laten zo) */
+export function familieLijstInst(lijstId) {
+  const uit = [];
+  for (const [, x] of familieDocs) { const i = x.lijstInst?.[lijstId]; if (i && typeof i === "object") uit.push(i); }
+  return uit;
+}
 /** Agenda en planning van gelinkte accounts (alleen om te tonen en om omheen te plannen) */
 export function familieAgenda() {
   const bezet = [], planning = [];
   for (const [u, x] of familieDocs) {
     const van = emailVan(u);
-    for (const e of x.bezet || []) bezet.push({ ...e, kleur: veiligeKleur(e.kleur, ""), vanFamilie: van, soortF: x.agendas?.[e.bron]?.soort || "bezet", kleurF: veiligeKleur(x.agendas?.[e.bron]?.kleur, "") });
-    for (const b of x.planning || []) planning.push({ ...b, vanFamilie: van, titel: b.titel || "Gepland" });
+    for (const e of x.bezet || []) bezet.push({ ...e, kleur: veiligeKleur(e.kleur, ""), vanFamilie: van, vanUid: u, soortF: x.agendas?.[e.bron]?.soort || "bezet", kleurF: veiligeKleur(x.agendas?.[e.bron]?.kleur, "") });
+    for (const b of x.planning || []) planning.push({ ...b, vanFamilie: van, vanUid: u, titel: b.titel || "Gepland" });
   }
   return { bezet, planning };
 }
@@ -532,7 +538,7 @@ function bouw() {
 }
 
 // ---------- van het geheugen naar Firestore ----------
-const PERSOONLIJK = ["modus", "locatie", "tijden", "afwijkingen", "doelAgenda", "map"];
+const PERSOONLIJK = ["modus", "locatie", "tijden", "afwijkingen", "genegeerd", "doelAgenda", "map"];
 // Alle inlogs van dit Tijdkompas horen in elke lijst/map (zonder losgekoppelde: die staan niet meer in familie)
 const exFamilie = new Set();
 // Als hoofd: een gelinkt account pas toevoegen als het zelf ook naar mij wijst (wederzijds; zo eisen de regels het ook)
