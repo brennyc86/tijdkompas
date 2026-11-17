@@ -4,14 +4,14 @@ import { opslag, bewaar, KWADRANTEN, kwadrant, overzicht, project, taak, takenVa
          map, submappen, lijstenIn, lijstenOnder, mappenOnder, mapPad, boom, lijstVolgorde, idsVan,
          afspraak, koersVan, binnenDoel, koersScore, koersSuggesties, koppelKoers, mijnId, isIk, personen, naamVanPersoon, isMijn, isTeam, wie, wachtNogOp, wachtenOp, maaktKring, anderen as andereLeden } from "./data.js";
 import { familieHaak, planAutomatisch, werkGeplandBij, doelDatum, harde, prioriteit, googleLink, outlookLink, maakIcs, leesIcs, dagStr, dagIndeling, eventSoort, SOORTEN,
-  AFWIJKING, regelVoor, rolKeuze, afspraakSleutel, standaardTijden, afwijkingOp, afwijkingDatums, zetAfwijking, dagTijden, tijdenZonder, tijdenMet, effLijst, rolBotsingen, planStatus, grootsteGat, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, volgendeMomenten, plaatsVanaf, vrijkomend, vrijeTijd, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
+  AFWIJKING, telt, regelVoor, rolKeuze, afspraakSleutel, standaardTijden, afwijkingOp, afwijkingDatums, zetAfwijking, dagTijden, tijdenZonder, tijdenMet, effLijst, rolBotsingen, planStatus, grootsteGat, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, volgendeMomenten, plaatsVanaf, vrijkomend, vrijeTijd, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
 import { ids, verbindingen as alleVerbindingen, heeft, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, zonderDoel, koppelHaak, neemGedeeldeOver } from "./koppeling.js";
 import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroniseerAlles, naamVan, lijstWeg } from "./schijf.js";
 import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD, eigenAgenda, viaEigenaar, vingerafdruk } from "./sync.js";
 import { syncTaken, takenVerbindingen, koppelTakenlijst, takenlijstVan, takenVerbindingVan } from "./takensync.js";
 import { kiesEmoji, voorstellen } from "./emoji.js";
 import { veiligeUrl, veiligeFoto } from "./veilig.js";
-import { familieRegels, familieLijstInst, familieVoorMij, emailVan, feedsLater, feedsBijwerken, feedStand, feedUrl, feedWeg, nieuweFeedSleutel, feedBlokken, cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda, gelinkteInfo, stuurInlogLink,
+import { familieBezetRuw, familieRegels, familieLijstInst, familieVoorMij, emailVan, feedsLater, feedsBijwerken, feedStand, feedUrl, feedWeg, nieuweFeedSleutel, feedBlokken, cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda, gelinkteInfo, stuurInlogLink,
          koppel as koppelStaat, vraagKoppelcode, gebruikKoppelcode, beantwoordKoppel, stopKoppelcode, stuurBevestiging, controleerBevestiging } from "./cloud.js";
 familieHaak.agenda = familieAgenda;
 familieHaak.instVan = (o) => (ingelogd() && gelinkteInfo(o)?.inst) || null;
@@ -22,6 +22,7 @@ familieHaak.regels = () => {
   if (Date.now() - regelsCache.t > 300 || !regelsCache.v) regelsCache = { t: Date.now(), v: familieRegels() };
   return regelsCache.v;
 };
+familieHaak.ruw = () => ingelogd() ? familieBezetRuw() : [];
 familieHaak.instAlle = (id) => ingelogd() && id ? familieLijstInst(id) : [];
 familieHaak.voorMij = () => ingelogd() ? familieVoorMij() : { blokken: [], klaar: false };
 familieHaak.eigenaar = (o) => { const gl = o && gelinkteInfo(o); return gl ? { email: gl.email, agenda: gl.inst?.doelAgenda || "" } : null; };
@@ -452,7 +453,7 @@ function vandaag() {
   const rij = (i) => { const h = i.type === "taak" ? itemRij(i) : projectRijPlan(i); return doorGelinktIngepland(i) ? h.replace('class="item', 'class="item vangelinkt') : h; };
   const blokken = [
     ...d().planning.filter(b => dagStr(new Date(b.start)) === vd).filter(b => actieveOverzichten().includes(b.overzicht)),
-    ...d().bezet.filter(b => dagStr(new Date(b.start)) === vd && afspraakZichtbaar(b)).map(b => ({ ...b, bezet: true })),
+    ...d().bezet.filter(b => dagStr(new Date(b.start)) === vd && afspraakZichtbaar(b) && telt(b)).map(b => ({ ...b, bezet: true })),
     ...(() => { const f = famAgenda(); return [...f.bezet.filter(b => !b.eigen && b.soortF !== "negeer"), ...f.planning.filter(b => b.soort !== "reis")]
       .filter(b => dagStr(new Date(b.start)) === vd).map(b => ({ ...b, bezet: true, fam: true })); })(),
   ].sort((a, b) => a.start.localeCompare(b.start));

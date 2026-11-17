@@ -388,6 +388,12 @@ export function familieVoorMij() {
   const andere = cloud.familie.filter(u => u !== sessie.ik);
   return { blokken, klaar: cloudGeladen() && !cloud.familieFout.size && andere.every(u => familieDocs.has(u)) };
 }
+/** Afspraken van je gelinkte accounts zoals ze binnenkomen (zonder regels), met van welk account en of het via een link is */
+export function familieBezetRuw() {
+  const uit = [];
+  for (const [u, x] of familieDocs) for (const e of x.bezet || []) uit.push({ ...e, vanUid: u, viaLink: !!x.agendas?.[e.bron]?.link, soortRuw: x.agendas?.[e.bron]?.soort || "bezet" });
+  return uit;
+}
 /** Afspraakregels en verborgen afspraken van je gelinkte accounts (gelden ook hier) */
 export function familieRegels() {
   const regels = [], verborgen = {}, rolKeuzes = {};
@@ -409,7 +415,7 @@ export function familieAgenda() {
   const bezet = [], planning = [];
   for (const [u, x] of familieDocs) {
     const van = emailVan(u);
-    for (const e of x.bezet || []) bezet.push({ ...e, kleur: veiligeKleur(e.kleur, ""), vanFamilie: van, vanUid: u, soortF: telt(e) ? (x.agendas?.[e.bron]?.soort || "bezet") : "negeer", kleurF: veiligeKleur(x.agendas?.[e.bron]?.kleur, "") });
+    for (const e of x.bezet || []) bezet.push({ ...e, kleur: veiligeKleur(e.kleur, ""), vanFamilie: van, vanUid: u, soortF: telt({ ...e, vanUid: u }) ? (x.agendas?.[e.bron]?.soort || "bezet") : "negeer", kleurF: veiligeKleur(x.agendas?.[e.bron]?.kleur, "") });
     for (const b of x.planning || []) planning.push({ ...b, vanFamilie: van, vanUid: u, titel: b.titel || "Gepland" });
   }
   return { bezet, planning };

@@ -16,7 +16,8 @@ export const familieHaak = { agenda: () => ({ bezet: [], planning: [] }),
   voorMij: () => ({ blokken: [], klaar: false }),
   instVan: () => null,      // instVan(lijst) → de instellingen (soort, tijden, plek) van het account van wie de lijst is
   instAlle: () => [],
-  regels: () => ({ regels: [], verborgen: {} }) };   // afspraakregels en verborgen afspraken van je gelinkte accounts     // instAlle(lijstId) → de instellingen van die lijst bij je gelinkte accounts (hun afwijkingen e.d.)   // blokken die een gelinkt account voor míjn lijsten plande (ik zet ze in mijn agenda)
+  regels: () => ({ regels: [], verborgen: {} }),
+  ruw: () => [] };          // afspraken van je gelinkte accounts zoals ze binnenkomen (om dubbele te herkennen)   // afspraakregels en verborgen afspraken van je gelinkte accounts     // instAlle(lijstId) → de instellingen van die lijst bij je gelinkte accounts (hun afwijkingen e.d.)   // blokken die een gelinkt account voor míjn lijsten plande (ik zet ze in mijn agenda)
 // Lijsten van een gelinkt account plant dat account zelf in (in zijn eigen agenda); hier niet nog eens.
 const vanGelinkt = (ovId) => { const o = overzicht(ovId), f = sessie.familie || []; return !!(o?.eigenaar && f.length > 1 && o.eigenaar !== sessie.ik && f.includes(o.eigenaar)); };
 
@@ -80,7 +81,38 @@ export function rolKeuze(ev, lijst) {
   const r = regelVoor(ev, ["rolwerk", "rolprive"], lijst);
   return r ? (r.soort === "rolwerk" ? "werk" : "prive") : null;
 }
+// ---------- dezelfde afspraak via meer kanalen (bijv. Outlook gekoppeld én als link, of via je werk-inlog én hier) ----------
+// Telt één keer. Zelfde begin, eind en naam — of één van beide heet alleen „Bezet” (een link zonder details) — is dezelfde afspraak.
+// Wie blijft: die van dit account boven die van een gelinkt account, een directe koppeling boven een link, een echte naam boven „Bezet”.
+const ALGEMEEN = new Set(["bezet", "busy", "tentative", "voorlopig", "free", "vrij", "niet beschikbaar", "afwezig", "out of office", ""]);
+const herkomst = (ev) => ev.vanUid || "eigen";
+const evId = (ev) => herkomst(ev) + ":" + ev.id;
+let dubbelCache = { t: 0, n: -1, weg: new Set() };
+function dubbeleAfspraken() {
+  const d = opslag.d, ruw = familieHaak.ruw();
+  const n = (d.bezet || []).length + ruw.length;
+  if (Date.now() - dubbelCache.t < 300 && dubbelCache.n === n) return dubbelCache.weg;
+  const alle = [...(d.bezet || []).map(e => ({ ...e, viaLink: !!d.agendas?.[e.bron]?.link })), ...ruw].filter(e => !e.eigen && e.start && e.eind);
+  const groepen = new Map();
+  for (const e of alle) { const k = e.start + "|" + e.eind; if (!groepen.has(k)) groepen.set(k, []); groepen.get(k).push(e); }
+  const score = (e) => (herkomst(e) === "eigen" ? 4 : 0) + (e.viaLink ? 0 : 2) + (ALGEMEEN.has(normT(e.titel)) ? 0 : 1);
+  const weg = new Set();
+  for (const g of groepen.values()) {
+    if (g.length < 2) continue;
+    g.sort((a, b) => score(b) - score(a));
+    const gehouden = [];
+    for (const e of g) {
+      const t = normT(e.titel), zelfde = gehouden.find(h => normT(h.titel) === t || ALGEMEEN.has(t) || ALGEMEEN.has(normT(h.titel)));
+      // verschillende agenda's van hetzelfde kanaal met dezelfde afspraak (bijv. gedeelde agenda) tellen ook als één
+      if (zelfde) weg.add(evId(e)); else gehouden.push(e);
+    }
+  }
+  dubbelCache = { t: Date.now(), n, weg };
+  return weg;
+}
+export const isDubbel = (ev) => dubbeleAfspraken().has(evId(ev));
 export function telt(ev) {
+  if (!ev.eigen && isDubbel(ev)) return false;
   const d = opslag.d, f = familieHaak.regels(), k = afspraakSleutel(ev);
   if (d.verborgen?.[k] || f.verborgen?.[k]) return false;
   const r = regelVoor(ev);
