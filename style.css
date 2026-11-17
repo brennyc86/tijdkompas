@@ -644,3 +644,24 @@ a.koersitem{text-decoration:none;color:inherit}
 #planForm .plvast .balk i{background:var(--groen)}
 .wblok.herinnering{z-index:4;height:15px;padding:0 4px;font-size:10px;line-height:15px;background:color-mix(in srgb,var(--oranje) 14%,var(--paneel));border:1px dashed color-mix(in srgb,var(--oranje) 55%,transparent);color:var(--meta);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.85}
 .botsingen.buiten{border-color:color-mix(in srgb,var(--accent) 60%,var(--rand))}
+/* dagbeeld in het inplanvenster */
+.dbkop{font-size:13px;margin:10px 0 4px}
+.dagbeeld{position:relative;border:1px solid var(--rand);border-radius:9px;background:var(--bg2);overflow:hidden;cursor:crosshair;margin-left:0}
+.dbuur{position:absolute;left:0;right:0;border-top:1px solid color-mix(in srgb,var(--rand) 70%,transparent);font-size:10px;color:var(--zacht);padding-left:4px;line-height:1;pointer-events:none}
+.dbbeschikb,.dbvenster,.dbreis{position:absolute;left:40px;right:0;pointer-events:none}
+.dbbeschikb{background:color-mix(in srgb,var(--tekst) 4%,transparent)}
+.dbvenster{background:color-mix(in srgb,var(--accent) 9%,transparent);border-left:2px solid color-mix(in srgb,var(--accent) 55%,transparent)}
+.dbvenster span{position:absolute;right:4px;top:1px;font-size:10px}
+.dbreis{background:repeating-linear-gradient(45deg,color-mix(in srgb,var(--oranje) 22%,transparent) 0 4px,transparent 4px 8px);font-size:9px;text-align:right;padding-right:3px}
+.dbblok{position:absolute;left:44px;right:6px;border-radius:5px;padding:1px 6px;font-size:11px;line-height:1.25;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;z-index:2}
+.dbafspraak{background:color-mix(in srgb,var(--zacht) 22%,var(--paneel));border:1px solid var(--zacht);color:var(--tekst)}
+.dbherinn{background:color-mix(in srgb,var(--oranje) 14%,var(--paneel));border:1px dashed color-mix(in srgb,var(--oranje) 55%,transparent);color:var(--meta);font-size:10px;line-height:13px}
+.dbfam{opacity:.5;background:color-mix(in srgb,var(--zacht) 16%,var(--paneel));border:1px dashed var(--zacht);color:var(--meta)}
+.dbeigen{background:color-mix(in srgb,var(--ok) 30%,var(--kaart));border:1px solid var(--ok);color:var(--tekst)}
+.dbeigen.dbzelf{box-shadow:inset 3px 0 0 var(--groen)}
+.dbwijkt{opacity:.55;background:repeating-linear-gradient(45deg,color-mix(in srgb,var(--ok) 25%,var(--kaart)) 0 6px,var(--kaart) 6px 12px);border-style:dashed}
+.dbnieuw{z-index:3;left:56px;background:color-mix(in srgb,var(--accent) 28%,var(--paneel));border:2px dashed var(--accent);color:var(--tekst);font-weight:600}
+.dbnu{position:absolute;left:40px;right:0;height:2px;background:var(--rood);z-index:4;pointer-events:none}
+.vdagknop{font:inherit;font-size:12.5px;font-weight:600;color:var(--meta);background:none;border:0;padding:0;cursor:pointer;text-align:left}
+.vdagknop:hover{color:var(--accent)}
+@media (max-width:640px){ .vdagknop{flex:0 0 74px} }

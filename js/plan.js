@@ -654,8 +654,8 @@ export function grootsteGat(it, van, tot) {
 }
 
 /** Wat botst er met dit tijdvak (afspraken, andere blokken, en of het buiten je beschikbaarheid valt) */
-export function botsingen(it, a, b) {
-  const uit = bezetBehalve(it.id).filter(x => !x.reis && x.a < b && x.b > a).map(x => `${x.titel} ${tijdStr(x.a)}–${tijdStr(x.b)}`);
+export function botsingen(it, a, b, { blokkenMogenWijken = false } = {}) {
+  const uit = bezetBehalve(it.id, blokkenMogenWijken ? (x) => !!x.item || x.soort === "uitloop" : null).filter(x => !x.reis && x.a < b && x.b > a).map(x => `${x.titel} ${tijdStr(x.a)}–${tijdStr(x.b)}`);
   const I = dagIndeling(new Date(a.getFullYear(), a.getMonth(), a.getDate()));
   const { ov } = plekVan(it);
   if (I.weg) uit.push(`je bent die dag weg${I.weg.reden ? " (" + I.weg.reden + ")" : ""}`);
@@ -788,6 +788,19 @@ export function metVoorrang(it, { modus = "kijk", hierAl = false } = {}) {
   for (const x of tijdelijk) delete x._oud;
   werkGeplandBij(d.overzichten.map(o => o.id));
   return uit;
+}
+/**
+ * Ruimte maken op [a, b) voor een item: eigen blokken van andere taken die daar staan gaan eruit (met hun reistijd) en
+ * komen terug als eenheden, om daarna met plaatsVanaf() naar het volgende vrije moment te schuiven. Reserve (uitloop) vervalt.
+ */
+export function maakRuimte(itemId, a, b) {
+  const d = opslag.d;
+  const raak = d.planning.filter(x => x.item !== itemId && x.soort !== "reis" && new Date(x.start) < b && new Date(x.eind) > a);
+  d.planning = d.planning.filter(x => !(x.soort === "uitloop" && raak.includes(x)));
+  const e = eenheden(raak.filter(x => x.item && x.soort !== "uitloop"));
+  const delen = e.flatMap(delenVan);
+  d.planning = d.planning.filter(x => !delen.includes(x));
+  return e;
 }
 /** Volgende werkmomenten (vrije stukken) voor dit item vanaf een tijdstip — om aan te wijzen waar opgeschoven werk heen gaat */
 export function volgendeMomenten(it, vanaf, minDuur = 15, aantal = 8) {
