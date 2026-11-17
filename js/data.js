@@ -9,7 +9,7 @@ const SLEUTEL = "tijdkompas_v1";
 // Wie is er ingelogd (Firebase-uid), of null in lokale modus.
 // ik = het Tijdkompas (hoofdaccount) waarvan je de gegevens ziet; familie = alle inlogs die daarbij horen
 // (bijv. je privé-, werk- en hobby-account), zodat taken van elk van die inlogs als "van mij" tellen.
-export const sessie = { ik: null, familie: [] };
+export const sessie = { ik: null, familie: [], email: "" };   // email: waarmee je nu bent ingelogd
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 

@@ -10,7 +10,8 @@ import { opslag, kwadrant, kalibratie, project, overzicht, locatie, effectieveLo
 
 // Agenda en planning van gelinkte accounts (privé ↔ werk): je bent één mens, dus daar plannen we omheen.
 // De app vult dit (cloud.familieAgenda); zonder gelinkte accounts is het leeg.
-export const familieHaak = { agenda: () => ({ bezet: [], planning: [] }) };
+export const familieHaak = { agenda: () => ({ bezet: [], planning: [] }),
+  eigenaar: () => null };   // eigenaar(lijst) → { email, agenda } als de lijst van een gelinkt account is
 // Lijsten van een gelinkt account plant dat account zelf in (in zijn eigen agenda); hier niet nog eens.
 const vanGelinkt = (ovId) => { const o = overzicht(ovId), f = sessie.familie || []; return !!(o?.eigenaar && f.length > 1 && o.eigenaar !== sessie.ik && f.includes(o.eigenaar)); };
 
@@ -255,7 +256,8 @@ export function planAutomatisch(actieveOverzichten) {
       if (tot > vanaf) vanaf = rondOp(new Date(tot.getTime() + buf), R);
     }
     if (wachtOpOnbekend) { eindVan[it.id] = null; waarschuwingen.push(`„${it.titel}” wacht op „${wachtOpOnbekend.titel}”, en die is nog niet ingepland — daarom nog niet ingepland.`); continue; }
-    const al = d.planning.filter(b => b.item === it.id && b.vast && b.soort !== "reis").reduce((s, b) => s + minuten(new Date(b.start), new Date(b.eind)), 0);
+    const al = d.planning.filter(b => b.item === it.id && b.vast && b.soort !== "reis").reduce((s, b) => s + minuten(new Date(b.start), new Date(b.eind)), 0)
+      + familieHaak.agenda().planning.filter(b => b.item === it.id && b.soort !== "reis" && new Date(b.eind) > nu).reduce((s, b) => s + minuten(new Date(b.start), new Date(b.eind)), 0);   // al ingepland door je gelinkte account
     factorCache[it.overzicht] ??= schatFactor(it.overzicht);
     let rest = Math.round(((it.schatting || 30) * factorCache[it.overzicht] - (it.werkelijk || 0) - al) / 5) * 5;
     if (rest < inst.blokMin) rest = it.schatting ? Math.max(0, rest) : 30;
@@ -363,7 +365,10 @@ export function schatFactor(ovId) {
 export function nogNodig(it) {
   return Math.max(0, Math.round(((it.schatting || 30) * schatFactor(it.overzicht) - (it.werkelijk || 0)) / 5) * 5);
 }
-const blokkenVan = (id, nu = new Date()) => opslag.d.planning.filter(b => b.item === id && b.soort !== "reis" && new Date(b.eind) > nu)
+// eigen blokken, plus wat een gelinkt account (bijv. werk ↔ privé) voor dezelfde taak heeft ingepland
+const blokkenVan = (id, nu = new Date()) => [...opslag.d.planning, ...familieHaak.agenda().planning.map(b => ({ ...b, vanFamilie: b.vanFamilie || true }))]
+  .filter(b => b.item === id && b.soort !== "reis" && new Date(b.eind) > nu)
+  .filter((b, i, l) => l.findIndex(x => x.id === b.id) === i)
   .sort((a, b) => a.start.localeCompare(b.start));
 
 /**

@@ -209,7 +209,7 @@ async function aangemeld(u) {
     uid: u.uid, naam: u.displayName || u.email || "Gebruiker", email: (u.email || u.providerData.find(p => p.email)?.email || "").toLowerCase(),
     foto: u.photoURL || "", geverifieerd: !!u.emailVerified, aanbieders: u.providerData.map(p => ({ soort: p.providerId === "google.com" ? "google" : p.providerId === "microsoft.com" ? "microsoft" : "email", email: p.email || "" })),
   };
-  sessie.ik = u.uid; sessie.familie = [u.uid]; cloud.familie = [u.uid]; cloud.hoofdUid = null;
+  sessie.ik = u.uid; sessie.familie = [u.uid]; cloud.familie = [u.uid]; cloud.hoofdUid = null; sessie.email = cloud.gebruiker.email;
   meld();
   const ref = F.doc(db, "gebruikers", u.uid);
   let eigen;
@@ -236,7 +236,7 @@ async function aangemeld(u) {
 }
 function afgemeld() {
   const wasIn = !!cloud.gebruiker;
-  stop(); cloud.gebruiker = null; cloud.uitnodigingen = []; sessie.ik = null; cloud.melding = ""; sessie.familie = []; cloud.familie = []; cloud.aliasInfo = {}; cloud.hoofdInfo = null; cloud.hoofdUid = null;
+  stop(); cloud.gebruiker = null; cloud.uitnodigingen = []; sessie.ik = null; sessie.email = ""; cloud.melding = ""; sessie.familie = []; cloud.familie = []; cloud.aliasInfo = {}; cloud.hoofdInfo = null; cloud.hoofdUid = null;
   if (wasIn) { vergeet(); try { localStorage.removeItem(TITELS); } catch {} opslag.demo(); }   // gegevens van het account niet op dit apparaat laten staan
   meld();
   return Promise.resolve();

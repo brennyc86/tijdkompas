@@ -7,13 +7,14 @@ import { familieHaak, planAutomatisch, werkGeplandBij, doelDatum, harde, priorit
   AFWIJKING, standaardTijden, afwijkingOp, planStatus, grootsteGat, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, volgendeMomenten, plaatsVanaf, vrijkomend, vrijeTijd, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
 import { ids, verbindingen as alleVerbindingen, heeft, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, zonderDoel, koppelHaak, neemGedeeldeOver } from "./koppeling.js";
 import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroniseerAlles, naamVan, lijstWeg } from "./schijf.js";
-import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD } from "./sync.js";
+import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD, eigenAgenda } from "./sync.js";
 import { syncTaken, takenVerbindingen, koppelTakenlijst, takenlijstVan, takenVerbindingVan } from "./takensync.js";
 import { kiesEmoji, voorstellen } from "./emoji.js";
 import { veiligeUrl, veiligeFoto } from "./veilig.js";
 import { emailVan, feedsLater, feedsBijwerken, feedStand, feedUrl, feedWeg, nieuweFeedSleutel, feedBlokken, cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda, gelinkteInfo, stuurInlogLink,
          koppel as koppelStaat, vraagKoppelcode, gebruikKoppelcode, beantwoordKoppel, stopKoppelcode, stuurBevestiging, controleerBevestiging } from "./cloud.js";
 familieHaak.agenda = familieAgenda;
+familieHaak.eigenaar = (o) => { const gl = o && gelinkteInfo(o); return gl ? { email: gl.email, agenda: gl.inst?.doelAgenda || "" } : null; };
 
 // Niet in een frame van een andere site laten draaien (tegen "clickjacking": je onzichtbaar laten klikken op bijv. Koppelen)
 if (window.top !== window.self) { document.body.textContent = "Tijdkompas opent alleen in een eigen venster."; throw new Error("Tijdkompas in een frame geweigerd"); }
@@ -217,15 +218,16 @@ function itemRij(t, { toonProject = true, toonOv = true } = {}) {
 }
 
 function toast(tekst, actie) {
+  const acties = Array.isArray(actie) ? actie.filter(Boolean) : actie ? [actie] : [];
   const t = $("#toast"); t.textContent = tekst; t.classList.add("aan");
   // staat er een venster open, dan de melding daarin tonen (anders valt hij erachter, wazig en onklikbaar)
   const open = [...document.querySelectorAll("dialog[open]")].pop() || document.body;
   if (t.parentNode !== open) open.appendChild(t);
-  if (actie) {
-    const b = document.createElement("button"); b.type = "button"; b.className = "knop klein"; b.textContent = actie.label;
-    b.onclick = () => { t.classList.remove("aan"); actie.f(); }; t.append(" ", b);
+  for (const a of acties) {
+    const b = document.createElement("button"); b.type = "button"; b.className = "knop klein"; b.textContent = a.label;
+    b.onclick = () => { t.classList.remove("aan"); a.f(); }; t.append(" ", b);
   }
-  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("aan"), actie ? 7000 : 2600);
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("aan"), acties.length ? 8000 : 2600);
 }
 
 // gaat het venster met de melding erin dicht, dan de melding terug naar de pagina
@@ -1022,11 +1024,13 @@ function blokAgendaOpties(gekozen, standaard) {
     schrijfbaar.map(([k]) => `<option value="${esc(k)}" ${k === gekozen ? "selected" : ""}>${esc(agendaNaam(k))}</option>`).join("") +
     `<option value="geen" ${gekozen === "geen" ? "selected" : ""}>Niet in een agenda zetten</option>`;
 }
-function doelAgendaOpties(gekozen) {
+function doelAgendaOpties(gekozen, { lijst = false } = {}) {
   const schrijfbaar = Object.entries(d().agendas).filter(([k, a]) => a.schrijf && verbindingVanBron(k));
-  return `<option value="">Niet in een agenda zetten</option>` + schrijfbaar.map(([k, a]) =>
+  const eigen = eigenAgenda();
+  return (lijst ? `<option value="" ${!gekozen ? "selected" : ""}>Standaard${eigen ? " (" + esc(agendaNaam(eigen)) + ")" : " (de agenda van het account waarmee je inlogt)"}</option>
+    <option value="geen" ${gekozen === "geen" ? "selected" : ""}>Niet in een agenda zetten</option>` : `<option value="">Niet in een agenda zetten</option>`) + schrijfbaar.map(([k, a]) =>
     `<option value="${esc(k)}" ${k === gekozen ? "selected" : ""}>${a.accountSoort === "ms" ? "Outlook" : "Google"} · ${esc(a.account)} · ${esc(a.naam)}</option>`).join("") +
-    (gekozen && !schrijfbaar.some(([k]) => k === gekozen) ? `<option value="${esc(gekozen)}" selected>(account niet gekoppeld op dit apparaat)</option>` : "");
+    (gekozen && gekozen !== "geen" && !schrijfbaar.some(([k]) => k === gekozen) ? `<option value="${esc(gekozen)}" selected>(account niet gekoppeld op dit apparaat)</option>` : "");
 }
 
 function instellingen() {
@@ -1153,7 +1157,7 @@ function instRij(r) {
       </div>
       <label class="veld">In map${mapKeuze(o.map, new Set(), `data-veld="map"`)}</label>
       <label class="veld">Standaardlocatie<select data-veld="locatie">${locOpties(o.locatie, "Geen vaste plek")}</select></label>
-      <label class="veld" title="${esc(d().instellingen.agendaDoel === "vast" ? "Staat nu niet aan: alles gaat naar één vaste agenda (Instellingen → Agenda's & accounts)" : d().instellingen.agendaDoel === "taak" ? "Voor taken die niet in een gekoppelde takenlijst staan; taken uit Google Taken of To Do gaan naar de agenda van dat account" : "Hier komen de ingeplande blokken van deze lijst")}">Agenda van deze lijst<select data-veld="doelAgenda">${doelAgendaOpties(o.doelAgenda)}</select></label>
+      <label class="veld" title="${esc(d().instellingen.agendaDoel === "vast" ? "Staat nu niet aan: alles gaat naar één vaste agenda (Instellingen → Agenda's & accounts)" : d().instellingen.agendaDoel === "taak" ? "Voor taken die niet in een gekoppelde takenlijst staan; taken uit Google Taken of To Do gaan naar de agenda van dat account" : "Hier komen de ingeplande blokken van deze lijst")}">Agenda van deze lijst<select data-veld="doelAgenda">${doelAgendaOpties(o.doelAgenda, { lijst: true })}</select></label>
       ${takenVerbindingen().length ? `<label class="veld">Taken synchroniseren met<select data-tlijstvan="${o.id}">${takenlijstOpties(takenlijstVan(o.id))}</select></label>` : ""}
       ${opslagKeuze(o)}
       ${ander ? `<span class="hint" style="align-self:center">Verdeling: ${VERDELING[o.verdeling || "samen"][0]} (ingesteld door ${esc(eigenaarNaam(o))})</span>`
@@ -1748,6 +1752,7 @@ async function doeNaarAgenda(alleen = null) {
 }
 
 // ---------- editor ----------
+let inplannenNa = false;
 function openEditor(item, standaard = {}) {
   const nieuw = !item;
   const type = item?.type || standaard.type || "taak";
@@ -1803,8 +1808,9 @@ function openEditor(item, standaard = {}) {
         : `<div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">Taken in dit project</div>
           <div class="lijst subtaken">${takenVan(item.id).sort((a, b) => (a.status === "klaar") - (b.status === "klaar") || prioriteit(b) - prioriteit(a)).map(t => `<div class="item ${t.status === "klaar" ? "klaar" : ""}" data-sub="${t.id}" style="--ok:${ovKleur(t.overzicht)}">
             <button class="vink" type="button" data-subvink="${t.id}">${t.status === "klaar" ? "✓" : ""}</button><div class="ibody"><div class="ititel">${esc(t.titel)}</div><div class="imeta">${qTag(t)}${datumTags(t)}</div></div>${duurTekst(t)}
+            ${t.status === "klaar" ? "" : `<button type="button" class="x" data-subplan="${t.id}" title="Inplannen">📅</button>`}
             <button type="button" class="x" data-loskoppel="${t.id}" title="Uit project halen (taak blijft bestaan)">⤴</button></div>`).join("")}
-          <div class="linkrij"><span>＋</span><input type="text" id="subNieuw" placeholder="Nieuwe taak in dit project… (~duur mag)"><button type="button" class="knop klein" data-actie="subBij">Toevoegen</button></div>
+          <div class="linkrij"><span>＋</span><input type="text" id="subNieuw" placeholder="Nieuwe taak in dit project… (~duur mag)"><button type="button" class="knop klein" data-actie="subBij">Toevoegen</button><button type="button" class="knop klein" data-actie="subBijPlan" title="Toevoegen en meteen inplannen">📅</button></div>
           ${losse.length ? `<div class="linkrij"><span>⤵</span><select id="subKoppel"><option value="">Bestaande losse taak toevoegen…</option>${losse.map(t => `<option value="${t.id}">${esc(t.titel)}</option>`).join("")}</select><button type="button" class="knop klein" data-actie="subKoppel">Koppel</button></div>` : ""}
           </div></div>`) : ""}
 
@@ -1815,7 +1821,7 @@ function openEditor(item, standaard = {}) {
       ${nieuw ? "" : `<button type="button" class="knop gevaar" data-actie="weg">Verwijderen</button>`}
       ${!nieuw && !isProj && c.project ? `<button type="button" class="knop" data-actie="uitProject">⤴ Uit project</button>` : ""}
       <div class="rechts">
-        ${nieuw || c.status === "klaar" || (isProj && takenVan(item.id).some(t => t.status !== "klaar")) ? "" : `<button type="button" class="knop" data-actie="inplannen" title="Zelf een moment kiezen, met voorstellen op basis van je beschikbaarheid">📅 Inplannen</button>`}
+        ${c.status === "klaar" || (!nieuw && isProj && takenVan(item.id).some(t => t.status !== "klaar")) || (nieuw && isProj) ? "" : `<button type="button" class="knop" data-actie="inplannen" title="${nieuw ? "Toevoegen en meteen een moment kiezen" : "Zelf een moment kiezen"}, met voorstellen op basis van je beschikbaarheid">📅 ${nieuw ? "Toevoegen en inplannen" : "Inplannen"}</button>`}
         ${nieuw ? "" : c.status === "klaar" ? `<button type="button" class="knop" data-actie="heropen">Heropenen</button>` : `<button type="button" class="knop" data-actie="klaar">✓ Afronden</button>`}
         <button class="knop prim" value="ok">${nieuw ? "Toevoegen" : "Opslaan"}</button></div>
     </div></form>`;
@@ -1832,6 +1838,7 @@ function openEditor(item, standaard = {}) {
     c.schatting = leesDuur(f.schatting.value); c.werkelijk = leesDuur(f.werkelijk.value);
     if (f.project) c.project = f.project.value || null;
   };
+  let gemaakt = null;                                          // bij een nieuwe taak: wat er net is aangemaakt
   const opslaan = () => {
     lees();
     if (!c.titel) { $("#editForm").titel.focus(); return false; }
@@ -1842,13 +1849,13 @@ function openEditor(item, standaard = {}) {
     if (!nieuw && c.status === "klaar" && c.klaarOp) velden.klaarOp = c.klaarOp;
     if (nieuw) {
       if (isProj) {
-        const p = nieuwProject(velden);
+        const p = nieuwProject(velden); gemaakt = p;
         opdeling.split("\n").map(s => s.trim()).filter(Boolean).forEach(r => {
           const m = r.match(/~\s*(\S+)/);
           nieuweTaak({ titel: r.replace(/~\s*\S+/, "").trim(), schatting: m ? leesDuur(m[1]) : 0, project: p.id, overzicht: p.overzicht, urgent: p.urgent, belangrijk: p.belangrijk });
         });
         toast(`Project „${p.titel}” aangemaakt`);
-      } else { const t = nieuweTaak({ ...velden, project: c.project }); if (c.koersId) { koppelKoers(t, c.koersId); bewaar(); } toast("Taak toegevoegd"); naDoen(t, false); }
+      } else { const t = nieuweTaak({ ...velden, project: c.project }); gemaakt = t; if (c.koersId) { koppelKoers(t, c.koersId); bewaar(); } toast("Taak toegevoegd"); if (!inplannenNa) naDoen(t, false); }
     } else {
       if (!isProj) { velden.project = c.project; if (c.project) velden.overzicht = project(c.project)?.overzicht || c.overzicht; }
       if (isProj && velden.overzicht !== item.overzicht) takenVan(item.id).forEach(t => t.overzicht = velden.overzicht);
@@ -1897,7 +1904,13 @@ function openEditor(item, standaard = {}) {
       const m = r.match(/~\s*(\S+)/);
       nieuweTaak({ titel: r.replace(/~\s*\S+/, "").trim(), schatting: m ? leesDuur(m[1]) : 0, project: item.id, overzicht: item.overzicht, urgent: c.urgent, belangrijk: c.belangrijk });
       teken(); $("#subNieuw").focus();
-    } else if (a === "subKoppel") { const id = $("#subKoppel").value; if (id) { lees(); koppel(taak(id), item.id); teken(); } }
+    } else if (a === "subBijPlan") {
+      const r = $("#subNieuw").value.trim(); if (!r) return; lees();
+      const m = r.match(/~\s*(\S+)/);
+      const t = nieuweTaak({ titel: r.replace(/~\s*\S+/, "").trim(), schatting: m ? leesDuur(m[1]) : 0, project: item.id, overzicht: item.overzicht, urgent: c.urgent, belangrijk: c.belangrijk });
+      teken(); planTaak(taak(t.id));
+    } else if (b.dataset.subplan) { lees(); planTaak(taak(b.dataset.subplan)); }
+    else if (a === "subKoppel") { const id = $("#subKoppel").value; if (id) { lees(); koppel(taak(id), item.id); teken(); } }
     else if (b.dataset.loskoppel) { lees(); koppel(taak(b.dataset.loskoppel), null); toast("Taak uit project gehaald — staat nu los"); teken(); }
     else if (b.dataset.subvink) { lees(); const t = taak(b.dataset.subvink); t.status === "klaar" ? heropen(t) : vraagAfronden(t, teken); teken(); }
     else if (a === "uitProject") { lees(); c.project = null; if (opslaan()) { dlg.close(); toast("Taak staat nu los"); } }
@@ -1905,7 +1918,7 @@ function openEditor(item, standaard = {}) {
       const extra = isProj && takenVan(item.id).length ? `\nDe ${takenVan(item.id).length} taken blijven bestaan als losse taken.` : "";
       if (confirm(`„${item.titel}” verwijderen?${extra}`)) { verwijder(item); dlg.close(); toast("Verwijderd"); }
     } else if (a === "klaar") { if (opslaan()) { dlg.close(); vraagAfronden(item); } }
-    else if (a === "inplannen") { if (opslaan()) { dlg.close(); planTaak(item); } }
+    else if (a === "inplannen") { inplannenNa = true; if (opslaan()) { const x = item || gemaakt; dlg.close(); if (x) planTaak(x.type === "project" ? project(x.id) : taak(x.id)); } inplannenNa = false; }
     else if (a === "heropen") { if (opslaan()) { heropen(item); dlg.close(); } }
   };
   dlg.oninput = (e) => { if ((e.target.name === "titel" || e.target.name === "notitie") && $("#koersTip")) { lees(); $("#koersTip").innerHTML = koersTip(c, item); } };
@@ -2177,7 +2190,7 @@ function planTaak(it) {
     if (!ov) { dlg2.close(); return; }
     if (minDuur == null) minDuur = Math.max(R, Math.min(voorkeur.lees("planMin", 60), opRaster(s.rest || s.nodig || 30)));
     const gelinkt = doorGelinktIngepland(it);
-    const vs = gelinkt || it.status === "klaar" ? [] : planVoorstellen(it, minDuur, { aantal });
+    const vs = it.status === "klaar" ? [] : planVoorstellen(it, minDuur, { aantal });
     const perDag = [];
     for (const v of vs) { const g = perDag.find(x => x.dag === v.dag); if (g) g.v.push(v); else perDag.push({ dag: v.dag, v: [v] }); }
     const dl = harde(it), doel = doelDatum(it);
@@ -2191,10 +2204,10 @@ function planTaak(it) {
       <div class="planstand pl-${s.soort}">${s.soort === "klaar" ? "✓ Afgerond" : `Nodig: <b>${fmtDuur(s.nodig) || "–"}</b>${it.schatting ? "" : " (geen schatting: 30 min aangenomen)"} · ingepland: <b>${fmtDuur(s.min) || "niets"}</b>${s.rest ? ` · nog in te plannen: <b>${fmtDuur(s.rest)}</b>` : " ✓"}`}</div>
       ${melding ? `<div class="hint" style="color:var(--groen)">${melding}</div>` : ""}
       ${s.blokken.length ? `<div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">Staat ingepland</div><div class="lijst">${s.blokken.map(b =>
-        `<div class="linkrij"><span>${b.vast ? "📌" : "⚡"}</span><span>${dagKort(new Date(b.start))} ${fmtTijd(b.start)}–${fmtTijd(b.eind)}</span><span class="hint">${b.vast ? "vastgezet" : "automatisch"}</span>
-          <button type="button" class="x" data-blokweg="${b.id}" title="Uit de planning halen">✕</button></div>`).join("")}</div></div>` : ""}
-      ${gelinkt ? `<div class="hint">Deze lijst hoort bij je gelinkte account; die plant hem zelf in (log daar in om hem te plannen).</div>`
-      : it.status === "klaar" ? "" : `
+        `<div class="linkrij"><span>${b.vanFamilie ? "🔗" : b.vast ? "📌" : "⚡"}</span><span>${dagKort(new Date(b.start))} ${fmtTijd(b.start)}–${fmtTijd(b.eind)}</span><span class="hint">${b.vanFamilie ? "door je gelinkte account" : b.vast ? "vastgezet" : "automatisch"}</span>
+          ${b.vanFamilie ? "" : `<button type="button" class="x" data-blokweg="${b.id}" title="Uit de planning halen">✕</button>`}</div>`).join("")}</div></div>` : ""}
+      ${gelinkt ? `<div class="hint">🔗 Deze lijst hoort bij je gelinkte account. Wat je hier inplant, staat in de agenda die je hieronder kiest; je gelinkte account plant het dan niet nog eens.</div>` : ""}
+      ${it.status === "klaar" ? "" : `
       ${isMijn(it) ? "" : `<div class="hint">👤 Toegewezen aan ${esc(wieTekst(it))}. Plan je hem zelf in, dan staat hij in jóuw agenda.</div>`}
       ${kwadrant(it) === "doen" ? `<div><button type="button" class="knop" data-actie="pvoorrang">⚡ Met voorrang: zo snel mogelijk (andere taken wijken)</button></div>` : ""}
       ${aanpas ? `<div class="aanpas paneel"><b>Blok aanpassen — ${dagKort(new Date(aanpas.dag + "T12:00"))}</b>
@@ -2970,7 +2983,8 @@ main.addEventListener("submit", async (e) => {
   if (t) {
     const ks = koersSuggesties(t)[0];
     toast(`„${t.titel}” toegevoegd${t.project ? " aan " + project(t.project).titel : ""}${ks ? ` — hoort dit bij koersafspraak „${ks.titel}”?` : ""}`,
-      ks ? { label: "🎯 Koppel", f: () => { koppelKoers(t, ks.id); bewaar(); toast("Gekoppeld aan „" + ks.titel + "”"); } } : undefined);
+      [kwadrant(t) === "doen" ? null : { label: "📅 Inplannen", f: () => planTaak(taak(t.id)) },
+       ks ? { label: "🎯 Koppel", f: () => { koppelKoers(t, ks.id); bewaar(); toast("Gekoppeld aan „" + ks.titel + "”"); } } : null]);
     if (kwadrant(t) === "doen") naDoen(t, false); else setTimeout(() => $(".snel input")?.focus(), 0);
   }
 });

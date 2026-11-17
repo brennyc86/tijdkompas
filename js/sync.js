@@ -1,7 +1,7 @@
 // Tijdkompas — afstemming met externe agenda's (ophalen + ingeplande blokken wegschrijven)
-import { opslag, bewaar, overzicht, locatie } from "./data.js";
+import { opslag, bewaar, overzicht, locatie, sessie } from "./data.js";
 import { verbindingen as alleVerbindingen, heeft, VerlopenFout, agendaLijst, haalAfspraken, zetAfspraak, verwijderAfspraak } from "./koppeling.js";
-import { omschrijving, leesIcs } from "./plan.js";
+import { omschrijving, leesIcs, familieHaak } from "./plan.js";
 import { CONFIG } from "./config.js";
 
 // ---------- agenda's via een link (.ics), bv. een gepubliceerde Outlook-agenda: alleen lezen ----------
@@ -85,14 +85,33 @@ function agendaVanTakenlijst(k) {
   const al = Object.entries(d().agendas || {}).filter(([key, a]) => key.startsWith(acc + "|") && a.schrijf);
   return (al.find(([, a]) => a.primair) || al[0])?.[0] || null;
 }
+/** Hoofdagenda (schrijfbaar) van een account, op e-mailadres — als dat account op dit apparaat gekoppeld is */
+function agendaVanAccount(email) {
+  const m = String(email || "").toLowerCase(); if (!m) return null;
+  const al = Object.entries(d().agendas || {}).filter(([, a]) => a.schrijf && String(a.account || "").toLowerCase() === m);
+  return (al.find(([, a]) => a.primair) || al[0])?.[0] || null;
+}
+/** Hoofdagenda van het account waarmee je nu bent ingelogd (als dat op dit apparaat gekoppeld is) */
+export function eigenAgenda() {
+  const m = String(sessie.email || "").toLowerCase(); if (!m) return null;
+  const al = Object.entries(d().agendas || {}).filter(([, a]) => a.schrijf && String(a.account || "").toLowerCase() === m);
+  return (al.find(([, a]) => a.primair) || al[0])?.[0] || null;
+}
 /** De standaardagenda voor een blok (zonder eigen keuze) */
 export function standaardAgenda(b) {
-  const inst = d().instellingen || {}, lijstAgenda = overzicht(b.overzicht)?.doelAgenda || null;
+  const inst = d().instellingen || {}, ruw = overzicht(b.overzicht)?.doelAgenda || null;
   if (inst.agendaDoel === "vast") return schrijfbaar(inst.vasteAgenda) ? inst.vasteAgenda : null;
+  if (ruw === "geen") return null;                                // bij de lijst uitdrukkelijk: niet in een agenda
+  const lijstAgenda = ruw && d().agendas?.[ruw] ? ruw : null;
   if (inst.agendaDoel === "lijst") return lijstAgenda;
   const it = d().taken.find(t => t.id === b.item) || d().projecten.find(p => p.id === b.item);
   const k = it?.ext?.bron || Object.entries(d().takenlijsten || {}).find(([, x]) => x.lijst === b.overzicht)?.[0];
-  return (k && agendaVanTakenlijst(k)) || lijstAgenda;
+  // lijst van een gelinkt account (zelfde persoon, andere rol): de agenda die dát account voor de lijst gebruikt,
+  // anders de hoofdagenda van dat account — als die op dit apparaat gekoppeld is
+  const eig = familieHaak.eigenaar(overzicht(b.overzicht));
+  const vanEigenaar = eig ? ((eig.agenda && eig.agenda !== "geen" && schrijfbaar(eig.agenda) ? eig.agenda : null) || agendaVanAccount(eig.email)) : null;
+  // waar de taak staat → de agenda van de lijst → die van het account van de lijst → die van het account waarmee je bent ingelogd
+  return (k && agendaVanTakenlijst(k)) || lijstAgenda || vanEigenaar || eigenAgenda();
 }
 /** In welke agenda dit blok komt (null = in geen enkele) */
 export function doelAgendaVan(b) {
