@@ -2237,7 +2237,14 @@ function planTaak(it) {
   const kanAgenda = () => Object.entries(d().agendas || {}).some(([k, a]) => a.schrijf && verbindingVanBron(k));
   const R = raster();
   const opRaster = (m) => Math.ceil(m / R) * R;
+  // opnieuw tekenen zonder dat het venster naar boven springt
+  let eersteKeer = true;
   const teken = () => {
+    const y = eersteKeer ? 0 : ($(".dlijf", dlg2)?.scrollTop || 0);
+    tekenInhoud(); eersteKeer = false;
+    const lijf = $(".dlijf", dlg2); if (lijf) lijf.scrollTop = y;
+  };
+  const tekenInhoud = () => {
     const s = planStatus(it), { ov, loc, reis } = plekVan(it), l = locatie(loc);
     if (!ov) { dlg2.close(); return; }
     if (minDuur == null) minDuur = Math.max(R, Math.min(voorkeur.lees("planMin", 60), opRaster(s.rest || s.nodig || 30)));
@@ -2253,7 +2260,9 @@ function planTaak(it) {
     <div class="dlijf">
       <h2 style="margin:0">${esc(it.titel)}</h2>
       <div class="hint">Vrije gaten ${waar}${l && l.id !== "thuis" ? ` · 📍 ${esc(l.naam)}${reis ? ` (${reis} min reizen heen en terug)` : ""}` : ""}${dl ? ` · ⏰ deadline ${fmtDatum(dl)}` : doel ? ` · 🎯 ${fmtDatum(doel)}` : ""}</div>
-      <div class="planstand pl-${s.soort}">${s.soort === "klaar" ? "✓ Afgerond" : `Nodig: <b>${fmtDuur(s.nodig) || "–"}</b>${it.schatting ? "" : " (geen schatting: 30 min aangenomen)"} · ingepland: <b>${fmtDuur(s.min) || "niets"}</b>${s.rest ? ` · nog in te plannen: <b>${fmtDuur(s.rest)}</b>` : " ✓"}`}</div>
+      <div class="planstand plvast pl-${s.soort}">${s.soort === "klaar" ? "✓ Afgerond" : `<div>Ingepland: <b>${fmtDuur(s.min) || "0"}</b> van <b>${fmtDuur(s.nodig) || "–"}</b>${s.rest ? ` · nog <b>${fmtDuur(s.rest)}</b>` : " ✓"}${it.schatting ? "" : ` <small class="hint">(geen schatting: 30 min aangenomen)</small>`}</div>
+        <div class="balk"><i style="width:${Math.min(100, Math.round(100 * (s.min || 0) / Math.max(1, s.nodig || 1)))}%"></i></div>
+        ${s.rest ? `<button type="button" class="knop klein prim" data-actie="pvul" title="De eerstvolgende vrije gaten (van minstens de lengte hieronder) vullen tot de geschatte tijd is ingepland">⚡ Vul automatisch tot ${fmtDuur(s.nodig)}</button>` : ""}`}</div>
       ${melding ? `<div class="hint" style="color:var(--groen)">${melding}</div>` : ""}
       ${s.blokken.length ? `<div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">Staat ingepland</div><div class="lijst">${s.blokken.map(b =>
         `<div class="linkrij"><span>${b.vanFamilie ? "🔗" : b.vast ? "📌" : "⚡"}</span><span>${dagKort(new Date(b.start))} ${fmtTijd(b.start)}–${fmtTijd(b.eind)}</span><span class="hint">${b.vanFamilie ? "door je gelinkte account" : b.vast ? "vastgezet" : "automatisch"}</span>
@@ -2317,6 +2326,20 @@ function planTaak(it) {
     const tijd = (n) => $(`[name=${n}]`, dlg2)?.value || "";
     if (a === "pmin") { const v = leesDuur(tijd("pmin")); if (v > 0) { minDuur = Math.max(5, Math.round(v / 5) * 5); voorkeur.zet("planMin", minDuur); aantal = 16; melding = ""; teken(); } else toast("Vul een lengte in, bv. 1u30 of 45m"); }
     else if (a === "pmeer") { aantal += 16; teken(); }
+    else if (a === "pvul") {
+      // de eerstvolgende vrije gaten vullen tot de rest is ingepland (gaten van minstens de gekozen lengte, of korter als er minder over is)
+      const v0 = leesDuur($("[name=pmin]", dlg2)?.value || "");
+      if (v0 > 0) minDuur = Math.max(5, Math.round(v0 / 5) * 5);
+      const min = minDuur || 30, gezet = [];
+      for (let n = 0, st = planStatus(it); st.rest > 0 && n < 30; n++, st = planStatus(it)) {
+        const v = planVoorstellen(it, Math.min(st.rest, min), { aantal: 1 })[0]; if (!v) break;
+        const r = plaatsBlok(it, v.a, Math.min(st.rest, v.duur), agendaKeuze || undefined); gezet.push(r.blok);
+      }
+      const st = planStatus(it);
+      melding = gezet.length ? `✓ ${gezet.length} ${gezet.length === 1 ? "blok" : "blokken"} ingepland: ${gezet.map(b => `${dagKort(new Date(b.start))} ${fmtTijd(b.start)}–${fmtTijd(b.eind)}`).join(", ")}${st.rest ? ` — nog ${fmtDuur(st.rest)} paste niet binnen 4 weken` : ""}` : "Geen vrij gat gevonden binnen 4 weken";
+      bewaar(); teken();
+      if (gezet.some(b => doelAgendaVan(b))) doeNaarAgenda(new Set(d().planning.filter(x => x.item === it.id && new Date(x.eind) > new Date()).map(x => x.id))).catch(() => {});
+    }
     else if (a === "pvoorrang") naSluiten(dlg2, () => doenVenster(it));
     else if (a === "aWeg") { aanpas = null; teken(); }
     else if (a === "aZet" || a === "pzelf") {
