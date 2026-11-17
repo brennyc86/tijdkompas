@@ -802,6 +802,36 @@ export function maakRuimte(itemId, a, b) {
   d.planning = d.planning.filter(x => !delen.includes(x));
   return e;
 }
+/** Mag het blok `b` opzij voor item `it` met een deadline? Alleen taken zonder deadline of met een latere (Doen zonder deadline niet). */
+export function magWijkenVoor(it, b) {
+  if (b.soort === "uitloop") return true;
+  const x = itemVan(b); if (!x || x.id === it.id || x.status === "klaar") return false;
+  const mijn = harde(it), hun = harde(x);
+  if (!mijn || (hun && hun <= mijn)) return false;
+  if (kwadrant(x) === "doen" && !hun) return false;
+  return true;
+}
+/**
+ * Plaatsen op [a, a+duur); wat er staat (eigen blokken van andere taken) schuift door naar het volgende lege moment.
+ * Haalt een doorgeschoven taak daardoor zijn deadline niet meer, dan wordt alles teruggedraaid en komt dat in `probleem`
+ * (tenzij forceer: dan blijft het zo, met het probleem erbij gemeld).
+ * @returns {{ok:boolean, blok?:object, vervallen?:number, geschoven:object[], niet:object[], probleem:{item:object, deadline:string, tot:string|null}[]}}
+ */
+export function plaatsMetWijken(it, a, duur, agenda, { wijken = true, forceer = false } = {}) {
+  const d = opslag.d, b = new Date(a.getTime() + duur * MIN);
+  const terug = d.planning.map(x => ({ ...x }));
+  const e = wijken ? maakRuimte(it.id, a, b) : [];
+  const r = plaatsBlok(it, a, duur, agenda);
+  const niet = e.length ? plaatsVanaf(e, b) : [];
+  const probleem = [];
+  for (const u of e) {
+    const x = itemVan(u.blok), dl = x && harde(x); if (!dl || probleem.some(p => p.item === x)) continue;
+    const laatste = d.planning.filter(p => p.item === x.id && p.soort !== "reis").map(p => dagStr(new Date(p.eind))).sort().at(-1) || null;
+    if (niet.includes(u) || (laatste && laatste > dl)) probleem.push({ item: x, deadline: dl, tot: niet.includes(u) ? null : laatste });
+  }
+  if (probleem.length && !forceer) { d.planning = terug; werkGeplandBij(d.overzichten.map(o => o.id)); return { ok: false, probleem, geschoven: [], niet: [] }; }
+  return { ok: true, blok: r.blok, vervallen: r.vervallen, geschoven: e.filter(u => !niet.includes(u)), niet, probleem };
+}
 /** Volgende werkmomenten (vrije stukken) voor dit item vanaf een tijdstip — om aan te wijzen waar opgeschoven werk heen gaat */
 export function volgendeMomenten(it, vanaf, minDuur = 15, aantal = 8) {
   return voorstellen(it, minDuur, { vanaf, aantal, dagen: 28 });

@@ -4,7 +4,7 @@ import { opslag, bewaar, KWADRANTEN, kwadrant, overzicht, project, taak, takenVa
          map, submappen, lijstenIn, lijstenOnder, mappenOnder, mapPad, boom, lijstVolgorde, idsVan,
          afspraak, koersVan, binnenDoel, koersScore, koersSuggesties, koppelKoers, mijnId, isIk, personen, naamVanPersoon, isMijn, isTeam, wie, wachtNogOp, wachtenOp, maaktKring, anderen as andereLeden } from "./data.js";
 import { familieHaak, planAutomatisch, werkGeplandBij, doelDatum, harde, prioriteit, googleLink, outlookLink, maakIcs, leesIcs, dagStr, dagIndeling, eventSoort, SOORTEN,
-  AFWIJKING, maakRuimte, telt, isHerinnering, buitenBeschikbaarheid, regelVoor, rolKeuze, afspraakSleutel, standaardTijden, afwijkingOp, afwijkingDatums, zetAfwijking, dagTijden, tijdenZonder, tijdenMet, effLijst, rolBotsingen, planStatus, grootsteGat, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, volgendeMomenten, plaatsVanaf, vrijkomend, vrijeTijd, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
+  AFWIJKING, maakRuimte, magWijkenVoor, plaatsMetWijken, telt, isHerinnering, buitenBeschikbaarheid, regelVoor, rolKeuze, afspraakSleutel, standaardTijden, afwijkingOp, afwijkingDatums, zetAfwijking, dagTijden, tijdenZonder, tijdenMet, effLijst, rolBotsingen, planStatus, grootsteGat, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, volgendeMomenten, plaatsVanaf, vrijkomend, vrijeTijd, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
 import { ids, verbindingen as alleVerbindingen, heeft, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, zonderDoel, koppelHaak, neemGedeeldeOver } from "./koppeling.js";
 import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroniseerAlles, naamVan, lijstWeg } from "./schijf.js";
 import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD, eigenAgenda, viaEigenaar, vingerafdruk, kanVerplaatsen, verplaatsAgendaAfspraak } from "./sync.js";
@@ -2240,7 +2240,11 @@ function planTaak(it) {
   if (!it) return;
   let minDuur = null, aantal = 16, melding = "", aanpas = null;   // aanpas: {dag, van, tot} van een voorstel dat je bijstelt
   let agendaKeuze = "";                                            // "" = standaard, een agenda, of "geen"
-  let kijk = null, schuifMee = true, vsLaatst = [];                               // kijk: { dag, van, tot } voor het dagbeeld; schuifMee: andere taken wijken
+  let kijk = null, schuifMee = true, vsLaatst = [];
+  const heeftDeadline = !!harde(it);
+  let deadlineVoor = heeftDeadline;                                // deadline gaat voor: taken zonder (of met latere) deadline schuiven op
+  let keuze = null;                                                // { start, duur, probleem } — wachten op jouw keuze bij een deadlineprobleem
+  const negeer = () => deadlineVoor ? (b) => magWijkenVoor(it, b) : null;                               // kijk: { dag, van, tot } voor het dagbeeld; schuifMee: andere taken wijken
   const kanAgenda = () => Object.entries(d().agendas || {}).some(([k, a]) => a.schrijf && verbindingVanBron(k));
   const R = raster();
   const opRaster = (m) => Math.ceil(m / R) * R;
@@ -2256,7 +2260,7 @@ function planTaak(it) {
     if (!ov) { dlg2.close(); return; }
     if (minDuur == null) minDuur = Math.max(R, Math.min(voorkeur.lees("planMin", 60), opRaster(s.rest || s.nodig || 30)));
     const gelinkt = doorGelinktIngepland(it);
-    const vs = it.status === "klaar" ? [] : planVoorstellen(it, minDuur, { aantal }); vsLaatst = vs;
+    const vs = it.status === "klaar" ? [] : planVoorstellen(it, minDuur, { aantal, negeer: negeer() }); vsLaatst = vs;
     const perDag = [];
     for (const v of vs) { const g = perDag.find(x => x.dag === v.dag); if (g) g.v.push(v); else perDag.push({ dag: v.dag, v: [v] }); }
     const dl = harde(it), doel = doelDatum(it);
@@ -2286,6 +2290,10 @@ function planTaak(it) {
         <span class="hint">Het vrije gat loopt van ${aanpas.gatVan} tot ${aanpas.gatTot}.</span></div>` : ""}
       ${kanAgenda() ? `<label class="veld">In welke agenda<select name="pagenda">${blokAgendaOpties(agendaKeuze, standaardAgenda({ item: it.id, overzicht: it.overzicht }), viaEigenaar({ item: it.id, overzicht: it.overzicht }))}</select></label>` : ""}
       ${!agendaKeuze && viaEigenaar({ item: it.id, overzicht: it.overzicht }) ? `<div class="hint">🔗 Deze lijst hoort bij ${esc(viaEigenaar({ item: it.id, overzicht: it.overzicht }).email || "je andere account")}: dat account zet het blok in zijn eigen agenda zodra Tijdkompas daar open is (op welk apparaat dan ook).</div>` : ""}
+      ${keuze ? `<div class="paneel deadlinekeuze"><b>⚠️ Let op: dit gaat ten koste van een deadline</b>
+        <div class="lijst" style="margin:6px 0">${keuze.probleem.map(p => `<div class="linkrij"><span>⏰</span><span>„${esc(p.item.titel)}” <span class="hint">— deadline ${fmtDatum(p.deadline)}, ${p.tot ? "zou pas klaar zijn " + fmtDatum(p.tot) : "past dan nergens meer"}</span></span></div>`).join("")}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="knop prim" data-actie="pkeuzeToch">Toch zo plannen</button><button type="button" class="knop" data-actie="pkeuzeNiet">Niet doen</button></div></div>` : ""}
+      ${heeftDeadline ? `<label class="schakel"><input type="checkbox" id="pdeadline" ${deadlineVoor ? "checked" : ""}> ⏰ Deadline gaat voor: taken zonder deadline (of met een latere) schuiven op naar het volgende lege moment</label>` : ""}
       <div class="rij" style="align-items:end">
         <label class="veld" title="Alleen vrije gaten van minstens deze lengte worden voorgesteld">Gaten van minstens<input type="text" name="pmin" value="${fmtDuur(minDuur)}" style="max-width:110px"></label>
         <button type="button" class="knop klein" data-actie="pmin">Zoeken</button>
@@ -2308,20 +2316,21 @@ function planTaak(it) {
     <div class="dvoet"><div class="rechts"><button type="button" class="knop" data-actie="popen">Open ${it.type === "project" ? "project" : "taak"}</button><button class="knop prim" value="ok">Klaar</button></div></div></form>`;
   };
   // Plaats [start, eind); met een waarschuwing als het ergens mee botst
-  const zet = (start, eind, controleer = true) => {
+  const zet = (start, eind, controleer = true, forceer = false) => {
     const duur = Math.round((eind - start) / 60000);
     if (!(duur > 0)) { toast("De eindtijd moet na de begintijd liggen"); return; }
     if (eind <= new Date()) { toast("Dat moment is al voorbij"); return; }
-    const bots = controleer ? botsingen(it, start, eind, { blokkenMogenWijken: schuifMee }) : [];
+    const bots = controleer && !forceer ? botsingen(it, start, eind, { blokkenMogenWijken: schuifMee || deadlineVoor }) : [];
     if (bots.length && !confirm(`Let op:\n• ${bots.join("\n• ")}\n\nToch hier plaatsen?`)) return;
-    const wijk = schuifMee ? maakRuimte(it.id, start, eind) : [];
-    const r = plaatsBlok(it, start, duur, agendaKeuze || undefined);
-    const nietGepast = wijk.length ? plaatsVanaf(wijk, eind) : [];
+    const rr = plaatsMetWijken(it, start, duur, agendaKeuze || undefined, { wijken: schuifMee || deadlineVoor, forceer });
+    if (!rr.ok) { keuze = { start, duur, probleem: rr.probleem }; melding = ""; teken(); $(".deadlinekeuze", dlg2)?.scrollIntoView?.({ block: "nearest" }); return; }
+    keuze = null;
+    const r = rr, wijk = [...rr.geschoven, ...rr.niet], nietGepast = rr.niet;
     if (nietGepast.length) zetHerplan([...herplanIds(), ...nietGepast.map(e => e.blok.item).filter(Boolean)]);
     kijk = { dag: dagStr(start), van: fmtTijd(start.toISOString()), tot: fmtTijd(r.blok.eind) };
     const geschoven = wijk.filter(e => !nietGepast.includes(e));
     const doel = doelAgendaVan(r.blok), via = viaEigenaar(r.blok);
-    melding = `✓ Ingepland: ${dagKort(start)} ${fmtTijd(start.toISOString())}–${fmtTijd(r.blok.eind)}${doel ? " · komt in " + esc(agendaNaam(doel)) : via ? " · komt in de agenda van " + esc(via.email || "je andere account") : ""}${r.vervallen ? ` · ${r.vervallen} automatisch ingepland${r.vervallen === 1 ? " blok" : "e blokken"} van deze taak vervangen` : ""}${geschoven.length ? ` · doorgeschoven: ${geschoven.map(e => `„${esc(e.blok.titel)}” → ${dagKort(new Date(e.blok.start))} ${fmtTijd(e.blok.start)}`).join(", ")}` : ""}${nietGepast.length ? ` · ${nietGepast.length} paste nergens (bij „Opnieuw in te plannen”)` : ""}`;
+    melding = `✓ Ingepland: ${dagKort(start)} ${fmtTijd(start.toISOString())}–${fmtTijd(r.blok.eind)}${doel ? " · komt in " + esc(agendaNaam(doel)) : via ? " · komt in de agenda van " + esc(via.email || "je andere account") : ""}${r.vervallen ? ` · ${r.vervallen} automatisch ingepland${r.vervallen === 1 ? " blok" : "e blokken"} van deze taak vervangen` : ""}${geschoven.length ? ` · doorgeschoven: ${geschoven.map(e => `„${esc(e.blok.titel)}” → ${dagKort(new Date(e.blok.start))} ${fmtTijd(e.blok.start)}`).join(", ")}` : ""}${nietGepast.length ? ` · ${nietGepast.length} paste nergens (bij „Opnieuw in te plannen”)` : ""}${rr.probleem?.length ? ` · ⚠️ ${rr.probleem.map(p => `„${esc(p.item.titel)}” haalt zijn deadline (${fmtDatum(p.deadline)}) niet`).join(", ")}` : ""}`;
     aanpas = null; minDuur = null; bewaar(); teken();
     if (wijk.length) agendaBij(wijk.flatMap(e => [e.blok, e.heen, e.terug].filter(Boolean).map(b => b.id)));
     if (doel) doeNaarAgenda(new Set(d().planning.filter(x => x.item === it.id && new Date(x.eind) > new Date()).map(x => x.id))).catch(() => {});   // meteen in die agenda (alleen dit blok en de reistijd)
@@ -2337,7 +2346,14 @@ function planTaak(it) {
   dlg2.onpointerup = dlg2.onpointercancel = dlg2.onpointerleave = () => clearTimeout(lang);
   dlg2.onclick = (e) => {
     const b = e.target.closest("button"); if (!b) return;
-    if (b.dataset.zet) { if (langGedaan) { langGedaan = false; return; } zet(new Date(b.dataset.zet), new Date(b.dataset.tot), false); return; }
+    if (b.dataset.zet) {
+      if (langGedaan) { langGedaan = false; return; }
+      const va = new Date(b.dataset.zet); let vb = new Date(b.dataset.tot);
+      // gaat het gat over andere taken heen (deadline gaat voor), neem dan alleen de tijd die nog nodig is
+      const st = planStatus(it), over = d().planning.some(x => x.item && x.item !== it.id && x.soort !== "reis" && new Date(x.start) < vb && new Date(x.eind) > va);
+      if (over) vb = new Date(Math.min(vb, va.getTime() + opRaster(st.rest || st.nodig || 30) * 60000));
+      zet(va, vb, false); return;
+    }
     if (b.dataset.kijk) {                                           // laat de agenda van die dag zien (bij "kies zelf")
       const duur = minVan(kijk.tot) - minVan(kijk.van) > 0 ? minVan(kijk.tot) - minVan(kijk.van) : 60, v1 = vsLaatst.find(v => v.dag === b.dataset.kijk);
       kijk = v1 ? { dag: v1.dag, van: fmtTijd(v1.a.toISOString()), tot: hhmm(Math.min(minVan(fmtTijd(v1.a.toISOString())) + duur, 23 * 60 + 45)) } : { ...kijk, dag: b.dataset.kijk };
@@ -2348,14 +2364,18 @@ function planTaak(it) {
     const tijd = (n) => $(`[name=${n}]`, dlg2)?.value || "";
     if (a === "pmin") { const v = leesDuur(tijd("pmin")); if (v > 0) { minDuur = Math.max(5, Math.round(v / 5) * 5); voorkeur.zet("planMin", minDuur); aantal = 16; melding = ""; teken(); } else toast("Vul een lengte in, bv. 1u30 of 45m"); }
     else if (a === "pmeer") { aantal += 16; teken(); }
+    else if (a === "pkeuzeToch" && keuze) { const k = keuze; keuze = null; zet(k.start, new Date(k.start.getTime() + k.duur * 60000), false, true); }
+    else if (a === "pkeuzeNiet") { keuze = null; melding = "Niets veranderd"; teken(); }
     else if (a === "pvul") {
       // de eerstvolgende vrije gaten vullen tot de rest is ingepland (gaten van minstens de gekozen lengte, of korter als er minder over is)
       const v0 = leesDuur($("[name=pmin]", dlg2)?.value || "");
       if (v0 > 0) minDuur = Math.max(5, Math.round(v0 / 5) * 5);
       const min = minDuur || 30, gezet = [];
       for (let n = 0, st = planStatus(it); st.rest > 0 && n < 30; n++, st = planStatus(it)) {
-        const v = planVoorstellen(it, Math.min(st.rest, min), { aantal: 1 })[0]; if (!v) break;
-        const r = plaatsBlok(it, v.a, Math.min(st.rest, v.duur), agendaKeuze || undefined); gezet.push(r.blok);
+        const v = planVoorstellen(it, Math.min(st.rest, min), { aantal: 1, negeer: negeer() })[0]; if (!v) break;
+        const dur = Math.min(st.rest, v.duur), r = plaatsMetWijken(it, v.a, dur, agendaKeuze || undefined, { wijken: schuifMee || deadlineVoor });
+        if (!r.ok) { keuze = { start: v.a, duur: dur, probleem: r.probleem }; break; }
+        gezet.push(r.blok);
       }
       const st = planStatus(it);
       melding = gezet.length ? `✓ ${gezet.length} ${gezet.length === 1 ? "blok" : "blokken"} ingepland: ${gezet.map(b => `${dagKort(new Date(b.start))} ${fmtTijd(b.start)}–${fmtTijd(b.eind)}`).join(", ")}${st.rest ? ` — nog ${fmtDuur(st.rest)} paste niet binnen 4 weken` : ""}` : "Geen vrij gat gevonden binnen 4 weken";
@@ -2380,20 +2400,12 @@ function planTaak(it) {
     if (e.target.name === "pagenda") agendaKeuze = e.target.value;
     if (["pdag", "pvan", "ptot"].includes(e.target.name)) { leesKijk(); kijkBij(); }
     if (e.target.id === "pschuif") { schuifMee = e.target.checked; kijkBij(); }
+    if (e.target.id === "pdeadline") { deadlineVoor = e.target.checked; teken(); }
   };
   dlg2.oninput = (e) => { if (["pdag", "pvan", "ptot"].includes(e.target.name)) { leesKijk(); kijkBij(); } };
   // tik in het dagbeeld = begintijd (op het halve uur), de duur blijft gelijk
-  dlg2.addEventListener("click", function tik(e) {
-    if (!dlg2.open || !$("#planForm", dlg2)) { dlg2.removeEventListener("click", tik); return; }
-    const db = e.target.closest?.(".dagbeeld"); if (!db || e.target.closest(".dbblok")) return;
-    const r = db.getBoundingClientRect?.(); if (!r || !r.height) return;
-    const vanU = +db.dataset.van, totU = +db.dataset.tot, min = vanU * 60 + (e.clientY - r.top) / r.height * (totU - vanU) * 60;
-    const duur = Math.max(R, minVan(kijk.tot) - minVan(kijk.van)), begin = Math.min(Math.round(min / R) * R, 24 * 60 - duur);
-    kijk = { ...kijk, van: hhmm(begin), tot: hhmm(begin + duur) };
-    for (const [n, w] of [["pvan", kijk.van], ["ptot", kijk.tot]]) { const i = $(`[name=${n}]`, dlg2); if (i) { i.value = w; i.setAttribute("value", w); } }
-    kijkBij();
-  });
-  dlg2.onclose = () => { clearTimeout(lang); for (const k of ["onkeydown", "oncontextmenu", "onpointerdown", "onpointerup", "onpointercancel", "onpointerleave", "oninput", "onclose"]) dlg2[k] = null; };
+  dlg2.dagTik = (min) => { if (!$("#planForm", dlg2)) return; kijk = { ...kijk }; dagTikInvullen(min, "pvan", "ptot", kijk); kijkBij(); };
+  dlg2.onclose = () => { clearTimeout(lang); for (const k of ["onkeydown", "oncontextmenu", "onpointerdown", "onpointerup", "onpointercancel", "onpointerleave", "oninput", "dagTik", "onclose"]) dlg2[k] = null; };
   teken();
   if (!dlg2.open) dlg2.showModal();
 }
@@ -2685,6 +2697,9 @@ function buitenVenster(c) {
   const besch = dagIndeling(new Date(a.getFullYear(), a.getMonth(), a.getDate())).beschikbaar;
   const eerste = besch[0], laatste = besch.at(-1);
   const voor = !eerste ? a : a < eerste[0] ? eerste[0] : laatste && b > laatste[1] ? new Date(laatste[1].getTime() - duur * 60000) : a;
+  const bkijk = { dag: dagStr(voor), van: fmtTijd(voor.toISOString()), tot: fmtTijd(new Date(voor.getTime() + duur * 60000).toISOString()) };
+  const bBij = () => { const el = $("#bdagbeeld", dlg2); if (el && c.ev) el.innerHTML = dagBeeld(bkijk, { id: "__afspraak", titel }, false, { zonderEv: c.ev.id, label: "📅 " + titel }); };
+  const bLees = () => { const v = (n) => $(`[name=${n}]`, dlg2)?.value || ""; bkijk.dag = v("vdag") || bkijk.dag; bkijk.van = v("vvan") || bkijk.van; bkijk.tot = v("vtot") || bkijk.tot; bBij(); };
   dlg2.innerHTML = `<form method="dialog"><div class="dkop"><span class="soort">🌙 Buiten je beschikbaarheid</span><button type="button" class="sluit" data-sluit aria-label="Sluiten">×</button></div>
     <div class="dlijf">
       <h2 style="margin:0">${esc(titel)}</h2>
@@ -2698,11 +2713,14 @@ function buitenVenster(c) {
           <label class="veld">Van<input type="time" name="vvan" value="${fmtTijd(voor.toISOString())}" step="300"></label>
           <label class="veld">Tot<input type="time" name="vtot" value="${fmtTijd(new Date(voor.getTime() + duur * 60000).toISOString())}" step="300"></label>
           <button type="button" class="knop" data-bkeuze="verplaats">Verplaatsen</button></div>
-          ${c.ev.herhalend ? `<div class="hint">Dit is één keer uit een herhalende reeks: alleen deze keer wordt verplaatst.</div>` : ""}</div>`
+          ${c.ev.herhalend ? `<div class="hint">Dit is één keer uit een herhalende reeks: alleen deze keer wordt verplaatst.</div>` : ""}
+          <div id="bdagbeeld">${dagBeeld(bkijk, { id: "__afspraak", titel }, false, { zonderEv: c.ev.id, label: "📅 " + titel })}</div></div>`
         : `<div class="hint">🕘 Verplaatsen kan Tijdkompas hier niet: ${c.ev.extId ? "deze agenda is alleen-lezen of niet op dit apparaat gekoppeld" : "deze afspraak komt via een link (alleen lezen)"}. Verplaats hem in je agenda zelf.</div>`}`}
         <button type="button" class="keuzeknop" data-bkeuze="klopt"><b>✓ Klopt zo</b><small>Niet meer melden.</small></button>
       </div>
     </div></form>`;
+  dlg2.dagTik = (min) => { if (!$("#bdagbeeld", dlg2)) return; dagTikInvullen(min, "vvan", "vtot", bkijk); bBij(); };
+  dlg2.oninput = (e) => { if (["vdag", "vvan", "vtot"].includes(e.target.name)) bLees(); };
   dlg2.onclick = async (e) => {
     const k = e.target.closest("[data-bkeuze]")?.dataset.bkeuze; if (!k) return;
     if (k === "klopt") { d().buitenOk = { ...(d().buitenOk || {}), [c.sleutel]: new Date().toISOString() }; bewaar(); dlg2.close(); toast("Wordt niet meer gemeld"); return; }
@@ -2717,7 +2735,8 @@ function buitenVenster(c) {
       catch (err) { knop.disabled = false; toast("Verplaatsen lukte niet: " + (err?.message || err)); }
     }
   };
-  dlg2.onchange = null; dlg2.onclose = () => { dlg2.onclick = null; dlg2.onclose = null; };
+  dlg2.onchange = (e) => { if (["vdag", "vvan", "vtot"].includes(e.target.name)) bLees(); };
+  dlg2.onclose = () => { dlg2.onclick = null; dlg2.oninput = null; dlg2.onchange = null; dlg2.dagTik = null; dlg2.onclose = null; };
   if (!dlg2.open) dlg2.showModal();
 }
 
@@ -2757,6 +2776,12 @@ function botsingVenster(c) {
   const inhaalVan = eindVan(dagW), inhaalTot = hhmm(Math.min(minVan(inhaalVan) + duur, 23 * 60 + 45));
   const minderTot = eindVan(dagW), minderVan = hhmm(Math.max(0, minVan(minderTot) - duur));
   const prive = c.soort === "prive";
+  const okijk = { dag: dagW, van: prive ? inhaalVan : minderVan, tot: prive ? inhaalTot : minderTot };
+  const oBij = () => { const el = $("#bodagbeeld", dlg2); if (el) el.innerHTML = dagBeeld(okijk, { id: "__werk", titel: "" }, false, { label: prive ? "＋ inhalen" : "− minder werken" }); };
+  const oLees = () => { const v = (n) => $(`[name=${n}]`, dlg2)?.value || ""; okijk.dag = v("bdag") || okijk.dag; okijk.van = v("bvan") || okijk.van; okijk.tot = v("btot") || okijk.tot; oBij(); };
+  dlg2.dagTik = (min) => { if (!$("#bodagbeeld", dlg2)) return; dagTikInvullen(min, "bvan", "btot", okijk); oBij(); };
+  dlg2.oninput = (e) => { if (["bdag", "bvan", "btot"].includes(e.target.name)) oLees(); };
+  dlg2.onchange = (e) => { if (["bdag", "bvan", "btot"].includes(e.target.name)) oLees(); };
   dlg2.innerHTML = `<form method="dialog"><div class="dkop"><span class="soort">⚖️ ${prive ? "Privé in je werktijd" : "Werk in je eigen tijd"}</span><button type="button" class="sluit" data-sluit aria-label="Sluiten">×</button></div>
     <div class="dlijf">
       <h2 style="margin:0">${esc(titel)}</h2>
@@ -2781,11 +2806,12 @@ function botsingVenster(c) {
           <label class="veld">Tot<input type="time" name="btot" value="${prive ? inhaalTot : minderTot}" step="300"></label>
         </div>
         <div class="hint">Bij een hele dag ruilen telt alleen de dag${prive ? ` (voorstel: ${fmtDatum(dagVrij)}, een werkdag zonder vaste tijden)` : ""}.</div>
+        <div id="bodagbeeld">${dagBeeld(okijk, { id: "__werk", titel: "" }, false, { label: prive ? "＋ inhalen" : "− minder werken" })}</div>
         ${prive ? `<button type="button" class="knop klein" data-actie="bdagvrij" style="margin-top:6px">Dag zonder werk voorstellen: ${fmtDatum(dagVrij)}</button>` : ""}</div>
     </div></form>`;
   dlg2.onclick = (e) => {
     const k = e.target.closest("button"); if (!k) return;
-    if (k.dataset.actie === "bdagvrij") { const i = $("[name=bdag]", dlg2); i.value = dagVrij; i.setAttribute("value", dagVrij); return; }
+    if (k.dataset.actie === "bdagvrij") { const i = $("[name=bdag]", dlg2); i.value = dagVrij; i.setAttribute("value", dagVrij); oLees(); return; }
     const keuze = k.dataset.keuze; if (!keuze) return;
     const v = (n) => $(`[name=${n}]`, dlg2)?.value || "";
     const dag2 = v("bdag"), van2 = v("bvan"), tot2 = v("btot");
@@ -2835,18 +2861,31 @@ function botsingVenster(c) {
     toast(keuze === "laten" ? `Werktijd ${fmtDatum(c.ds)}: ${tijdenTekst(dagTijden(o, c.ds), null) || "vrij"}` : "Aangepast — geldt voor al je inlogs. Laat ⚡ Inplannen de planning erop aanpassen.",
       { label: "⚡ Inplannen", f: () => { const r2 = planAutomatisch(actieveOverzichten()); laatsteWaarschuwingen = r2.waarschuwingen; bewaar(); toast(`${r2.blokken} blokken ingepland`); } });
   };
-  dlg2.onchange = null; dlg2.onclose = () => { dlg2.onclick = null; dlg2.onclose = null; };
+  dlg2.onclose = () => { dlg2.onclick = null; dlg2.oninput = null; dlg2.onchange = null; dlg2.dagTik = null; dlg2.onclose = null; };
   if (!dlg2.open) dlg2.showModal();
 }
 
 // ---------- dagbeeld: zo ziet die dag eruit, met het nieuwe blok erin ----------
-function dagBeeld(kijk, it, schuifMee) {
+// Tik in een dagbeeld: het venster dat het dagbeeld toont zet dlg2.dagTik(minuten) om de begintijd te kiezen
+dlg2.addEventListener("click", (e) => {
+  const db = e.target.closest?.(".dagbeeld"); if (!db || !dlg2.dagTik || e.target.closest(".dbblok")) return;
+  const r = db.getBoundingClientRect?.(); if (!r || !r.height) return;
+  const vanU = +db.dataset.van, totU = +db.dataset.tot;
+  dlg2.dagTik(vanU * 60 + (e.clientY - r.top) / r.height * (totU - vanU) * 60);
+});
+// Een tijd uit een dagbeeld in de van/tot-velden zetten (duur blijft gelijk, begin op het raster)
+function dagTikInvullen(min, vanNaam, totNaam, kijkObj) {
+  const R = raster(), duur = Math.max(R, minVan(kijkObj.tot) - minVan(kijkObj.van)), begin = Math.max(0, Math.min(Math.round(min / R) * R, 24 * 60 - duur));
+  kijkObj.van = hhmm(begin); kijkObj.tot = hhmm(begin + duur);
+  for (const [n, w] of [[vanNaam, kijkObj.van], [totNaam, kijkObj.tot]]) { const i = $(`[name=${n}]`, dlg2); if (i) { i.value = w; i.setAttribute("value", w); } }
+}
+function dagBeeld(kijk, it, schuifMee, { zonderEv = null, label = null, wijkt: wijktFn = null } = {}) {
   if (!kijk?.dag || !/^\d{4}-\d{2}-\d{2}$/.test(kijk.dag)) return "";
   const dag = new Date(kijk.dag + "T00:00"), eindDag = new Date(dag.getTime() + 864e5), I = dagIndeling(dag), nu = new Date();
   const inDag = (x) => new Date(x.start) < eindDag && new Date(x.eind) > dag;
   const kA = /^\d{2}:\d{2}$/.test(kijk.van) ? new Date(kijk.dag + "T" + kijk.van) : null, kB = /^\d{2}:\d{2}$/.test(kijk.tot) ? new Date(kijk.dag + "T" + kijk.tot) : null;
   const eigen = d().planning.filter(b => inDag(b) && b.soort !== "reis");
-  const afspr = d().bezet.filter(ev => inDag(ev) && !ev.eigen && afspraakZichtbaar(ev) && (eventSoort(ev) === "bezet" || isHerinnering(ev)));
+  const afspr = d().bezet.filter(ev => ev.id !== zonderEv && inDag(ev) && !ev.eigen && afspraakZichtbaar(ev) && (eventSoort(ev) === "bezet" || isHerinnering(ev)));
   const fam = famAgenda(), famB = [...fam.planning.filter(b => b.soort !== "reis" && inDag(b)), ...fam.bezet.filter(ev => ev.soortF === "bezet" && !ev.eigen && inDag(ev))];
   // bereik: van de vroegste tot de laatste activiteit, minstens 7–22
   const uren = [...I.beschikbaar.flat(), ...I.vast.flatMap(v => [v.a, v.b]), ...eigen.flatMap(b => [new Date(b.start), new Date(b.eind)]), ...afspr.flatMap(e => [new Date(e.start), new Date(e.eind)]), ...(kA && kB ? [kA, kB] : [])]
@@ -2854,7 +2893,7 @@ function dagBeeld(kijk, it, schuifMee) {
   const van = Math.max(0, Math.min(7, Math.floor(Math.min(...uren, 7)))), tot = Math.min(24, Math.max(22, Math.ceil(Math.max(...uren, 22))));
   const H = 26, hoogte = (tot - van) * H, y = (t) => ((new Date(t) - dag) / 36e5 - van) * H;
   const band = (a, b, cls, inh = "", titel = "", extra = "") => { const t = Math.max(0, y(a)), h = Math.min(hoogte, y(b)) - t; return h > 0 ? `<div class="${cls}" style="top:${t}px;height:${Math.max(h, 3)}px" title="${esc(titel)}" ${extra}>${inh}</div>` : ""; };
-  const wijkt = (b) => schuifMee && kA && kB && b.item && b.item !== it.id && new Date(b.start) < kB && new Date(b.eind) > kA;
+  const wijkt = (b) => schuifMee && kA && kB && b.item && b.item !== it.id && new Date(b.start) < kB && new Date(b.eind) > kA && (!wijktFn || wijktFn(b));
   const kort = (s) => esc(String(s || "").slice(0, 40));
   return `<div class="dbkop"><b>${DAGLANG[dag.getDay()]} ${dag.getDate()} ${MAAND[dag.getMonth()]}</b>${I.weg ? " · ✈️ weg" : ""}<span class="hint"> · zo ziet die dag eruit${kA && kB ? " met het nieuwe blok" : ""}</span></div>
   <div class="dagbeeld" data-van="${van}" data-tot="${tot}" style="height:${hoogte}px">
@@ -2866,7 +2905,7 @@ function dagBeeld(kijk, it, schuifMee) {
     ${afspr.map(ev => isHerinnering(ev) ? band(ev.start, new Date(new Date(ev.start).getTime() + 15 * 60000), "dbblok dbherinn", "🔔 " + kort(ev.titel), ev.titel + " (herinnering)")
       : band(ev.start, ev.eind, "dbblok dbafspraak", "📅 " + kort(ev.titel), `${ev.titel} ${fmtTijd(ev.start)}–${fmtTijd(ev.eind)}`)).join("")}
     ${eigen.map(b => band(b.start, b.eind, `dbblok dbeigen${b.item === it.id ? " dbzelf" : ""}${wijkt(b) ? " dbwijkt" : ""}`, (wijkt(b) ? "⏩ " : "") + kort(b.titel), `${b.titel} ${fmtTijd(b.start)}–${fmtTijd(b.eind)}${wijkt(b) ? " — schuift door naar het volgende lege moment" : ""}`, `style="--ok:${ovKleur(b.overzicht)}"`).replace('style="top', `style="--ok:${ovKleur(b.overzicht)};top`).replace(` style="--ok:${ovKleur(b.overzicht)}"`, "")).join("")}
-    ${kA && kB && kB > kA ? band(kA, kB, "dbblok dbnieuw", "＋ " + kort(it.titel), `Nieuw: ${kijk.van}–${kijk.tot}`) : ""}
+    ${kA && kB && kB > kA ? band(kA, kB, "dbblok dbnieuw", (label ? "" : "＋ ") + kort(label || it.titel), `Nieuw: ${kijk.van}–${kijk.tot}`) : ""}
     ${dagStr(nu) === kijk.dag ? `<div class="dbnu" style="top:${y(nu)}px"></div>` : ""}
   </div>
   ${eigen.some(wijkt) ? `<div class="hint">⏩ ${eigen.filter(wijkt).map(b => "„" + esc(b.titel) + "”").join(", ")} ${eigen.filter(wijkt).length === 1 ? "schuift" : "schuiven"} door naar het volgende lege moment.</div>` : ""}`;

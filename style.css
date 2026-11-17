@@ -665,3 +665,4 @@ a.koersitem{text-decoration:none;color:inherit}
 .vdagknop{font:inherit;font-size:12.5px;font-weight:600;color:var(--meta);background:none;border:0;padding:0;cursor:pointer;text-align:left}
 .vdagknop:hover{color:var(--accent)}
 @media (max-width:640px){ .vdagknop{flex:0 0 74px} }
+.deadlinekeuze{border-color:var(--rood)}
