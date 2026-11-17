@@ -2591,7 +2591,7 @@ function botsingVenster(c) {
         <button type="button" class="keuzeknop" data-keuze="ruilen"><b>🔀 De hele dag ruilen</b><small>Die dag vrij, en op een andere dag (hieronder) de werktijden van die dag.</small></button>`
         : `<button type="button" class="keuzeknop" data-keuze="compenseren"><b>⏱ Elders minder werken</b><small>De ${fmtDuur(c.min)} gaan op een ander moment (hieronder) van je werktijd af.</small></button>
         <button type="button" class="keuzeknop" data-keuze="dagvrij"><b>🔀 Een hele werkdag vrij in ruil</b><small>Kies hieronder welke dag.</small></button>`}
-        <button type="button" class="keuzeknop" data-keuze="laten"><b>${prive ? "✓ Niets aanpassen" : "✓ Extra gewerkt — laat maar"}</b><small>Deze melding komt niet meer terug.</small></button>
+        <button type="button" class="keuzeknop" data-keuze="laten"><b>✓ Zo laten — de werktijd van die dag eromheen leggen</b><small>${prive ? "Je werktijd die dag wordt zonder deze afspraak" : "Je werktijd die dag rekt op tot alle werkafspraken erin vallen"}, zonder iets elders te compenseren. Alle botsingen van die dag gaan zo mee, zodat duidelijk is wat werk en wat privé is.</small></button>
         ${prive ? "" : `<button type="button" class="keuzeknop" data-keuze="werkdag"><b>🗓 „${esc(titel)}” telt alleen op werkdagen</b><small>Bijv. een lunch-reservering: op dagen zonder werk staat hij er niet en zit hij niet in de weg (alle „${esc(titel)}” uit deze agenda).</small></button>`}
         <button type="button" class="keuzeknop" data-keuze="verberg"><b>🙈 Deze afspraak niet meetellen</b><small>Alleen deze keer; hij staat er dan niet meer en er wordt doorheen gepland.</small></button>
       </div>
@@ -2616,7 +2616,17 @@ function botsingVenster(c) {
     const bij = [c.sleutel], kort = `${titel} (${fmtDatum(c.ds)})`;
     const zet = (ds, tijden, reden) => zetAfwijking(o, ds, tijden.length ? { soort: "anders", tijden, reden, bij } : { soort: "vrij", tijden: [], reden, bij });
     if (keuze === "werkdag" || keuze === "verberg") { afspraakRegel(c.ev, keuze, o.id); bewaar(); dlg2.close(); toast(keuze === "werkdag" ? `„${titel}” telt voortaan alleen op werkdagen` : "Deze afspraak telt niet meer mee"); return; }
-    if (keuze === "laten") { o.genegeerd = { ...(o.genegeerd || {}), [c.sleutel]: new Date().toISOString() }; }
+    if (keuze === "laten") {
+      // de grens tussen werk en privé die dag precies leggen: werkafspraken erbinnen, privé-afspraken erbuiten
+      const dezeDag = rolBotsingen().filter(x => x.lijst === c.lijst && x.ds === c.ds);
+      if (!dezeDag.some(x => x.sleutel === c.sleutel)) dezeDag.push(c);
+      const tijdVan = (x) => fmtTijd(x.ev.start), tijdTot = (x) => dagStr(new Date(x.ev.eind)) === x.ds ? fmtTijd(x.ev.eind) : "23:59";
+      let t = dagTijden(o, c.ds);
+      for (const x of dezeDag.filter(x => x.soort === "werk")) t = tijdenMet(t, { van: tijdVan(x), tot: tijdTot(x), locatie: "" });
+      for (const x of dezeDag.filter(x => x.soort === "prive")) t = tijdenZonder(t, tijdVan(x), tijdTot(x));
+      zetAfwijking(o, c.ds, t.length ? { soort: "anders", tijden: t, reden: "Werk en privé zo gelaten", bij: dezeDag.map(x => x.sleutel) }
+                                      : { soort: "vrij", tijden: [], reden: "Werk en privé zo gelaten", bij: dezeDag.map(x => x.sleutel) });
+    }
     else if (keuze === "inkorten" || keuze === "inhalen") {
       zet(c.ds, tijdenZonder(dagTijden(o, c.ds), ea, eb), `Vrij voor ${titel}`);
       if (keuze === "inhalen") zet(dag2, tijdenMet(dagTijden(o, dag2), { van: van2, tot: tot2, locatie: effLijst(o).locatie || "" }), `Inhalen voor ${kort}`);
@@ -2631,8 +2641,8 @@ function botsingVenster(c) {
       else zet(dag2, [], `Vrij in ruil voor ${kort}`);
     }
     bewaar(); dlg2.close();
-    toast(keuze === "laten" ? "Zo gelaten" : "Aangepast — geldt voor al je inlogs. Laat ⚡ Inplannen de planning erop aanpassen.",
-      keuze === "laten" ? undefined : { label: "⚡ Inplannen", f: () => { const r2 = planAutomatisch(actieveOverzichten()); laatsteWaarschuwingen = r2.waarschuwingen; bewaar(); toast(`${r2.blokken} blokken ingepland`); } });
+    toast(keuze === "laten" ? `Werktijd ${fmtDatum(c.ds)}: ${tijdenTekst(dagTijden(o, c.ds), null) || "vrij"}` : "Aangepast — geldt voor al je inlogs. Laat ⚡ Inplannen de planning erop aanpassen.",
+      { label: "⚡ Inplannen", f: () => { const r2 = planAutomatisch(actieveOverzichten()); laatsteWaarschuwingen = r2.waarschuwingen; bewaar(); toast(`${r2.blokken} blokken ingepland`); } });
   };
   dlg2.onchange = null; dlg2.onclose = () => { dlg2.onclick = null; dlg2.onclose = null; };
   if (!dlg2.open) dlg2.showModal();
