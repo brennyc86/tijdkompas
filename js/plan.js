@@ -388,11 +388,11 @@ export function planStatus(it, nu = new Date()) {
 }
 
 // Alles wat tijd bezet rond een moment (afspraken, planning, gelinkte accounts), behalve de blokken van één item
-function bezetBehalve(itemId) {
+function bezetBehalve(itemId, negeer = null) {
   const d = opslag.d, f = familieHaak.agenda();
   return [
     ...d.bezet.filter(ev => eventSoort(ev) === "bezet" && !ev.eigen).map(ev => ({ a: new Date(ev.start), b: new Date(ev.eind), titel: ev.titel || "Afspraak" })),
-    ...d.planning.filter(b => b.item !== itemId).map(b => ({ a: new Date(b.start), b: new Date(b.eind), titel: b.titel || "Gepland", reis: b.soort === "reis" })),
+    ...d.planning.filter(b => (!itemId || b.item !== itemId) && !(negeer && negeer(b))).map(b => ({ a: new Date(b.start), b: new Date(b.eind), titel: b.titel || "Gepland", reis: b.soort === "reis" })),
     ...f.bezet.filter(ev => ev.soortF === "bezet" && !ev.eigen).map(ev => ({ a: new Date(ev.start), b: new Date(ev.eind), titel: ev.titel || "Afspraak (gelinkt account)" })),
     ...f.planning.map(b => ({ a: new Date(b.start), b: new Date(b.eind), titel: b.titel || "Gepland (gelinkt account)", reis: b.soort === "reis" })),
   ];
@@ -413,12 +413,13 @@ export const doorGelinktIngepland = (it) => vanGelinkt(it.overzicht);
  * Elk voorstel beslaat het hele gat (begin op een heel of half uur tot het volgende item); inkorten kan bij het plaatsen.
  * @returns {{a:Date, b:Date, duur:number, reis:number, loc:string, naDeadline:boolean, dag:string}[]}
  */
-export function voorstellen(it, minDuur, { aantal = 16, dagen = 28, vanaf = new Date() } = {}) {
+export function voorstellen(it, minDuur, { aantal = 16, dagen = 28, vanaf = new Date(), negeer = null, hierAl = false } = {}) {
   const d = opslag.d, R = raster(), buf = (d.instellingen.buffer || 0) * MIN;
-  const { ov, eigenLoc, loc, reis } = plekVan(it);
+  let { ov, eigenLoc, loc, reis } = plekVan(it);
+  if (hierAl) { eigenLoc = ""; reis = 0; }                   // "ik ben er toch al": geen plek-eis, geen reistijd
   if (!ov || !(minDuur > 0)) return [];
-  const start = rondOp(vanaf, R);
-  const bezet = bezetBehalve(it.id);
+  const start = rondOp(new Date(Math.max(vanaf, Date.now())), R);
+  const bezet = bezetBehalve(it.id, negeer);
   // waar dit item op wacht: pas daarna
   let na = start;
   for (const id of it.wachtOp || []) {
@@ -432,9 +433,7 @@ export function voorstellen(it, minDuur, { aantal = 16, dagen = 28, vanaf = new 
     const dag = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
     const I = dagIndeling(dag);
     const extra = [...I.reis.map(r => ({ a: r.a, b: r.b, reis: true })), ...I.elders.map(r => ({ a: r.a, b: r.b }))];
-    const vensters = (ov.modus === "vast"
-      ? I.vast.filter(v => v.lijst === ov.id && (!eigenLoc || v.locatie === eigenLoc)).map(v => [v.a, v.b])
-      : I.vrij).map(([a, b]) => [a < na ? na : a, b]).filter(([a, b]) => b - a >= 5 * MIN);
+    const vensters = werkmomenten(I, ov, eigenLoc, hierAl).map(([a, b]) => [a < na ? na : a, b]).filter(([a, b]) => b - a >= 5 * MIN);
     for (const [wa, wb] of vensters) for (const [ga, gb] of vrijeGaten(wa, wb, [...bezet, ...extra], R, buf)) {
       const a = rondOp(new Date(ga.getTime() + reis * MIN), R), b = new Date(gb.getTime() - reis * MIN);
       const duur = Math.floor(minuten(a, b) / 5) * 5;
@@ -463,9 +462,9 @@ const tijdStr = (x) => String(x.getHours()).padStart(2, "0") + ":" + String(x.ge
  * Zet zelf een blok in de planning (vastgezet, dus automatisch inplannen laat het staan), met reistijd ervoor en erna.
  * Nog niet vastgezette (automatisch ingeplande) toekomstige blokken van dit item vervallen: jij kiest nu zelf.
  */
-export function plaatsBlok(it, a, duur, agenda) {
+export function plaatsBlok(it, a, duur, agenda, { hierAl = false } = {}) {
   const d = opslag.d, nu = new Date();
-  const { loc, reis } = plekVan(it);
+  const p = plekVan(it), loc = p.loc, reis = hierAl ? 0 : p.reis;
   const vervallen = d.planning.filter(b => b.item === it.id && !b.vast && new Date(b.eind) > nu);
   d.planning = d.planning.filter(b => !vervallen.includes(b));
   const basis = { item: it.id, type: it.type, overzicht: it.overzicht, titel: blokTitel(it), locatie: loc, vast: true, handmatig: true, ...(agenda ? { agenda } : {}) };
@@ -479,6 +478,180 @@ export function plaatsBlok(it, a, duur, agenda) {
   werkGeplandBij(d.overzichten.map(o => o.id));
   return { blok: b, vervallen: vervallen.filter(x => x.soort !== "reis").length };
 }
+// ---------- voorrang voor Doen, en schuiven ----------
+/** Werkmomenten van een lijst op een dag: de vaste tijden (op de juiste plek), of de vrije tijd */
+function werkmomenten(I, ov, eigenLoc = "", hierAl = false) {
+  if (ov.modus !== "vast") return I.vrij;
+  const v = I.vast.filter(x => x.lijst === ov.id && (!eigenLoc || hierAl || x.locatie === eigenLoc)).map(x => [x.a, x.b]);
+  return v.length || !hierAl ? v : aftrekken(I.beschikbaar, [...I.vast, ...I.elders].map(x => [x.a, x.b]));
+}
+/** Het werkmoment waar een tijdstip in valt (voor dit item), of de rest van die dag */
+function werkmomentRond(it, t, hierAl = false) {
+  const dag = new Date(t.getFullYear(), t.getMonth(), t.getDate());
+  const { ov, eigenLoc } = plekVan(it);
+  const w = ov ? werkmomenten(dagIndeling(dag), ov, eigenLoc, hierAl).find(([a, b]) => a <= t && b > t) : null;
+  return w || [t, new Date(dag.getTime() + 864e5)];
+}
+const itemVan = (b) => taak(b.item) || project(b.item);
+/** Mag dit blok wijken voor een Doen-taak? Alles behalve andere Doen-taken (en reserve voor uitloop mag altijd). */
+export function wijkbaar(b) {
+  if (b.soort === "uitloop") return true;
+  const it = itemVan(b);
+  return !!it && kwadrant(it) !== "doen";
+}
+// Een blok met de reistijd die er direct aan vast zit, als één geheel om te verschuiven
+function eenheden(blokken) {
+  const d = opslag.d;
+  return blokken.filter(b => b.soort !== "reis").sort((x, y) => x.start.localeCompare(y.start)).map(b => {
+    const heen = d.planning.find(x => x.soort === "reis" && x.item === b.item && x.eind === b.start) || null;
+    const terug = d.planning.find(x => x.soort === "reis" && x.item === b.item && x.start === b.eind) || null;
+    const min = (x) => x ? minuten(new Date(x.start), new Date(x.eind)) : 0;
+    return { blok: b, heen, terug, duur: minuten(new Date(b.start), new Date(b.eind)), rh: min(heen), rt: min(terug) };
+  });
+}
+const zetTijd = (e, a) => {          // eenheid naar begintijd a (van het blok zelf) verplaatsen
+  const b = new Date(a.getTime() + e.duur * MIN);
+  e.blok.start = a.toISOString(); e.blok.eind = b.toISOString();
+  if (e.heen) { e.heen.start = new Date(a - e.rh * MIN).toISOString(); e.heen.eind = e.blok.start; }
+  if (e.terug) { e.terug.start = e.blok.eind; e.terug.eind = new Date(b.getTime() + e.rt * MIN).toISOString(); }
+};
+const delenVan = (e) => [e.blok, e.heen, e.terug].filter(Boolean);
+/**
+ * Eenheden achter elkaar zetten vanaf `van`, binnen [van, tot), om alles heen wat vast ligt. Geeft terug wat niet meer past.
+ * Wordt gebruikt om op te schuiven (naar achteren of naar voren).
+ */
+function pak(eenhedenLijst, van, tot) {
+  const d = opslag.d, R = raster(), buf = (d.instellingen.buffer || 0) * MIN;
+  const bewegend = new Set(eenhedenLijst.flatMap(delenVan).map(x => x.id));
+  const dag = new Date(van.getFullYear(), van.getMonth(), van.getDate());
+  const I = dagIndeling(dag);
+  const vast = [...bezetBehalve(null, (b) => bewegend.has(b.id)), ...I.reis.map(r => ({ a: r.a, b: r.b, reis: true })), ...I.elders.map(r => ({ a: r.a, b: r.b }))];
+  const over = []; let c = van;
+  for (const e of eenhedenLijst) {
+    const g = vrijeGaten(c, tot, vast, R, buf).find(([ga, gb]) => { const a = rondOp(new Date(ga.getTime() + e.rh * MIN), R); return a.getTime() + (e.duur + e.rt) * MIN <= gb.getTime(); });
+    if (!g) { over.push(e); continue; }
+    const a = rondOp(new Date(g[0].getTime() + e.rh * MIN), R);
+    zetTijd(e, a);
+    vast.push({ a: new Date(e.heen ? e.heen.start : e.blok.start), b: new Date(e.terug ? e.terug.eind : e.blok.eind) });
+    c = new Date(e.terug ? e.terug.eind : e.blok.eind);
+  }
+  for (const e of over) d.planning = d.planning.filter(x => !delenVan(e).includes(x));
+  return over;
+}
+
+/**
+ * Een Doen-taak met voorrang inplannen: op het eerste moment dat kan, waarbij andere (niet-Doen) blokken wijken.
+ *   modus "weg"    — wat in de weg zit gaat uit de planning (komt terug in `weg`, om later opnieuw in te plannen)
+ *   modus "schuif" — wat in de weg zit en wat erna komt in hetzelfde werkmoment schuift op; wat niet meer past staat in `over`
+ *   modus "kijk"   — niets veranderen, alleen laten zien wat er zou gebeuren
+ * hierAl: je bent (toch) al op de plek van de taak — dan kan het vandaag, zonder reistijd.
+ */
+export function metVoorrang(it, { modus = "kijk", hierAl = false } = {}) {
+  const d = opslag.d, inst = d.instellingen;
+  const st = planStatus(it), nodig = Math.max(raster(), st.rest || nogNodig(it) || 30);
+  const v = voorstellen(it, Math.min(nodig, Math.max(inst.blokMin || 15, 30)), { negeer: wijkbaar, hierAl, aantal: 1, dagen: hierAl ? 1 : 28 })[0];
+  if (!v) return { gevonden: false };
+  const duur = Math.min(nodig, v.duur, Math.max(inst.blokMax || 90, nodig));   // Doen: liefst in één keer
+  const a = v.a, b = new Date(a.getTime() + duur * MIN);
+  const reis = hierAl ? 0 : plekVan(it).reis;
+  const bezetVan = new Date(a - reis * MIN), bezetTot = new Date(b.getTime() + reis * MIN);
+  const raak = (x) => new Date(x.start) < bezetTot && new Date(x.eind) > bezetVan;
+  const inDeWeg = d.planning.filter(x => x.item !== it.id && wijkbaar(x) && x.soort !== "reis" && raak(x));
+  const uit = { gevonden: true, a, b, duur, rest: Math.max(0, nodig - duur), inDeWeg, weg: [], over: [], verschoven: [], blok: null };
+  if (modus === "kijk") return uit;
+  const [wa, wb] = werkmomentRond(it, a, hierAl);
+  // na: wat in hetzelfde werkmoment op of na het nieuwe blok komt (alleen wat mag wijken)
+  const erna = modus === "schuif" ? d.planning.filter(x => x.item !== it.id && wijkbaar(x) && x.soort !== "reis" && x.soort !== "uitloop"
+    && new Date(x.eind) > bezetVan && new Date(x.start) < wb && new Date(x.start) >= wa) : [];
+  // reserve voor uitloop in de weg: die tijd is precies hiervoor
+  for (const x of d.planning.filter(x => x.soort === "uitloop" && raak(x))) d.planning = d.planning.filter(y => y !== x);
+  if (modus === "weg") for (const x of inDeWeg.filter(x => x.soort !== "uitloop")) { uit.weg.push(x); haalBlokWeg(x); }
+  const e = eenheden(erna);
+  // eerst uit de weg (zodat het nieuwe blok vrij ligt), dan het nieuwe blok, dan alles erachter aan
+  for (const x of e) for (const y of delenVan(x)) y._oud = y.start;
+  const tijdelijk = e.flatMap(delenVan);
+  d.planning = d.planning.filter(x => !tijdelijk.includes(x));
+  uit.blok = plaatsBlok(it, a, duur, undefined, { hierAl }).blok;
+  d.planning.push(...tijdelijk);
+  if (e.length) {
+    uit.over = pak(e, new Date(uit.blok.eind), wb).map(x => x);
+    uit.verschoven = e.filter(x => !uit.over.includes(x) && x.blok._oud !== x.blok.start).map(x => x.blok);
+  }
+  for (const x of tijdelijk) delete x._oud;
+  werkGeplandBij(d.overzichten.map(o => o.id));
+  return uit;
+}
+/** Volgende werkmomenten (vrije stukken) voor dit item vanaf een tijdstip — om aan te wijzen waar opgeschoven werk heen gaat */
+export function volgendeMomenten(it, vanaf, minDuur = 15, aantal = 8) {
+  return voorstellen(it, minDuur, { vanaf, aantal, dagen: 28 });
+}
+/** Eenheden (uit metVoorrang().over) vanaf een gekozen moment achter elkaar zetten, steeds op de eerstvolgende plek die past */
+export function plaatsVanaf(over, vanaf) {
+  const d = opslag.d; let c = vanaf; const niet = [];
+  for (const e of over) {
+    const it = itemVan(e.blok) || null;
+    const v = it ? voorstellen(it, e.duur, { vanaf: c, aantal: 1, dagen: 60 })[0] : null;
+    if (!v) { niet.push(e); continue; }
+    zetTijd(e, v.a); d.planning.push(...delenVan(e));
+    c = new Date(e.terug ? e.terug.eind : e.blok.eind);
+  }
+  werkGeplandBij(d.overzichten.map(o => o.id));
+  return niet;
+}
+
+/**
+ * Tijd die vrijkomt als je een taak eerder afrondt (vóór afronden opvragen): wat er nog over is van het lopende blok,
+ * of anders het eerstvolgende blok. Plus de overige toekomstige blokken van die taak.
+ */
+export function vrijkomend(it, nu = new Date()) {
+  const R = raster();
+  const bl = opslag.d.planning.filter(b => b.item === it.id && b.soort !== "reis" && new Date(b.eind) > nu).sort((a, b) => a.start.localeCompare(b.start));
+  if (!bl.length) return null;
+  const eerste = bl[0], a = new Date(Math.max(new Date(eerste.start), rondOp(nu, R))), b = new Date(eerste.eind);
+  if (minuten(a, b) < 15) return null;
+  return { a, b, min: minuten(a, b), blok: eerste, lopend: new Date(eerste.start) < nu, overig: bl.slice(1) };
+}
+/**
+ * Na eerder afronden: wat te doen met [a, b)?
+ *   vrij     — tijd vrijlaten
+ *   uitloop  — reserveren als uitloop (blijft in je agenda staan)
+ *   schuif   — alles erna in hetzelfde werkmoment naar voren; aan het eind (optioneel) uitloop reserveren
+ * @returns {{verschoven: object[], uitloop: object|null}}
+ */
+export function vrijeTijd(it, v, keuze, { uitloopAchteraan = true } = {}) {
+  const d = opslag.d;
+  const blok = d.planning.find(x => x.id === v.blok.id);
+  // het blok zelf inkorten tot nu (lopend) of weghalen (nog niet begonnen)
+  if (blok) {
+    if (v.lopend) { blok.eind = v.a.toISOString(); const t = d.planning.find(x => x.soort === "reis" && x.item === it.id && x.start === v.b.toISOString()); if (t) { const dur = new Date(t.eind) - new Date(t.start); t.start = blok.eind; t.eind = new Date(new Date(blok.eind).getTime() + dur).toISOString(); } }
+    else haalBlokWeg(blok);
+  }
+  for (const x of v.overig) { const y = d.planning.find(z => z.id === x.id); if (y) haalBlokWeg(y); }
+  const reserve = (a, b) => {
+    if (minuten(a, b) < 15) return null;
+    const r = { id: uid(), soort: "uitloop", titel: "Uitloop (gereserveerd)", overzicht: it.overzicht, start: a.toISOString(), eind: b.toISOString(), vast: true };
+    d.planning.push(r); return r;
+  };
+  let uitloop = null, verschoven = [];
+  if (keuze === "uitloop") uitloop = reserve(v.a, v.b);
+  if (keuze === "schuif") {
+    const [wa, wb] = werkmomentRond(it, v.a);
+    const erna = d.planning.filter(x => x.soort !== "reis" && x.soort !== "uitloop" && wijkbaarOfEigen(x) && new Date(x.start) >= v.a && new Date(x.start) < wb && new Date(x.start) >= wa);
+    const e = eenheden(erna);
+    const oud = new Map(e.map(x => [x.blok.id, x.blok.start]));
+    const laatsteEind = e.length ? new Date(Math.max(...e.map(x => new Date(x.terug ? x.terug.eind : x.blok.eind)))) : v.b;
+    const over = pak(e, v.a, wb);
+    for (const x of over) d.planning.push(...delenVan(x));             // past altijd (het schuift alleen naar voren); voor de zekerheid terug
+    verschoven = e.filter(x => oud.get(x.blok.id) !== x.blok.start).map(x => x.blok);
+    const nieuwEind = e.length ? new Date(Math.max(...e.map(x => new Date(x.terug ? x.terug.eind : x.blok.eind)))) : v.a;
+    if (uitloopAchteraan) uitloop = reserve(nieuwEind, laatsteEind > nieuwEind ? laatsteEind : v.b);
+  }
+  werkGeplandBij(d.overzichten.map(o => o.id));
+  return { verschoven, uitloop };
+}
+// Naar voren schuiven mag met alle eigen blokken (ook Doen): ze komen alleen eerder, nooit later
+const wijkbaarOfEigen = (b) => !!itemVan(b);
+
 /** Een blok (met de reistijd die erbij hoort) weer uit de planning halen */
 export function haalBlokWeg(b) {
   const d = opslag.d;

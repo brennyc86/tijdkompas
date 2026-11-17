@@ -87,6 +87,7 @@ export function ontsmet(n) {
   for (const b of n.planning) if (b.agenda != null && (typeof b.agenda !== "string" || b.agenda.length > 400)) delete b.agenda;
   if (n.instellingen) {
     if (!["taak", "lijst", "vast"].includes(n.instellingen.agendaDoel)) n.instellingen.agendaDoel = "taak";
+    if (!["vragen", "weg", "schuif"].includes(n.instellingen.doenModus)) n.instellingen.doenModus = "vragen";
     if (typeof n.instellingen.vasteAgenda !== "string") n.instellingen.vasteAgenda = "";
   }
   // afwijkingen per datum (vakantie, cursus, geruilde dag…): alleen geldige datums, soorten en tijden; oud spul (> 1 jaar) valt weg

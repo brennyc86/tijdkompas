@@ -30,6 +30,7 @@ export function kwadrant(item) {
 const STANDAARD_INST = {
   blokMax: 90,          // langste aaneengesloten blok (min)
   blokMin: 15,          // kortste blok (min)
+  doenModus: "vragen",  // een taak die in Doen komt: vragen | weg (anderen wijken) | schuif (alles schuift op)
   agendaDoel: "taak",   // waar ingeplande blokken standaard komen: taak | lijst | vast (zie sync.js)
   vasteAgenda: "",
   raster: 30,           // plannen per half uur: blokken beginnen op een heel of half uur (de rest is pauze)
