@@ -1306,7 +1306,8 @@ function feedBlok() {
         `<label class="schakel"><input type="checkbox" data-feedlijst="${o.id}" ${(f.lijsten || []).includes(o.id) ? "checked" : ""}> ${esc(o.icoon)} ${esc(o.naam)}</label>`).join("")}</div></div>
       <label class="schakel"><input type="checkbox" data-feedopt="titels" ${f.titels !== false ? "checked" : ""}> Namen van de taken meesturen (anders staat er alleen „Werkblok”)</label>
       <label class="schakel"><input type="checkbox" data-feedopt="reis" ${f.reis ? "checked" : ""}> Reistijd meesturen</label>
-      <div class="hint">${n} ${n === 1 ? "blok" : "blokken"} (vanaf twee weken terug)${st.fout ? ` · <span style="color:var(--rood)">bijwerken mislukt: ${esc(st.fout)}</span>` : st.bijgewerkt ? ` · link bijgewerkt ${esc(wanneer(st.bijgewerkt))}` : ""}</div>
+      <div class="hint">${n} ${n === 1 ? "blok" : "blokken"} (vanaf twee weken terug)${st.fout ? "" : st.bijgewerkt ? ` · ✓ link bijgewerkt ${esc(wanneer(st.bijgewerkt))}` : " · nog niet gevuld"}</div>
+      ${st.fout ? `<div class="waarsch" style="margin:0"><b>Deze link werkt nog niet.</b> ${esc(st.fout)}</div>` : ""}
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="knop klein" data-actie="feedNieuw" title="Maak een nieuwe link; de oude werkt daarna niet meer">🔄 Nieuwe link</button>
         <button type="button" class="knop klein gevaar" data-actie="feedIntrekken">Link intrekken</button></div>
     </div>`;
@@ -1314,7 +1315,8 @@ function feedBlok() {
   return `<h3>📡 Abonneer-link voor je werkagenda</h3>
   <p class="hint">Een link (.ics, alleen lezen) met je ingeplande blokken. Geef hem aan Copilot om de blokken in je werkagenda te zetten, of voeg hem in Outlook toe via <i>Agenda toevoegen → Abonneren vanaf het web</i>.
     Alle blokken staan op <b>vrij</b>, zodat ze collega's niet blokkeren en Tijdkompas ze bij het ophalen niet als bezet ziet. De link wordt bijgewerkt zodra je iets wijzigt (op een apparaat waar je bent ingelogd).
-    Wie de link heeft, kan hem lezen: deel hem alleen met je eigen agenda of Copilot. Uitgelekt? Maak een nieuwe link.</p>
+    Wie de link heeft, kan hem lezen: deel hem alleen met je eigen agenda of Copilot. Uitgelekt? Maak een nieuwe link.
+    Werkt de link in de browser niet? Dan moeten de nieuwste beveiligingsregels in Firebase staan en het doorgeefluik bijgewerkt zijn (SETUP.md D4).</p>
   ${!ingelogd() ? `<div class="hint">Log in om een link te maken: de link haalt je planning uit de Tijdkompas-cloud.</div>`
     : `${feeds.map(rij).join("")}<div style="margin-top:8px"><button type="button" class="knop" data-actie="feedBij">＋ Link maken</button></div>`}`;
 }
@@ -1324,7 +1326,9 @@ async function feedActie(a, el) {
     const werk = d().overzichten.filter(o => o.modus === "vast" && !o.opslag && !o.slot);
     const lijsten = (werk.length ? werk : d().overzichten.filter(o => !o.opslag && !o.slot).slice(0, 1)).map(o => o.id);
     d().feeds = [...(d().feeds || []), { id: nieuweFeedSleutel(), naam: "Tijdkompas – " + (werk[0]?.naam || "planning"), lijsten, titels: true, reis: false, aangemaakt: new Date().toISOString() }];
-    bewaar(); await feedsBijwerken(); render(); toast("Link gemaakt — kopieer hem en geef hem aan Copilot of Outlook");
+    bewaar(); await feedsBijwerken(); render();
+    const st = feedStand.get(d().feeds.at(-1).id);
+    toast(st?.fout ? "Link gemaakt, maar nog niet gevuld: " + st.fout : "Link gemaakt — kopieer hem en geef hem aan Copilot of Outlook");
     return;
   }
   const f = feedVan(el); if (!f) return;
@@ -1334,13 +1338,15 @@ async function feedActie(a, el) {
     catch { const i = el.closest("[data-feed]").querySelector("[data-feedurl]"); i?.select?.(); toast("Selecteer de link en kopieer hem"); }
   } else if (a === "feedNieuw") {
     if (!confirm("Een nieuwe link maken? De oude link werkt daarna niet meer; geef de nieuwe opnieuw aan Copilot of Outlook.")) return;
-    const oud = f.id; f.id = nieuweFeedSleutel(); bewaar();
-    try { await feedWeg(oud); } catch {}
-    await feedsBijwerken(); render(); toast("Nieuwe link gemaakt; de oude is ingetrokken");
+    try { await feedWeg(f.id); } catch (e) { toast("De oude link intrekken mislukte: " + foutTekst(e)); return; }
+    f.id = nieuweFeedSleutel(); bewaar();
+    await feedsBijwerken(); render();
+    const st = feedStand.get(f.id);
+    toast(st?.fout ? "Nieuwe link gemaakt, maar nog niet gevuld: " + st.fout : "Nieuwe link gemaakt; de oude werkt niet meer");
   } else if (a === "feedIntrekken") {
     if (!confirm("Deze link intrekken? Agenda's die hem gebruiken krijgen dan niets meer binnen.")) return;
     try { await feedWeg(f.id); } catch (e) { toast("Intrekken mislukt: " + foutTekst(e)); return; }
-    d().feeds = d().feeds.filter(x => x !== f); bewaar(); toast("Link ingetrokken");
+    d().feeds = d().feeds.filter(x => x !== f); bewaar(); render(); toast("Link ingetrokken");
   }
 }
 

@@ -99,6 +99,7 @@ export function foutTekst(e) {
   if (c.includes("invalid-action-code") || c.includes("expired-action-code")) return "Deze inloglink is verlopen of al gebruikt. Vraag een nieuwe aan.";
   if (c.includes("invalid-email")) return "Dat e-mailadres klopt niet helemaal.";
   if (c.includes("quota-exceeded")) return "Er zijn vandaag te veel inloglinks verstuurd. Probeer het morgen opnieuw.";
+  if (c.includes("permission-denied")) return "Firebase weigert dit. Staan de nieuwste beveiligingsregels erin? (SETUP.md → Beveiligingsregels bijwerken)";
   return e?.message || String(e);
 }
 // Let op: de popup moet direct binnen de klik openen, daarom is alles vooraf geladen (cloudStart)
@@ -646,10 +647,23 @@ export async function feedsBijwerken() {
     } catch (e) { feedStand.set(f.id, { ...(feedStand.get(f.id) || {}), fout: foutTekst(e) }); }
   }
 }
-/** Link intrekken: het document weg, dan geeft het doorgeefluik "onbekende link" */
+/**
+ * Link intrekken: het document weg, dan geeft het doorgeefluik "onbekende link".
+ * Bestond het document nooit (bijv. omdat Firebase het aanmaken weigerde), dan is er niets in te trekken: dan is het ook goed.
+ * @returns {Promise<"weg"|"bestond niet">}
+ */
 export async function feedWeg(sleutel) {
+  if (!cloud.gebruiker) throw new Error("Log eerst in");
+  const ref = F.doc(db, "feeds", sleutel);
+  let bestaat = true;
+  try { bestaat = (await F.getDoc(ref)).exists(); }
+  catch (e) {
+    // Mag ik hem niet eens lezen, dan kent Firebase de regels voor links nog niet: dan kan hij ook nooit zijn aangemaakt
+    if (String(e?.code || "").includes("permission-denied")) bestaat = false; else throw e;
+  }
+  if (bestaat) await F.deleteDoc(ref);
   feedStand.delete(sleutel); feedGelezen.delete(sleutel);
-  if (cloud.gebruiker) await F.deleteDoc(F.doc(db, "feeds", sleutel));
+  return bestaat ? "weg" : "bestond niet";
 }
 
 let schrijfTimer = null;

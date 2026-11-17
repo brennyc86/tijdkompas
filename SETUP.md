@@ -252,6 +252,14 @@ een **alleen-lezen agendalink (.ics)** met je ingeplande blokken. Alle blokken s
 en Tijdkompas ze bij het ophalen niet als bezet terugleest.
 
 Eenmalig: plak de nieuwste [`firestore.rules`](#beveiligingsregels-bijwerken) en werk het doorgeefluik bij (D1 → Bijwerken).
+Controleer daarna allebei door deze twee adressen in je browser te openen:
+
+| Controle | Goed | Nog niet bijgewerkt |
+|---|---|---|
+| Doorgeefluik: https://tijdkompas-agenda.brennycc86.workers.dev/feed/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.ics | **Onbekende of ingetrokken link** | „Geen geldige agendalink” of „Niet toegestaan” |
+| Regels: https://firestore.googleapis.com/v1/projects/brennycc86-apps/databases/(default)/documents/feeds/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA | `"code": 404` (NOT_FOUND) | `"code": 403` (PERMISSION_DENIED) |
+
+Pas als beide goed zijn, werkt de link. Links die je eerder maakte toen het nog niet werkte, kun je gewoon intrekken.
 
 1. Tijdkompas → **⚙️ Instellingen → Agenda's & accounts → 📡 Abonneer-link voor je werkagenda** → **＋ Link maken** (je moet ingelogd zijn).
 2. Vink aan welke lijsten erin moeten (standaard je lijst(en) met vaste tijden, zoals Werk), en of de namen van taken en de reistijd mee moeten.

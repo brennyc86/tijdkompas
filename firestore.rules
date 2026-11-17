@@ -202,7 +202,7 @@ service cloud.firestore {
       allow list: if false;
       allow create: if sleutelOk() && magFeed(request.resource.data.eigenaar) && feedOk(request.resource.data);
       allow update: if magFeed(resource.data.eigenaar) && request.resource.data.eigenaar == resource.data.eigenaar && feedOk(request.resource.data);
-      allow delete: if magFeed(resource.data.eigenaar);
+      allow delete: if sleutelOk() && ingelogd() && (resource == null || magFeed(resource.data.eigenaar));
     }
   }
 }
