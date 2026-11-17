@@ -463,12 +463,12 @@ const tijdStr = (x) => String(x.getHours()).padStart(2, "0") + ":" + String(x.ge
  * Zet zelf een blok in de planning (vastgezet, dus automatisch inplannen laat het staan), met reistijd ervoor en erna.
  * Nog niet vastgezette (automatisch ingeplande) toekomstige blokken van dit item vervallen: jij kiest nu zelf.
  */
-export function plaatsBlok(it, a, duur) {
+export function plaatsBlok(it, a, duur, agenda) {
   const d = opslag.d, nu = new Date();
   const { loc, reis } = plekVan(it);
   const vervallen = d.planning.filter(b => b.item === it.id && !b.vast && new Date(b.eind) > nu);
   d.planning = d.planning.filter(b => !vervallen.includes(b));
-  const basis = { item: it.id, type: it.type, overzicht: it.overzicht, titel: blokTitel(it), locatie: loc, vast: true, handmatig: true };
+  const basis = { item: it.id, type: it.type, overzicht: it.overzicht, titel: blokTitel(it), locatie: loc, vast: true, handmatig: true, ...(agenda ? { agenda } : {}) };
   const b = { id: uid(), ...basis, start: a.toISOString(), eind: new Date(a.getTime() + duur * MIN).toISOString() };
   if (reis) {
     const naam = locatie(loc)?.naam || "";

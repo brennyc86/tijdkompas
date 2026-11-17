@@ -84,6 +84,11 @@ export function ontsmet(n) {
   for (const a of Object.values(n.agendas || {})) if (a && a.kleur) a.kleur = veiligeKleur(a.kleur, "");
   for (const l of n.agendaLinks || []) if (l && l.kleur) l.kleur = veiligeKleur(l.kleur, "");
   n.planning = (n.planning || []).filter(b => b && veiligId(b.id));
+  for (const b of n.planning) if (b.agenda != null && (typeof b.agenda !== "string" || b.agenda.length > 400)) delete b.agenda;
+  if (n.instellingen) {
+    if (!["taak", "lijst", "vast"].includes(n.instellingen.agendaDoel)) n.instellingen.agendaDoel = "taak";
+    if (typeof n.instellingen.vasteAgenda !== "string") n.instellingen.vasteAgenda = "";
+  }
   // afwijkingen per datum (vakantie, cursus, geruilde dag…): alleen geldige datums, soorten en tijden; oud spul (> 1 jaar) valt weg
   const datum = (k) => /^\d{4}-\d{2}-\d{2}$/.test(k), grens = new Date(Date.now() - 366 * 864e5).toISOString().slice(0, 10);
   const afw = (x) => {

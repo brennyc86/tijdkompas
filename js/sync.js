@@ -66,17 +66,54 @@ export async function verversAgendas() {
   return { verlopen, fouten };
 }
 
-/** Zet ingeplande blokken in de doelagenda van hun lijst; werkt gewijzigde bij en ruimt vervallen blokken op. */
-export async function zetNaarAgendas() {
+// ---------- in welke agenda komt een ingepland blok? ----------
+// 1. wat je bij het inplannen zelf koos (b.agenda; "geen" = in geen enkele agenda)
+// 2. de standaard (Instellingen → Agenda's & accounts):
+//    taak  — de agenda van het account waar de taak in staat (Google Taken → die Google Agenda, To Do → die Outlook-agenda);
+//            staat de taak niet in een gekoppelde takenlijst, dan de agenda die bij de lijst is ingesteld
+//    lijst — de agenda die bij de lijst is ingesteld
+//    vast  — altijd dezelfde agenda
+export const AGENDA_STANDAARD = {
+  taak:  "In de agenda van het account waar de taak in staat",
+  lijst: "In de agenda die bij de lijst is ingesteld",
+  vast:  "Altijd in dezelfde agenda",
+};
+const schrijfbaar = (k) => !!k && !!d().agendas?.[k]?.schrijf;
+/** Hoofdagenda (waar je in kunt schrijven) van het account van een takenlijst, bijv. "google:jij@gmail.com|lijstId" */
+function agendaVanTakenlijst(k) {
+  const acc = String(k || "").split("|")[0]; if (!acc) return null;
+  const al = Object.entries(d().agendas || {}).filter(([key, a]) => key.startsWith(acc + "|") && a.schrijf);
+  return (al.find(([, a]) => a.primair) || al[0])?.[0] || null;
+}
+/** De standaardagenda voor een blok (zonder eigen keuze) */
+export function standaardAgenda(b) {
+  const inst = d().instellingen || {}, lijstAgenda = overzicht(b.overzicht)?.doelAgenda || null;
+  if (inst.agendaDoel === "vast") return schrijfbaar(inst.vasteAgenda) ? inst.vasteAgenda : null;
+  if (inst.agendaDoel === "lijst") return lijstAgenda;
+  const it = d().taken.find(t => t.id === b.item) || d().projecten.find(p => p.id === b.item);
+  const k = it?.ext?.bron || Object.entries(d().takenlijsten || {}).find(([, x]) => x.lijst === b.overzicht)?.[0];
+  return (k && agendaVanTakenlijst(k)) || lijstAgenda;
+}
+/** In welke agenda dit blok komt (null = in geen enkele) */
+export function doelAgendaVan(b) {
+  if (b.agenda === "geen") return null;
+  if (b.agenda && d().agendas?.[b.agenda]) return b.agenda;
+  return standaardAgenda(b);
+}
+export const agendaNaam = (k) => { const a = d().agendas?.[k]; return a ? `${a.accountSoort === "ms" ? "Outlook" : "Google"} · ${a.account || ""} · ${a.naam}` : ""; };
+
+/** Zet ingeplande blokken in hun agenda (zie doelAgendaVan); werkt gewijzigde bij en ruimt vervallen blokken op. */
+export async function zetNaarAgendas({ alleen = null } = {}) {   // alleen: Set met blok-id's (bijv. net zelf ingepland)
   const nu = new Date(), verlopen = new Map(), fouten = [];
+  const hoort = (id) => !alleen || alleen.has(id);
   let nieuw = 0, bij = 0, weg = 0;
   d().extern ||= {};
-  const doel = (b) => overzicht(b.overzicht)?.doelAgenda || null;
-  const teZetten = d().planning.filter(b => new Date(b.eind) > nu && doel(b));
+  const doel = (b) => doelAgendaVan(b);
+  const teZetten = d().planning.filter(b => new Date(b.eind) > nu && doel(b) && hoort(b.id));
   const welkom = new Set(teZetten.map(b => b.id));
 
   // 0. na opnieuw inplannen hebben blokken nieuwe id's: hergebruik het bestaande agenda-item van dezelfde taak (verschuiven i.p.v. weg + nieuw)
-  const wees = Object.entries(d().extern).filter(([id]) => !welkom.has(id));
+  const wees = alleen ? [] : Object.entries(d().extern).filter(([id]) => !welkom.has(id));
   for (const b of teZetten.filter(b => !d().extern[b.id])) {
     const i = wees.findIndex(([, x]) => x.item === b.item && x.bron === doel(b) && new Date(x.eind) > nu);
     if (i < 0) continue;
@@ -86,6 +123,7 @@ export async function zetNaarAgendas() {
   }
   // 1. vervallen of verplaatste-naar-andere-agenda blokken verwijderen
   for (const [blokId, x] of Object.entries(d().extern)) {
+    if (!hoort(blokId)) continue;
     const b = d().planning.find(p => p.id === blokId);
     if (b && welkom.has(blokId) && doel(b) === x.bron) continue;
     if (new Date(x.eind) <= nu && !b) { delete d().extern[blokId]; continue; }   // verleden: laten staan

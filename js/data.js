@@ -30,6 +30,8 @@ export function kwadrant(item) {
 const STANDAARD_INST = {
   blokMax: 90,          // langste aaneengesloten blok (min)
   blokMin: 15,          // kortste blok (min)
+  agendaDoel: "taak",   // waar ingeplande blokken standaard komen: taak | lijst | vast (zie sync.js)
+  vasteAgenda: "",
   raster: 30,           // plannen per half uur: blokken beginnen op een heel of half uur (de rest is pauze)
   buffer: 0,            // extra pauze na een afspraak/blok, bovenop het afronden (min)
   vulgraad: 70,         // max % van de beschikbare tijd per dag inplannen (ruimte voor onverwacht)

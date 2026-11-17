@@ -7,7 +7,7 @@ import { familieHaak, planAutomatisch, werkGeplandBij, doelDatum, harde, priorit
   AFWIJKING, standaardTijden, afwijkingOp, planStatus, voorstellen as planVoorstellen, botsingen, raster, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
 import { ids, verbindingen as alleVerbindingen, heeft, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, zonderDoel, koppelHaak, neemGedeeldeOver } from "./koppeling.js";
 import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroniseerAlles, naamVan, lijstWeg } from "./schijf.js";
-import { verversAgendas, zetNaarAgendas, verversLinks, linkBron } from "./sync.js";
+import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD } from "./sync.js";
 import { syncTaken, takenVerbindingen, koppelTakenlijst, takenlijstVan, takenVerbindingVan } from "./takensync.js";
 import { kiesEmoji, voorstellen } from "./emoji.js";
 import { veiligeUrl, veiligeFoto } from "./veilig.js";
@@ -669,7 +669,7 @@ function agenda() {
   }).join("");
 
   const toekomst = d().planning.filter(b => new Date(b.eind) > nu && act.includes(b.overzicht));
-  const metDoel = d().overzichten.some(o => o.doelAgenda);
+  const metDoel = d().overzichten.some(o => o.doelAgenda) || d().planning.some(b => new Date(b.eind) > nu && doelAgendaVan(b)) || Object.keys(d().extern || {}).length > 0;
   const titel = `${dagen[0].getDate()} ${MAAND[dagen[0].getMonth()]} – ${dagen[n - 1].getDate()} ${MAAND[dagen[n - 1].getMonth()]}`;
   const gekoppeld = verbindingen().length > 0;
   return `<div class="titelbalk"><h1>Agenda</h1>
@@ -995,6 +995,13 @@ function inzicht() {
 const DAGVOLGORDE = [1, 2, 3, 4, 5, 6, 0];
 const locOpties = (gekozen, leegTekst) => `<option value="">${esc(leegTekst)}</option>` +
   d().locaties.map(l => `<option value="${l.id}" ${l.id === gekozen ? "selected" : ""}>${esc(l.icoon)} ${esc(l.naam)}${l.reistijd ? ` (${l.reistijd} min reizen)` : ""}</option>`).join("");
+// Keuze voor één blok: standaard (met wat dat nu is), een agenda, of geen
+function blokAgendaOpties(gekozen, standaard) {
+  const schrijfbaar = Object.entries(d().agendas).filter(([k, a]) => a.schrijf && verbindingVanBron(k));
+  return `<option value="" ${!gekozen ? "selected" : ""}>Standaard${standaard ? " → " + esc(agendaNaam(standaard)) : " (nu: in geen agenda)"}</option>` +
+    schrijfbaar.map(([k]) => `<option value="${esc(k)}" ${k === gekozen ? "selected" : ""}>${esc(agendaNaam(k))}</option>`).join("") +
+    `<option value="geen" ${gekozen === "geen" ? "selected" : ""}>Niet in een agenda zetten</option>`;
+}
 function doelAgendaOpties(gekozen) {
   const schrijfbaar = Object.entries(d().agendas).filter(([k, a]) => a.schrijf && verbindingVanBron(k));
   return `<option value="">Niet in een agenda zetten</option>` + schrijfbaar.map(([k, a]) =>
@@ -1126,7 +1133,7 @@ function instRij(r) {
       </div>
       <label class="veld">In map${mapKeuze(o.map, new Set(), `data-veld="map"`)}</label>
       <label class="veld">Standaardlocatie<select data-veld="locatie">${locOpties(o.locatie, "Geen vaste plek")}</select></label>
-      <label class="veld">Ingeplande blokken naar agenda<select data-veld="doelAgenda">${doelAgendaOpties(o.doelAgenda)}</select></label>
+      <label class="veld" title="${esc(d().instellingen.agendaDoel === "vast" ? "Staat nu niet aan: alles gaat naar één vaste agenda (Instellingen → Agenda's & accounts)" : d().instellingen.agendaDoel === "taak" ? "Voor taken die niet in een gekoppelde takenlijst staan; taken uit Google Taken of To Do gaan naar de agenda van dat account" : "Hier komen de ingeplande blokken van deze lijst")}">Agenda van deze lijst<select data-veld="doelAgenda">${doelAgendaOpties(o.doelAgenda)}</select></label>
       ${takenVerbindingen().length ? `<label class="veld">Taken synchroniseren met<select data-tlijstvan="${o.id}">${takenlijstOpties(takenlijstVan(o.id))}</select></label>` : ""}
       ${opslagKeuze(o)}
       ${ander ? `<span class="hint" style="align-self:center">Verdeling: ${VERDELING[o.verdeling || "samen"][0]} (ingesteld door ${esc(eigenaarNaam(o))})</span>`
@@ -1266,6 +1273,8 @@ function instKoppelingen() {
   </div>
   <p class="hint">Koppelen vraagt toegang tot agenda én takenlijsten. Wil je er maar één, vink de andere dan uit in het venster van Google of Microsoft.</p>` : `<div class="leeg">Rechtstreeks koppelen met Google Agenda en Outlook komt eraan. Tot die tijd: importeer je agenda als .ics-bestand via Agenda → ⋯.</div>`}
 
+  ${kanAgenda && Object.values(d().agendas).some(a => a.schrijf) ? agendaDoelBlok() : ""}
+
   ${kanAgenda ? takenBlok(id) : ""}
 
   ${linkBlok()}
@@ -1289,6 +1298,18 @@ function instKoppelingen() {
   ${icsBronnen.length ? `<div class="paneel agendagroep"><div class="hint" style="margin-bottom:6px">Agenda's via link en .ics-bestanden</div>${icsBronnen.map(b => agendaRij([b, d().agendas[b]])).join("")}</div>` : ""}
   ${lijst.length ? `<div style="margin-top:8px"><button class="knop" data-actie="ophalen">🔄 Agenda's ophalen</button>
     <span class="hint">${d().agendaSync ? "Laatst: " + new Date(d().agendaSync).toLocaleString("nl-NL", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}</span></div>` : ""}` : ""}`;
+}
+
+// ---------- waar ingeplande blokken standaard komen ----------
+function agendaDoelBlok() {
+  const inst = d().instellingen, w = inst.agendaDoel || "taak";
+  return `<h3>Ingeplande blokken in je agenda</h3>
+  <div class="paneel" style="display:flex;flex-direction:column;gap:8px">
+    ${Object.entries(AGENDA_STANDAARD).map(([k, n]) => `<label class="schakel"><input type="radio" name="agendaDoel" value="${k}" ${w === k ? "checked" : ""}> ${n}</label>
+      ${k === "taak" ? `<span class="hint" style="margin:-4px 0 0 26px">Een taak uit Google Taken komt in de Google Agenda van dat account, een taak uit Microsoft To Do in de Outlook-agenda van dat account. Andere taken: de agenda die bij de lijst staat.</span>` : ""}
+      ${k === "vast" ? `<select name="vasteAgenda" style="margin-left:26px;max-width:calc(100% - 26px)" ${w === "vast" ? "" : "disabled"}>${doelAgendaOpties(inst.vasteAgenda || "")}</select>` : ""}`).join("")}
+    <span class="hint">Bij het zelf inplannen van een taak (📅) en bij een blok in de agenda kun je per keer een andere agenda kiezen.</span>
+  </div>`;
 }
 
 // ---------- abonneer-link (.ics) voor je werkagenda ----------
@@ -1691,8 +1712,8 @@ setInterval(() => { if (document.visibilityState !== "hidden" && takenGekoppeld(
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && takenGekoppeld() && Date.now() - new Date(d().takenSync || 0) > 30e3) doeTakenSync(true);
 });
-async function doeNaarAgenda() {
-  const r = await zetNaarAgendas();
+async function doeNaarAgenda(alleen = null) {
+  const r = await zetNaarAgendas({ alleen });
   r.verlopen.forEach(v => verlopenSessies.set(v.id, v));
   if (r.fouten.length) toast(r.fouten[0]);
   else toast(`Agenda bijgewerkt: ${r.nieuw} nieuw, ${r.bij} gewijzigd, ${r.weg} verwijderd${r.verlopen.length ? " — log opnieuw in voor de rest" : ""}`);
@@ -2090,6 +2111,8 @@ const dagKort = (x) => `${DAG[x.getDay()]} ${x.getDate()} ${MAAND[x.getMonth()]}
 function planTaak(it) {
   if (!it) return;
   let minDuur = null, aantal = 16, melding = "", aanpas = null;   // aanpas: {dag, van, tot} van een voorstel dat je bijstelt
+  let agendaKeuze = "";                                            // "" = standaard, een agenda, of "geen"
+  const kanAgenda = () => Object.entries(d().agendas || {}).some(([k, a]) => a.schrijf && verbindingVanBron(k));
   const R = raster();
   const opRaster = (m) => Math.ceil(m / R) * R;
   const teken = () => {
@@ -2120,6 +2143,7 @@ function planTaak(it) {
         <div class="rij" style="align-items:end"><label class="veld">Van${tijdIn("avan", aanpas.van)}</label><label class="veld">Tot${tijdIn("atot", aanpas.tot)}</label>
           <button type="button" class="knop prim" data-actie="aZet">Plaatsen</button><button type="button" class="knop" data-actie="aWeg">Annuleren</button></div>
         <span class="hint">Het vrije gat loopt van ${aanpas.gatVan} tot ${aanpas.gatTot}.</span></div>` : ""}
+      ${kanAgenda() ? `<label class="veld">In welke agenda<select name="pagenda">${blokAgendaOpties(agendaKeuze, standaardAgenda({ item: it.id, overzicht: it.overzicht }))}</select></label>` : ""}
       <div class="rij" style="align-items:end">
         <label class="veld" title="Alleen vrije gaten van minstens deze lengte worden voorgesteld">Gaten van minstens<input type="text" name="pmin" value="${fmtDuur(minDuur)}" style="max-width:110px"></label>
         <button type="button" class="knop klein" data-actie="pmin">Zoeken</button>
@@ -2135,7 +2159,7 @@ function planTaak(it) {
           <label class="veld">Van${tijdIn("pvan", "09:00")}</label><label class="veld">Tot${tijdIn("ptot", hhmm(9 * 60 + opRaster(Math.min(s.rest || 60, 240))))}</label>
           <button type="button" class="knop" data-actie="pzelf">Hier plaatsen</button></div></div>`}
       <p class="hint" style="margin:0">Blokken beginnen op een heel of half uur: eindigt een afspraak om kwart over, dan begin je om half (de rest is pauze). Afspraken die in je agenda op „vrij” staan tellen niet mee.
-        Wat je hier plaatst wordt 📌 vastgezet: ⚡ Automatisch inplannen laat het staan en plant alleen de rest.${ov.doelAgenda ? " Het komt in je agenda bij „📤 In mijn agenda zetten”." : ""}</p>
+        Wat je hier plaatst wordt 📌 vastgezet: ⚡ Automatisch inplannen laat het staan en plant alleen de rest; het komt meteen in de gekozen agenda.</p>
     </div>
     <div class="dvoet"><div class="rechts"><button type="button" class="knop" data-actie="popen">Open ${it.type === "project" ? "project" : "taak"}</button><button class="knop prim" value="ok">Klaar</button></div></div></form>`;
   };
@@ -2146,9 +2170,11 @@ function planTaak(it) {
     if (eind <= new Date()) { toast("Dat moment is al voorbij"); return; }
     const bots = controleer ? botsingen(it, start, eind) : [];
     if (bots.length && !confirm(`Let op:\n• ${bots.join("\n• ")}\n\nToch hier plaatsen?`)) return;
-    const r = plaatsBlok(it, start, duur);
-    melding = `✓ Ingepland: ${dagKort(start)} ${fmtTijd(start.toISOString())}–${fmtTijd(r.blok.eind)}${r.vervallen ? ` · ${r.vervallen} automatisch ingepland${r.vervallen === 1 ? " blok" : "e blokken"} van deze taak vervangen` : ""}`;
+    const r = plaatsBlok(it, start, duur, agendaKeuze || undefined);
+    const doel = doelAgendaVan(r.blok);
+    melding = `✓ Ingepland: ${dagKort(start)} ${fmtTijd(start.toISOString())}–${fmtTijd(r.blok.eind)}${doel ? " · komt in " + esc(agendaNaam(doel)) : ""}${r.vervallen ? ` · ${r.vervallen} automatisch ingepland${r.vervallen === 1 ? " blok" : "e blokken"} van deze taak vervangen` : ""}`;
     aanpas = null; minDuur = null; bewaar(); teken();
+    if (doel) doeNaarAgenda(new Set(d().planning.filter(x => x.item === it.id && new Date(x.eind) > new Date()).map(x => x.id))).catch(() => {});   // meteen in die agenda (alleen dit blok en de reistijd)
   };
   const openAanpas = (b) => {
     const a = new Date(b.dataset.zet), e = new Date(b.dataset.tot);
@@ -2176,7 +2202,7 @@ function planTaak(it) {
     else if (a === "popen") { dlg2.close(); openEditor(it); }
   };
   dlg2.onkeydown = (e) => { if (e.key === "Enter" && e.target.name === "pmin") { e.preventDefault(); $('[data-actie="pmin"]', dlg2).click(); } };
-  dlg2.onchange = null;
+  dlg2.onchange = (e) => { if (e.target.name === "pagenda") agendaKeuze = e.target.value; };
   dlg2.onclose = () => { clearTimeout(lang); for (const k of ["onkeydown", "oncontextmenu", "onpointerdown", "onpointerup", "onpointercancel", "onpointerleave", "onclose"]) dlg2[k] = null; };
   teken();
   if (!dlg2.open) dlg2.showModal();
@@ -2415,8 +2441,9 @@ function openBlok(id) {
   dlg2.innerHTML = `<form method="dialog"><div class="dkop"><span class="soort" style="color:${ovKleur(b.overzicht)}">Ingepland blok</span><button type="button" class="sluit" data-sluit aria-label="Sluiten">×</button></div>
     <div class="dlijf"><h2>${esc(b.titel)}</h2>
       <div class="hint">${DAG[new Date(b.start).getDay()]} ${new Date(b.start).getDate()} ${MAAND[new Date(b.start).getMonth()]} · ${fmtTijd(b.start)}–${fmtTijd(b.eind)}${b.locatie && locatie(b.locatie) ? " · 📍 " + esc(locatie(b.locatie).naam) : ""}</div>
-      ${d().extern?.[b.id] ? `<div class="hint">✓ Staat in je agenda (${esc(d().agendas[d().extern[b.id].bron]?.naam || "")})</div>`
-        : overzicht(b.overzicht)?.doelAgenda ? `<div class="hint">Komt in je agenda bij „📤 In mijn agenda zetten”.</div>` : ""}
+      ${d().extern?.[b.id] ? `<div class="hint">✓ Staat in je agenda (${esc(agendaNaam(d().extern[b.id].bron) || d().agendas[d().extern[b.id].bron]?.naam || "")})</div>`
+        : doelAgendaVan(b) ? `<div class="hint">Komt in ${esc(agendaNaam(doelAgendaVan(b)))} bij „📤 In mijn agenda zetten”.</div>` : ""}
+      ${b.soort !== "reis" && Object.entries(d().agendas || {}).some(([k, a]) => a.schrijf && verbindingVanBron(k)) ? `<label class="veld">In welke agenda<select id="blokAgenda">${blokAgendaOpties(b.agenda || "", standaardAgenda(b))}</select></label>` : ""}
       <div class="chips"><a class="knop" target="_blank" rel="noopener" href="${esc(googleLink(b))}">＋ Google Agenda</a>
         <a class="knop" target="_blank" rel="noopener" href="${esc(outlookLink(b, true))}">＋ Outlook (werk/school)</a>
         <a class="knop" target="_blank" rel="noopener" href="${esc(outlookLink(b, false))}">＋ Outlook.com</a></div>
@@ -2430,7 +2457,15 @@ function openBlok(id) {
     if (a === "blokItem") { dlg2.close(); openEditor(it); }
     if (a === "blokPlan") { haalBlokWeg(b); bewaar(); dlg2.onclick = null; dlg2.onchange = null; planTaak(it); }
   };
-  dlg2.onchange = (e) => { if (e.target.id === "blokVast") { b.vast = e.target.checked; bewaar(); } };
+  dlg2.onchange = (e) => {
+    if (e.target.id === "blokVast") { b.vast = e.target.checked; bewaar(); }
+    if (e.target.id === "blokAgenda") {
+      if (e.target.value) b.agenda = e.target.value; else delete b.agenda;
+      b.vast = true; bewaar();                                    // eigen keuze: blok vastzetten zodat het niet vervalt
+      const box = $("#blokVast", dlg2); if (box) box.checked = true;
+      doeNaarAgenda(new Set([b.id])).catch(() => {});             // verplaatsen naar de nieuwe agenda (of eruit halen)
+    }
+  };
   dlg2.onclose = null;
   dlg2.showModal();
 }
@@ -2777,6 +2812,9 @@ function hoofdWijzig(e) {
     if (veld === "map") { const oud = o.map; o.map = waarde; verhuisd(o, waarde, oud); bewaar(); return; }
     o[veld] = waarde;
     bewaar(); return;
+  }
+  if (e.target.name === "agendaDoel" || e.target.name === "vasteAgenda") {
+    d().instellingen[e.target.name] = e.target.value; bewaar(); render(); return;
   }
   if (e.target.name === "wie") { voorkeur.zet("wie", e.target.value); render(); return; }
   if (e.target.name === "koersPeriode") { voorkeur.zet("koersPeriode", e.target.value); render(); return; }
