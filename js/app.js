@@ -4,7 +4,7 @@ import { opslag, bewaar, KWADRANTEN, kwadrant, overzicht, project, taak, takenVa
          map, submappen, lijstenIn, lijstenOnder, mappenOnder, mapPad, boom, lijstVolgorde, idsVan,
          afspraak, koersVan, binnenDoel, koersScore, koersSuggesties, koppelKoers, mijnId, isIk, personen, naamVanPersoon, isMijn, isTeam, wie, wachtNogOp, wachtenOp, maaktKring, anderen as andereLeden } from "./data.js";
 import { familieHaak, planAutomatisch, werkGeplandBij, doelDatum, harde, prioriteit, googleLink, outlookLink, maakIcs, leesIcs, dagStr, dagIndeling, eventSoort, SOORTEN,
-  AFWIJKING, regelVoor, afspraakSleutel, standaardTijden, afwijkingOp, afwijkingDatums, zetAfwijking, dagTijden, tijdenZonder, tijdenMet, effLijst, rolBotsingen, planStatus, grootsteGat, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, volgendeMomenten, plaatsVanaf, vrijkomend, vrijeTijd, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
+  AFWIJKING, regelVoor, rolKeuze, afspraakSleutel, standaardTijden, afwijkingOp, afwijkingDatums, zetAfwijking, dagTijden, tijdenZonder, tijdenMet, effLijst, rolBotsingen, planStatus, grootsteGat, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, volgendeMomenten, plaatsVanaf, vrijkomend, vrijeTijd, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
 import { ids, verbindingen as alleVerbindingen, heeft, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, zonderDoel, koppelHaak, neemGedeeldeOver } from "./koppeling.js";
 import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroniseerAlles, naamVan, lijstWeg } from "./schijf.js";
 import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD, eigenAgenda, viaEigenaar, vingerafdruk } from "./sync.js";
@@ -2496,15 +2496,24 @@ function vrijeTijdVenster(it, v, na) {
 }
 
 // ---------- een afspraak uit je agenda: altijd, alleen op werkdagen, of deze keer niet ----------
-function afspraakRegel(ev, soort, lijst) {
+function afspraakRegel(ev, soort, lijst, alles = false) {
   if (soort === "verberg") { d().verborgen = { ...(d().verborgen || {}), [afspraakSleutel(ev)]: new Date().toISOString() }; return; }
   if (soort === "werkdag") {
     d().afspraakRegels = [...(d().afspraakRegels || []).filter(r => !(r.bron === ev.bron && r.titel.trim().toLowerCase() === String(ev.titel || "").trim().toLowerCase())),
       { id: uid(), bron: ev.bron, titel: String(ev.titel || "").slice(0, 200), lijst, soort: "werkdag" }];
   }
+  // bij welke rol hoort hij: alleen deze keer, of alle afspraken met die naam uit die agenda
+  if (soort === "werk" || soort === "prive") {
+    if (alles) {
+      const t = String(ev.titel || "").trim().toLowerCase();
+      d().afspraakRegels = [...(d().afspraakRegels || []).filter(r => !(r.bron === ev.bron && r.lijst === lijst && r.soort !== "werkdag" && r.titel.trim().toLowerCase() === t)),
+        { id: uid(), bron: ev.bron, titel: String(ev.titel || "").slice(0, 200), lijst, soort: soort === "werk" ? "rolwerk" : "rolprive" }];
+    } else d().rolKeuzes = { ...(d().rolKeuzes || {}), [afspraakSleutel(ev)]: { rol: soort, lijst } };
+    return;
+  }
   if (soort === "altijd") {
     const t = String(ev.titel || "").trim().toLowerCase();
-    d().afspraakRegels = (d().afspraakRegels || []).filter(r => !(r.bron === ev.bron && r.titel.trim().toLowerCase() === t));
+    d().afspraakRegels = (d().afspraakRegels || []).filter(r => !(r.bron === ev.bron && r.soort === "werkdag" && r.titel.trim().toLowerCase() === t));
   }
 }
 function afspraakVenster(ev) {
@@ -2521,6 +2530,10 @@ function afspraakVenster(ev) {
       <div class="keuzes">
         ${vast.length ? `<button type="button" class="keuzeknop" data-akeuze="werkdag"><b>🗓 Alleen meetellen op werkdagen</b><small>Geldt voor alle „${esc(titel)}” uit deze agenda. Op dagen zonder werk staan ze er niet en zitten ze niet in de weg.</small></button>
         ${vast.length > 1 ? `<label class="veld" style="margin-left:10px">Werkdagen van<select name="alijst">${vast.map(o => `<option value="${o.id}" ${o.id === standaardLijst ? "selected" : ""}>${esc(o.icoon)} ${esc(o.naam)}</option>`).join("")}</select></label>` : ""}` : `<div class="hint">„Alleen op werkdagen” kan zodra je een lijst met vaste tijden hebt (zoals Werk).</div>`}
+        ${vast.length ? (() => { const huidig = rolKeuze(ev, standaardLijst), naam = overzicht(standaardLijst)?.naam || "werk";
+          return `<div class="rij" style="gap:6px"><button type="button" class="keuzeknop" style="flex:1" data-akeuze="werk" aria-pressed="${huidig === "werk"}"><b>💼 Hoort bij ${esc(naam)}</b><small>Telt als werktijd</small></button>
+          <button type="button" class="keuzeknop" style="flex:1" data-akeuze="prive" aria-pressed="${huidig === "prive"}"><b>🏠 Is privé</b><small>Telt als eigen tijd</small></button></div>
+          <label class="schakel" style="margin:-2px 0 4px 10px"><input type="checkbox" id="arolAlles"> Voor alle „${esc(titel)}” uit deze agenda</label>`; })() : ""}
         <button type="button" class="keuzeknop" data-akeuze="verberg"><b>🙈 Deze keer niet meetellen</b><small>Alleen deze afspraak; hij verdwijnt hier en er mag doorheen gepland worden.</small></button>
         ${r ? `<button type="button" class="keuzeknop" data-akeuze="altijd"><b>↩ Weer altijd meetellen</b><small>De regel voor „${esc(r.titel)}” vervalt.</small></button>` : ""}
       </div>
@@ -2530,19 +2543,19 @@ function afspraakVenster(ev) {
     const k = e.target.closest("[data-akeuze]")?.dataset.akeuze; if (!k) return;
     if (k === "altijd" && r && !(d().afspraakRegels || []).some(x => x.bron === r.bron && x.titel === r.titel)) { toast("Deze regel is gezet in je andere inlog; haal hem daar weg"); return; }
     const lijst = $("[name=alijst]", dlg2)?.value || standaardLijst;
-    afspraakRegel(ev, k, lijst); bewaar(); dlg2.close();
-    toast(k === "werkdag" ? `„${titel}” telt voortaan alleen op werkdagen` : k === "verberg" ? "Deze afspraak telt niet meer mee" : `„${titel}” telt weer altijd`);
+    afspraakRegel(ev, k, lijst, !!$("#arolAlles", dlg2)?.checked); bewaar(); dlg2.close();
+    toast(k === "werk" || k === "prive" ? `„${titel}” telt als ${k === "werk" ? "werk" : "privé"}` : k === "werkdag" ? `„${titel}” telt voortaan alleen op werkdagen` : k === "verberg" ? "Deze afspraak telt niet meer mee" : `„${titel}” telt weer altijd`);
   };
   dlg2.onchange = null; dlg2.onclose = () => { dlg2.onclick = null; dlg2.onclose = null; };
   if (!dlg2.open) dlg2.showModal();
 }
 function regelsBlok() {
-  const regels = d().afspraakRegels || [], n = Object.keys(d().verborgen || {}).length;
+  const regels = d().afspraakRegels || [], n = Object.keys(d().verborgen || {}).length + Object.keys(d().rolKeuzes || {}).length;
   if (!regels.length && !n) return "";
   return `<h3>Afspraken die niet altijd meetellen</h3>
-  <div class="lijst">${regels.map(r => `<div class="linkrij"><span>🗓</span><span>„${esc(r.titel)}” <span class="hint">· ${esc(d().agendas?.[r.bron]?.naam || "agenda van je andere inlog")} · alleen op werkdagen van ${esc(overzicht(r.lijst)?.naam || "?")}</span></span>
+  <div class="lijst">${regels.map(r => `<div class="linkrij"><span>${r.soort === "rolwerk" ? "💼" : r.soort === "rolprive" ? "🏠" : "🗓"}</span><span>„${esc(r.titel)}” <span class="hint">· ${esc(d().agendas?.[r.bron]?.naam || "agenda van je andere inlog")} · ${r.soort === "rolwerk" ? "telt als " + esc(overzicht(r.lijst)?.naam || "werk") : r.soort === "rolprive" ? "telt als privé (niet " + esc(overzicht(r.lijst)?.naam || "werk") + ")" : "alleen op werkdagen van " + esc(overzicht(r.lijst)?.naam || "?")}</span></span>
     <button type="button" class="x" data-regelweg="${esc(r.id)}" title="Weer altijd meetellen">✕</button></div>`).join("")}
-  ${n ? `<div class="linkrij"><span>🙈</span><span>${n} losse ${n === 1 ? "afspraak" : "afspraken"} niet meegeteld</span><button type="button" class="knop klein" data-actie="verborgenWeg">Weer meetellen</button></div>` : ""}</div>`;
+  ${n ? `<div class="linkrij"><span>🙈</span><span>${n} losse ${n === 1 ? "afspraak" : "afspraken"} niet meegeteld of zelf als werk/privé aangeduid</span><button type="button" class="knop klein" data-actie="verborgenWeg">Weer meetellen</button></div>` : ""}</div>`;
 }
 
 // ---------- werk en privé door elkaar: melden en zelf kiezen ----------
@@ -2591,6 +2604,8 @@ function botsingVenster(c) {
         <button type="button" class="keuzeknop" data-keuze="ruilen"><b>🔀 De hele dag ruilen</b><small>Die dag vrij, en op een andere dag (hieronder) de werktijden van die dag.</small></button>`
         : `<button type="button" class="keuzeknop" data-keuze="compenseren"><b>⏱ Elders minder werken</b><small>De ${fmtDuur(c.min)} gaan op een ander moment (hieronder) van je werktijd af.</small></button>
         <button type="button" class="keuzeknop" data-keuze="dagvrij"><b>🔀 Een hele werkdag vrij in ruil</b><small>Kies hieronder welke dag.</small></button>`}
+        <button type="button" class="keuzeknop" data-keuze="${prive ? "rolwerk" : "rolprive"}"><b>${prive ? "💼 Dit is eigenlijk een werkafspraak" : "🏠 Dit is eigenlijk een privé-afspraak"}</b><small>${prive ? "Staat in je privé-agenda, maar hoort bij werk: dan valt hij gewoon in je werktijd." : `Staat in je ${esc(o.naam.toLowerCase())}-agenda, maar is privé: dan telt hij als privé-tijd.`}</small></button>
+        <label class="schakel" style="margin:-2px 0 4px 10px"><input type="checkbox" id="rolAlles"> Voor alle „${esc(titel)}” uit deze agenda</label>
         <button type="button" class="keuzeknop" data-keuze="laten"><b>✓ Zo laten — de werktijd van die dag eromheen leggen</b><small>${prive ? "Je werktijd die dag wordt zonder deze afspraak" : "Je werktijd die dag rekt op tot alle werkafspraken erin vallen"}, zonder iets elders te compenseren. Alle botsingen van die dag gaan zo mee, zodat duidelijk is wat werk en wat privé is.</small></button>
         ${prive ? "" : `<button type="button" class="keuzeknop" data-keuze="werkdag"><b>🗓 „${esc(titel)}” telt alleen op werkdagen</b><small>Bijv. een lunch-reservering: op dagen zonder werk staat hij er niet en zit hij niet in de weg (alle „${esc(titel)}” uit deze agenda).</small></button>`}
         <button type="button" class="keuzeknop" data-keuze="verberg"><b>🙈 Deze afspraak niet meetellen</b><small>Alleen deze keer; hij staat er dan niet meer en er wordt doorheen gepland.</small></button>
@@ -2615,6 +2630,14 @@ function botsingVenster(c) {
     if (nodigAnder && dag2 === c.ds) { toast("Kies een andere dag dan die van de afspraak"); return; }
     const bij = [c.sleutel], kort = `${titel} (${fmtDatum(c.ds)})`;
     const zet = (ds, tijden, reden) => zetAfwijking(o, ds, tijden.length ? { soort: "anders", tijden, reden, bij } : { soort: "vrij", tijden: [], reden, bij });
+    if (keuze === "rolwerk" || keuze === "rolprive") {
+      const alles = !!$("#rolAlles", dlg2)?.checked;
+      afspraakRegel(c.ev, keuze === "rolwerk" ? "werk" : "prive", o.id, alles); bewaar(); dlg2.close();
+      const nog = rolBotsingen().find(x => x.ev.start === c.ev.start && x.ev.titel === c.ev.titel && x.lijst === c.lijst);
+      toast(`„${titel}” telt${alles ? " voortaan" : ""} als ${keuze === "rolwerk" ? "werk" : "privé"}${nog ? ` — en valt nu ${nog.soort === "prive" ? "in je werktijd" : "buiten je werktijd"}: kies hoe` : ""}`,
+        nog ? { label: "Kiezen…", f: () => botsingVenster(nog) } : undefined);
+      return;
+    }
     if (keuze === "werkdag" || keuze === "verberg") { afspraakRegel(c.ev, keuze, o.id); bewaar(); dlg2.close(); toast(keuze === "werkdag" ? `„${titel}” telt voortaan alleen op werkdagen` : "Deze afspraak telt niet meer mee"); return; }
     if (keuze === "laten") {
       // de grens tussen werk en privé die dag precies leggen: werkafspraken erbinnen, privé-afspraken erbuiten
@@ -3027,7 +3050,7 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
     else if (a?.startsWith("feed")) feedActie(a, el);
     else if (a === "herplanAlles") { const r = planAutomatisch(actieveOverzichten()); laatsteWaarschuwingen = r.waarschuwingen; bewaar(); toast(`${r.blokken} blokken ingepland`); }
     else if (a === "herplanWis") { zetHerplan([]); render(); }
-    else if (a === "verborgenWeg") { d().verborgen = {}; bewaar(); toast("Alles telt weer mee"); }
+    else if (a === "verborgenWeg") { d().verborgen = {}; d().rolKeuzes = {}; bewaar(); toast("Alles telt weer zoals de agenda zegt"); }
     else if (a === "famToggle" && w) { const l = famUit(); voorkeur.zet("famUit", l.includes(w) ? l.filter(x => x !== w) : [...l, w]); render(); }
     else if (a === "botsing") { const c = laatsteBotsingen[+w]; if (c) botsingVenster(c); }
     else if (a === "werkweek") openWeek(w || "");

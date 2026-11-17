@@ -68,9 +68,17 @@ export const eventSoort = (ev) => telt(ev) ? (opslag.d.agendas[ev.bron]?.soort |
 const normT = (s) => String(s || "").trim().toLowerCase();
 export const afspraakSleutel = (ev) => `${ev.bron}|${ev.start}|${hashT(ev.titel)}`;
 const hashT = (s) => { let h = 5381; for (const c of String(s ?? "")) h = (h * 33 + c.codePointAt(0)) >>> 0; return h.toString(36); };
-export function regelVoor(ev) {
+export function regelVoor(ev, soorten = ["werkdag"], lijst = null) {
   const f = familieHaak.regels();
-  return [...(opslag.d.afspraakRegels || []), ...f.regels].find(r => r.bron === ev.bron && normT(r.titel) === normT(ev.titel)) || null;
+  return [...(opslag.d.afspraakRegels || []), ...f.regels].find(r => soorten.includes(r.soort) && (!lijst || r.lijst === lijst)
+    && r.bron === ev.bron && normT(r.titel) === normT(ev.titel)) || null;
+}
+/** Zelf aangegeven bij welke rol een afspraak hoort (voor de lijst `lijst`): "werk", "prive" of null (dan gewoon: account/agenda) */
+export function rolKeuze(ev, lijst) {
+  const k = afspraakSleutel(ev), los = opslag.d.rolKeuzes?.[k] || familieHaak.regels().rolKeuzes?.[k];
+  if (los && los.lijst === lijst) return los.rol;
+  const r = regelVoor(ev, ["rolwerk", "rolprive"], lijst);
+  return r ? (r.soort === "rolwerk" ? "werk" : "prive") : null;
 }
 export function telt(ev) {
   const d = opslag.d, f = familieHaak.regels(), k = afspraakSleutel(ev);
@@ -193,8 +201,9 @@ export function rolBotsingen({ dagen = 28 } = {}) {
   for (const o of d.overzichten.filter(o => !o.slot && effLijst(o).modus === "vast")) {
     const eigenaar = o.eigenaar || sessie.ik;
     const gekoppeld = Object.entries(d.agendas || {}).filter(([, a]) => a.lijst === o.id).map(([k]) => k);
-    if (!metFamilie && !gekoppeld.length) continue;               // niet te zeggen welke afspraak bij welke rol hoort
-    const vanRol = (ev) => gekoppeld.includes(ev.bron) || (metFamilie && ev.uid === eigenaar);
+    const zelfGezegd = Object.values(d.rolKeuzes || {}).some(v => v.lijst === o.id) || (d.afspraakRegels || []).some(r => r.lijst === o.id && r.soort !== "werkdag");
+    if (!metFamilie && !gekoppeld.length && !zelfGezegd) continue;   // niet te zeggen welke afspraak bij welke rol hoort
+    const vanRol = (ev) => { const k = rolKeuze(ev, o.id); return k ? k === "werk" : gekoppeld.includes(ev.bron) || (metFamilie && ev.uid === eigenaar); };
     const bronnen = afwBronnen(o), opgelost = new Set(bronnen.flatMap(m => Object.values(m || {}).flatMap(x => x?.bij || [])));
     const gelaten = new Set([o.genegeerd || {}, ...familieHaak.instAlle(o.id).map(x => veiligGenegeerd(x?.genegeerd))].flatMap(m => Object.keys(m)));
     for (const ev of evs) {
