@@ -4,7 +4,7 @@ import { opslag, bewaar, KWADRANTEN, kwadrant, overzicht, project, taak, takenVa
          map, submappen, lijstenIn, lijstenOnder, mappenOnder, mapPad, boom, lijstVolgorde, idsVan,
          afspraak, koersVan, binnenDoel, koersScore, koersSuggesties, koppelKoers, mijnId, isIk, personen, naamVanPersoon, isMijn, isTeam, wie, wachtNogOp, wachtenOp, maaktKring, anderen as andereLeden } from "./data.js";
 import { familieHaak, planAutomatisch, werkGeplandBij, doelDatum, harde, prioriteit, googleLink, outlookLink, maakIcs, leesIcs, dagStr, dagIndeling, eventSoort, SOORTEN,
-  AFWIJKING, maakRuimte, magWijkenVoor, plaatsMetWijken, telt, isHerinnering, buitenBeschikbaarheid, regelVoor, rolKeuze, afspraakSleutel, standaardTijden, afwijkingOp, afwijkingDatums, zetAfwijking, dagTijden, tijdenZonder, tijdenMet, effLijst, rolBotsingen, planStatus, grootsteGat, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, volgendeMomenten, plaatsVanaf, vrijkomend, vrijeTijd, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
+  AFWIJKING, maakRuimte, magWijkenVoor, plaatsMetWijken, telt, isHerinnering, buitenBeschikbaarheid, regelVoor, rolKeuze, afspraakSleutel, standaardTijden, afwijkingOp, afwijkingDatums, zetAfwijking, dagTijden, tijdenZonder, tijdenMet, effLijst, rolBotsingen, planStatus, grootsteGat, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, plaatsVanaf, vrijkomend, vrijeTijd, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
 import { ids, verbindingen as alleVerbindingen, heeft, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, zonderDoel, koppelHaak, neemGedeeldeOver } from "./koppeling.js";
 import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroniseerAlles, naamVan, lijstWeg } from "./schijf.js";
 import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD, eigenAgenda, viaEigenaar, vingerafdruk, kanVerplaatsen, verplaatsAgendaAfspraak } from "./sync.js";
@@ -1295,8 +1295,8 @@ function instLocaties() {
   <div style="margin-top:12px">
     <label class="veld">Komt er iets in <b>Doen</b>?<select name="doenModus">
       <option value="vragen" ${inst.doenModus === "vragen" || !inst.doenModus ? "selected" : ""}>Vragen wat ik wil (met voorstel)</option>
-      <option value="weg" ${inst.doenModus === "weg" ? "selected" : ""}>Meteen inplannen; wat in de weg zit gaat eruit (en komt op de lijst om opnieuw in te plannen)</option>
-      <option value="schuif" ${inst.doenModus === "schuif" ? "selected" : ""}>Meteen inplannen; alles erna schuift op</option>
+      <option value="weg" ${inst.doenModus === "weg" ? "selected" : ""}>Meteen vooraan inplannen; wat in de weg zit gaat eruit (en komt op de lijst om opnieuw in te plannen)</option>
+      <option value="schuif" ${inst.doenModus === "schuif" ? "selected" : ""}>Meteen vooraan inplannen tot hij genoeg tijd heeft; de rest schuift door</option>
     </select></label>
   </div></div>`;
 }
@@ -2452,58 +2452,62 @@ function naDoen(it, wasDoen) {
   if (it.type === "project" && d().taken.some(t => t.project === it.id && t.status !== "klaar")) return;
   if (planStatus(it).soort === "ja") {
     const k = metVoorrang(it, { modus: "kijk" });
-    if (!k.gevonden || new Date(planStatus(it).van) <= k.a) return;   // staat al zo vroeg als kan
+    if (!k.gevonden || !k.eerder) return;   // staat al zo vroeg als kan
   }
   const m = d().instellingen.doenModus || "vragen";
   if (m === "vragen") setTimeout(() => doenVenster(it), 0);
   else voerVoorrangUit(it, m, false);
 }
+const blokMoment = (b) => `${fmtDatum(dagStr(new Date(b.start)))} ${fmtTijd(b.start)}–${fmtTijd(b.eind)}`;
+const voorrangMoment = (r) => r.blokken.length === 1 ? blokMoment(r.blokken[0]) : `in ${r.blokken.length} blokken, vanaf ${fmtDatum(dagStr(r.a))} ${fmtTijd(r.a.toISOString())}`;
+const aantalTaken = (n) => `${n} ${n === 1 ? "taak" : "taken"}`;
 function voerVoorrangUit(it, modus, hierAl) {
-  const oudeIds = new Set(d().planning.map(b => b.id));
+  const voor = d().planning.map(b => ({ ...b })), herplanVoor = herplanIds();
   const r = metVoorrang(it, { modus, hierAl });
-  if (!r.gevonden) { toast(`Geen plek gevonden voor „${it.titel}” in de komende 4 weken`); return; }
-  const weg = [...new Set(r.weg.map(b => b.item).filter(Boolean))];
-  if (weg.length) zetHerplan([...herplanIds(), ...weg]);
+  if (!r.gevonden) { toast(r.alGenoeg ? `„${it.titel}” heeft al genoeg tijd ingepland` : `Geen plek gevonden voor „${it.titel}” in de komende 4 weken`); return; }
+  const terugLijst = [...new Set([...r.weg, ...r.niet].map(b => b.item).filter(Boolean))];
+  if (terugLijst.length) zetHerplan([...herplanIds(), ...terugLijst]);
   bewaar();
-  const moment = `${fmtDatum(dagStr(r.a))} ${fmtTijd(r.a.toISOString())}`;
-  if (r.over.length) {
-    // wat niet meer in dit werkmoment past: meteen in de eerstvolgende vrije gaten (in dezelfde volgorde)
-    const over = r.over, niet = plaatsVanaf(over, new Date(r.blok.eind));
-    if (niet.length) zetHerplan([...herplanIds(), ...niet.map(e => e.blok.item).filter(Boolean)]);
-    bewaar();
-    const gezet = over.filter(e => !niet.includes(e)), eerste = gezet[0]?.blok;
-    toast(`⚡ „${it.titel}” staat ${moment} — ${gezet.length} ${gezet.length === 1 ? "taak" : "taken"} doorgeschoven naar de volgende vrije plek${eerste ? ` (vanaf ${fmtDatum(dagStr(new Date(eerste.start)))} ${fmtTijd(eerste.start)})` : ""}${niet.length ? `, ${niet.length} nergens gepast (bij „Opnieuw in te plannen”)` : ""}`,
-      gezet.length ? { label: "Zelf kiezen…", f: () => {
-        const delen = new Set(gezet.flatMap(e => [e.blok, e.heen, e.terug].filter(Boolean)));
-        d().planning = d().planning.filter(b => !delen.has(b));
-        overVenster(it, gezet);
-      } } : undefined);
-    agendaBij([r.blok?.id, ...over.flatMap(e => [e.blok, e.heen, e.terug].filter(Boolean).map(b => b.id)), ...r.verschoven.map(b => b.id)]);
-    return;
-  }
-  toast(`⚡ „${it.titel}” staat ${moment}${weg.length ? ` — ${weg.length} ${weg.length === 1 ? "taak" : "taken"} eruit gehaald, staan bij „Opnieuw in te plannen”` : r.verschoven.length ? ` — ${r.verschoven.length} opgeschoven` : ""}${r.rest ? ` · nog ${fmtDuur(r.rest)} later` : ""}`);
-  agendaBij([r.blok?.id, ...r.weg.map(b => b.id), ...r.verschoven.map(b => b.id), ...[...oudeIds].filter(id => !d().planning.some(b => b.id === id))]);
+  const delen = [`⚡ „${it.titel}” staat ${voorrangMoment(r)}`];
+  if (r.verschoven.length) delen.push(`${aantalTaken(new Set(r.verschoven.map(v => v.blok.item)).size)} doorgeschoven`);
+  if (r.weg.length) delen.push(`${aantalTaken(r.weg.length)} eruit gehaald (bij „Opnieuw in te plannen”)`);
+  if (r.niet.length) delen.push(`${aantalTaken(r.niet.length)} paste${r.niet.length === 1 ? "" : "n"} nergens meer (bij „Opnieuw in te plannen”)`);
+  if (r.rest) delen.push(`nog ${fmtDuur(r.rest)} tekort in de komende 4 weken`);
+  if (r.probleem.length) delen.push(`⚠️ ${r.probleem.map(p => `„${p.item.titel}”`).join(", ")} haalt de deadline niet meer`);
+  toast(delen.join(" — "), { label: "Ongedaan maken", f: () => {
+    d().planning = voor; werkGeplandBij(d().overzichten.map(o => o.id)); zetHerplan(herplanVoor); bewaar(); agendaBij(r.gewijzigd); toast("Teruggezet zoals het was");
+  } });
+  agendaBij(r.gewijzigd);
 }
 function doenVenster(it, hierAl = false) {
   const k = metVoorrang(it, { modus: "kijk", hierAl });
   const p = plekVan(it), l = locatie(p.eigenLoc || p.loc);
   const plekGebonden = !!l && l.id !== "thuis" && (p.reis > 0 || (p.ov?.modus === "vast" && p.eigenLoc));
   const vandaag = vandaagStr();
+  const perTaak = new Map();
+  for (const v of k.verschoven || []) { const x = perTaak.get(v.blok.item); if (!x) perTaak.set(v.blok.item, { ...v }); }
   dlg2.innerHTML = `<form method="dialog"><div class="dkop"><span class="soort" style="color:var(--q-doen)">⚡ Doen — zo snel mogelijk</span><button type="button" class="sluit" data-sluit aria-label="Sluiten">×</button></div>
     <div class="dlijf">
       <h2 style="margin:0">${esc(it.titel)}</h2>
-      ${k.gevonden ? `<div class="planstand">Eerste moment: <b>${fmtDatum(dagStr(k.a))} ${fmtTijd(k.a.toISOString())}–${fmtTijd(k.b.toISOString())}</b>${hierAl ? ` · je bent er al (geen reistijd)` : l && l.id !== "thuis" ? ` · 📍 ${esc(l.naam)}` : ""}${k.rest ? ` · daarna nog ${fmtDuur(k.rest)} later in te plannen` : ""}</div>`
+      ${k.gevonden ? `<div class="planstand">Komt vooraan: <b>${fmtDuur(k.duur)}</b>${hierAl ? ` · je bent er al (geen reistijd)` : l && l.id !== "thuis" ? ` · 📍 ${esc(l.naam)}` : ""}
+          <div class="lijst" style="margin-top:6px">${k.blokken.map(b => `<div class="linkrij"><span>⚡</span><span>${blokMoment(b)}</span><span class="hint">${fmtDuur(minutenTussen(b))}</span></div>`).join("")}</div>
+          ${k.rest ? `<div class="hint">⚠️ Nog ${fmtDuur(k.rest)} tekort: daar is in de komende ${hierAl ? "uren" : "4 weken"} geen werktijd meer voor.</div>` : ""}
+          ${k.eigenDeadline ? `<div class="hint">⚠️ Dat is niet op tijd voor de deadline (${fmtDatum(k.eigenDeadline)}).</div>` : ""}</div>`
+        : k.alGenoeg ? `<div class="leeg" style="padding:14px">Er staat al genoeg tijd voor ingepland.</div>`
         : `<div class="leeg" style="padding:14px">Geen plek gevonden in de komende 4 weken${plekGebonden ? ` op ${esc(l.naam)}` : ""}.</div>`}
       ${plekGebonden && !hierAl && (!k.gevonden || dagStr(k.a) !== vandaag) ? `<div class="hint">📍 Deze taak moet op ${esc(l.naam)}${k.gevonden ? `; daar ben je pas weer ${fmtDatum(dagStr(k.a))}` : ""}.</div>
         <div><button type="button" class="knop" data-actie="hierAl">📍 Ik ben vandaag (toch) op ${esc(l.naam)}</button></div>` : ""}
-      ${k.gevonden && k.inDeWeg.length ? `<div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">Hiervoor moet wijken</div><div class="lijst">${k.inDeWeg.map(b =>
-        `<div class="linkrij"><span>${b.soort === "uitloop" ? "⏳" : "○"}</span><span>${esc(b.titel)}</span><span class="hint">${fmtTijd(b.start)}–${fmtTijd(b.eind)}</span></div>`).join("")}</div></div>` : k.gevonden ? `<div class="hint">Er hoeft niets te wijken.</div>` : ""}
+      ${k.gevonden && perTaak.size ? `<div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">Schuift door naar achteren (in dezelfde volgorde)</div><div class="lijst">${[...perTaak.values()].map(v =>
+        `<div class="linkrij"><span>⏩</span><span>${esc(v.blok.titel)}</span><span class="hint">${fmtDatum(dagStr(new Date(v.van)))} ${fmtTijd(v.van)} → ${fmtDatum(dagStr(new Date(v.naar)))} ${fmtTijd(v.naar)}${v.stukken > 1 ? ` (in ${v.stukken} stukken)` : ""}</span></div>`).join("")}</div></div>`
+        : k.gevonden ? `<div class="hint">Er hoeft niets te wijken.</div>` : ""}
+      ${k.gevonden && k.niet?.length ? `<div class="hint">Past daarna nergens meer (komt bij „Opnieuw in te plannen”): ${k.niet.map(b => `„${esc(b.titel)}”`).join(", ")}</div>` : ""}
+      ${k.gevonden && k.probleem?.length ? `<div class="deadlinekeuze"><b>⚠️ Let op: dit gaat ten koste van een deadline</b>${k.probleem.map(x => `<div>„${esc(x.item.titel)}” (deadline ${fmtDatum(x.deadline)}) ${x.tot ? `is dan pas ${fmtDatum(x.tot)} klaar` : "past dan niet meer"}</div>`).join("")}</div>` : ""}
       <label class="schakel"><input type="checkbox" id="doenOnthoud"> Voortaan niet meer vragen, maar meteen zo doen</label>
     </div>
     <div class="dvoet"><button type="button" class="knop" data-actie="nietNu">Niet nu</button>
       <div class="rechts"><button type="button" class="knop" data-actie="zelf">📅 Zelf kiezen</button>
-        ${k.gevonden ? `<button type="button" class="knop" data-actie="schuif" title="Wat in de weg zit en wat erna komt schuift op; wat niet meer past kies je zelf een volgend moment voor">⏩ Alles opschuiven</button>
-        <button type="button" class="knop prim" data-actie="weg" title="Wat in de weg zit gaat eruit en komt op de lijst om opnieuw in te plannen">⚡ ${k.inDeWeg.length ? "Anderen eruit, dit erin" : "Inplannen"}</button>` : ""}</div></div></form>`;
+        ${k.gevonden ? `${k.inDeWeg.length ? `<button type="button" class="knop" data-actie="weg" title="Wat in de weg zit gaat eruit en komt op de lijst om opnieuw in te plannen">Anderen eruit</button>` : ""}
+        <button type="button" class="knop prim" data-actie="schuif" title="Deze taak vooraan; wat er stond schuift in dezelfde volgorde door naar de volgende lege werktijd">⚡ ${perTaak.size ? "Vooraan, rest schuift door" : "Inplannen"}</button>` : ""}</div></div></form>`;
   dlg2.onclick = (e) => {
     const a = e.target.closest("button")?.dataset.actie; if (!a) return;
     if (a === "hierAl") { doenVenster(it, true); return; }
@@ -2517,50 +2521,7 @@ function doenVenster(it, hierAl = false) {
   dlg2.onchange = null; dlg2.onclose = () => { dlg2.onclick = null; dlg2.onclose = null; };
   if (!dlg2.open) dlg2.showModal();
 }
-// Opgeschoven werk dat niet meer in dit werkmoment past: jij wijst het volgende moment aan
-function overVenster(it, over) {
-  const eerste = over[0], eItem = taak(eerste.blok.item) || project(eerste.blok.item);
-  const totaal = over.reduce((s, e) => s + e.duur, 0);
-  const vanaf = new Date(Math.max(Date.now(), new Date(d().planning.find(b => b.item === it.id && b.soort !== "reis")?.eind || Date.now())));
-  const ms = eItem ? volgendeMomenten(eItem, new Date(vanaf.getTime() + 60000), Math.min(eerste.duur, 60), 8) : [];
-  const morgen = new Date(Date.now() + 864e5);
-  dlg2.innerHTML = `<form method="dialog"><div class="dkop"><span class="soort">⏩ Opgeschoven — waar moet de rest heen?</span></div>
-    <div class="dlijf">
-      <p class="hint" style="margin:0">„${esc(it.titel)}” staat erin; alles erna is opgeschoven. Dit past niet meer in dat werkmoment (${fmtDuur(totaal)}). Kies waar het heen gaat:</p>
-      <div class="lijst">${over.map(e => `<div class="linkrij"><span>○</span><span>${esc(e.blok.titel)}</span><span class="hint">${fmtDuur(e.duur)}</span></div>`).join("")}</div>
-      <div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">Kies het volgende werkmoment — daar komen ze achter elkaar</div>
-        ${ms.length ? `<div class="voorstellen">${ms.map(v => `<button type="button" class="voorstel" data-vanaf="${v.a.toISOString()}">${fmtDatum(v.dag)}<small>vanaf ${fmtTijd(v.a.toISOString())} · ${fmtDuur(v.duur)} vrij</small></button>`).join("")}</div>` : `<div class="hint">Geen vrije momenten gevonden.</div>`}</div>
-      <div class="rij" style="align-items:end"><label class="veld">Of zelf: dag<input type="date" name="odag" value="${dagStr(morgen)}"></label><label class="veld">vanaf<input type="time" name="otijd" value="09:00" step="300"></label>
-        <button type="button" class="knop" data-actie="ozelf">Hier verder</button></div>
-    </div>
-    <div class="dvoet"><button type="button" class="knop" data-actie="olater" title="Ze komen op de lijst „Opnieuw in te plannen”">Later zelf inplannen</button></div></form>`;
-  let klaar = false;
-  const plaats = (t) => {
-    const ids = over.flatMap(e => [e.blok, e.heen, e.terug].filter(Boolean).map(x => x.id));
-    const niet = plaatsVanaf(over, t);
-    if (niet.length) zetHerplan([...herplanIds(), ...niet.map(e => e.blok.item).filter(Boolean)]);
-    klaar = true; bewaar(); dlg2.close();
-    toast(`Doorgeschoven naar ${fmtDatum(dagStr(t))}${niet.length ? ` — ${niet.length} paste${niet.length === 1 ? "" : "n"} nergens, staan bij „Opnieuw in te plannen”` : ""}`);
-    agendaBij(ids);
-  };
-  dlg2.onclick = (e) => {
-    const b = e.target.closest("button"); if (!b) return;
-    if (b.dataset.vanaf) { plaats(new Date(b.dataset.vanaf)); return; }
-    if (b.dataset.actie === "ozelf") {
-      const dag = $("[name=odag]", dlg2)?.value, tijd = $("[name=otijd]", dlg2)?.value;
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(dag || "") || !/^\d{2}:\d{2}$/.test(tijd || "")) { toast("Kies een dag en tijd"); return; }
-      plaats(new Date(dag + "T" + tijd));
-    }
-    if (b.dataset.actie === "olater") dlg2.close();
-  };
-  // sluiten zonder keuze: niets kwijtraken — op de lijst om opnieuw in te plannen
-  dlg2.onclose = () => {
-    if (!klaar) { zetHerplan([...herplanIds(), ...over.map(e => e.blok.item).filter(Boolean)]); bewaar(); toast(`${over.length} ${over.length === 1 ? "taak staat" : "taken staan"} bij „Opnieuw in te plannen”`); agendaBij(over.map(e => e.blok.id)); }
-    dlg2.onclick = null; dlg2.onclose = null;
-  };
-  if (!dlg2.open) dlg2.showModal();
-}
-
+const minutenTussen = (b) => Math.round((new Date(b.eind) - new Date(b.start)) / 60000);
 // ---------- eerder klaar: wat doe je met de vrijgekomen tijd? ----------
 function vrijeTijdVenster(it, v, na) {
   const tekst = `${fmtDatum(dagStr(v.a))} ${fmtTijd(v.a.toISOString())}–${fmtTijd(v.b.toISOString())}`;

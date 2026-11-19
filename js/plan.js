@@ -747,46 +747,138 @@ function pak(eenhedenLijst, van, tot) {
   return over;
 }
 
+// Welke werktijd een item gebruikt: de vaste tijden van zijn lijst, of je vrije tijd (gedeeld door alle "vrij"-lijsten)
+function werkFamilie(it) { const ov = it && effLijst(overzicht(it.overzicht)); return !ov ? null : ov.modus === "vast" ? "vast:" + ov.id : "vrij"; }
+const eindVan = (e) => new Date(e.terug ? e.terug.eind : e.blok.eind);
+const beginVan = (e) => new Date(e.heen ? e.heen.start : e.blok.start);
+// Is [a, b) nog helemaal leeg (afspraken, planning, reistijd, cursus/elders)?
+function leegOp(a, b) {
+  const I = dagIndeling(new Date(a.getFullYear(), a.getMonth(), a.getDate()));
+  return ![...bezetBehalve(null), ...I.reis, ...I.elders].some(x => x.a < b && x.b > a);
+}
 /**
- * Een Doen-taak met voorrang inplannen: op het eerste moment dat kan, waarbij andere (niet-Doen) blokken wijken.
+ * Een rij eenheden (blok + reistijd) in dezelfde volgorde opnieuw neerleggen, als werk dat door de lege werktijd stroomt:
+ * elke eenheid blijft staan als zijn plek nog vrij is, en schuift anders door naar het eerste vrije werkmoment erna (nooit
+ * eerder dan waar hij stond, en nooit vóór de vorige). Zonder reistijd mag een eenheid over meerdere gaten verdeeld worden,
+ * in stukken van minstens het kortste blok. Wat nergens past (60 dagen) komt terug.
+ */
+function stroomDoor(lijst, vanaf) {
+  const d = opslag.d, R = raster(), stuk = Math.max(d.instellingen.blokMin || 15, R);
+  const niet = []; let c = vanaf;
+  for (const e of lijst) {
+    const it = itemVan(e.blok), oud = beginVan(e), begin = c > oud ? c : oud;
+    e.naar = e.blok.start; e.stukken = 1;
+    if (begin.getTime() === oud.getTime() && leegOp(oud, eindVan(e))) { d.planning.push(...delenVan(e)); c = eindVan(e); continue; }
+    if (!it) { niet.push(e); continue; }
+    if (e.heen || e.terug || e.duur <= stuk) {               // met reistijd (of kort): in één keer
+      const v = voorstellen(it, e.duur, { vanaf: begin, aantal: 1, dagen: 60 })[0];
+      if (!v) { niet.push(e); continue; }
+      zetTijd(e, v.a); e.naar = e.blok.start; d.planning.push(...delenVan(e)); c = eindVan(e); continue;
+    }
+    let rest = e.duur, cc = begin, laatste = null; const stukken = [], verlengd = [];
+    while (rest > 0) {
+      const v = voorstellen(it, Math.min(rest, stuk), { vanaf: cc, aantal: 1, dagen: 60 })[0];
+      if (!v) break;
+      let duur = Math.min(rest, v.duur);
+      if (rest - duur > 0 && rest - duur < stuk) duur = rest - stuk;   // geen snippertje overhouden
+      cc = new Date(v.a.getTime() + Math.max(duur, R) * MIN);
+      if (duur < stuk) { cc = v.b; continue; }
+      const tot = new Date(v.a.getTime() + duur * MIN).toISOString();
+      // sluit het direct aan op een blok van dezelfde taak, dan dat blok verlengen (geen twee blokken achter elkaar)
+      const vorige = d.planning.find(y => y.item === e.blok.item && y.soort !== "reis" && y.eind === v.a.toISOString()
+        && !d.planning.some(r => r.soort === "reis" && r.item === y.item && r.start === y.eind));
+      if (vorige) { verlengd.push([vorige, vorige.eind]); vorige.eind = tot; laatste = vorige; }
+      else {
+        const x = stukken.length || verlengd.length ? { ...e.blok, id: uid() } : e.blok;
+        x.start = v.a.toISOString(); x.eind = tot; d.planning.push(x); stukken.push(x); laatste = x;
+      }
+      if (stukken.length + verlengd.length === 1) e.naar = v.a.toISOString();
+      rest -= duur;
+    }
+    e.stukken = stukken.length + verlengd.length;
+    if (rest > 0) {                                           // past niet (meer) helemaal: niets half laten staan
+      d.planning = d.planning.filter(x => !stukken.includes(x));
+      for (const [y, eind] of verlengd) y.eind = eind;
+      zetTijd(e, oud); niet.push(e); continue;
+    }
+    c = new Date(laatste.eind);
+  }
+  return niet;
+}
+// Welke blokken zijn er (in de planning) bijgekomen, weg of verplaatst — om alleen die in de agenda bij te werken
+function verschilIds(voor, na) {
+  const m = new Map(voor.map(x => [x.id, x.start + x.eind])), n = new Set(na.map(x => x.id));
+  return [...na.filter(x => m.get(x.id) !== x.start + x.eind).map(x => x.id), ...voor.filter(x => !n.has(x.id)).map(x => x.id)];
+}
+/**
+ * Een Doen-taak met voorrang inplannen. De werktijd waar geen afspraken in staan is één geheel: de Doen-taak komt vooraan
+ * en krijgt de lege werktijd (over meerdere gaten en dagen) tot hij genoeg tijd heeft. Wat daar aan andere taken stond:
+ *   modus "schuif" — schuift in dezelfde volgorde door naar achteren (door de volgende gaten, zo nodig de volgende dag)
  *   modus "weg"    — wat in de weg zit gaat uit de planning (komt terug in `weg`, om later opnieuw in te plannen)
- *   modus "schuif" — wat in de weg zit en wat erna komt in hetzelfde werkmoment schuift op; wat niet meer past staat in `over`
- *   modus "kijk"   — niets veranderen, alleen laten zien wat er zou gebeuren
- * hierAl: je bent (toch) al op de plek van de taak — dan kan het vandaag, zonder reistijd.
+ *   modus "kijk"   — als "schuif", maar niets veranderen: alleen laten zien wat er zou gebeuren
+ * Andere Doen-taken blijven staan (die waren eerst). hierAl: je bent (toch) al op de plek — vandaag, zonder reistijd.
  */
 export function metVoorrang(it, { modus = "kijk", hierAl = false } = {}) {
-  const d = opslag.d, inst = d.instellingen;
-  const st = planStatus(it), nodig = Math.max(raster(), st.rest || nogNodig(it) || 30);
-  const v = voorstellen(it, Math.min(nodig, Math.max(inst.blokMin || 15, 30)), { negeer: wijkbaar, hierAl, aantal: 1, dagen: hierAl ? 1 : 28 })[0];
-  if (!v) return { gevonden: false };
-  const duur = Math.min(nodig, v.duur, Math.max(inst.blokMax || 90, nodig));   // Doen: liefst in één keer
-  const a = v.a, b = new Date(a.getTime() + duur * MIN);
-  const reis = hierAl ? 0 : plekVan(it).reis;
-  const bezetVan = new Date(a - reis * MIN), bezetTot = new Date(b.getTime() + reis * MIN);
-  const raak = (x) => new Date(x.start) < bezetTot && new Date(x.eind) > bezetVan;
-  const inDeWeg = d.planning.filter(x => x.item !== it.id && wijkbaar(x) && x.soort !== "reis" && raak(x));
-  const uit = { gevonden: true, a, b, duur, rest: Math.max(0, nodig - duur), inDeWeg, weg: [], over: [], verschoven: [], blok: null };
-  if (modus === "kijk") return uit;
-  const [wa, wb] = werkmomentRond(it, a, hierAl);
-  // na: wat in hetzelfde werkmoment op of na het nieuwe blok komt (alleen wat mag wijken)
-  const erna = modus === "schuif" ? d.planning.filter(x => x.item !== it.id && wijkbaar(x) && x.soort !== "reis" && x.soort !== "uitloop"
-    && new Date(x.eind) > bezetVan && new Date(x.start) < wb && new Date(x.start) >= wa) : [];
-  // reserve voor uitloop in de weg: die tijd is precies hiervoor
-  for (const x of d.planning.filter(x => x.soort === "uitloop" && raak(x))) d.planning = d.planning.filter(y => y !== x);
-  if (modus === "weg") for (const x of inDeWeg.filter(x => x.soort !== "uitloop")) { uit.weg.push(x); haalBlokWeg(x); }
-  const e = eenheden(erna);
-  // eerst uit de weg (zodat het nieuwe blok vrij ligt), dan het nieuwe blok, dan alles erachter aan
-  for (const x of e) for (const y of delenVan(x)) y._oud = y.start;
-  const tijdelijk = e.flatMap(delenVan);
-  d.planning = d.planning.filter(x => !tijdelijk.includes(x));
-  uit.blok = plaatsBlok(it, a, duur, undefined, { hierAl }).blok;
-  d.planning.push(...tijdelijk);
-  if (e.length) {
-    uit.over = pak(e, new Date(uit.blok.eind), wb).map(x => x);
-    uit.verschoven = e.filter(x => !uit.over.includes(x) && x.blok._oud !== x.blok.start).map(x => x.blok);
+  const d = opslag.d, inst = d.instellingen, R = raster(), nu = new Date();
+  const terug = d.planning.map(x => ({ ...x }));
+  const herstel = () => { d.planning = terug; werkGeplandBij(d.overzichten.map(o => o.id)); };
+  // de eigen nog niet begonnen blokken gaan eruit: de taak wordt opnieuw, zo vroeg als kan, neergelegd
+  const eigenOud = d.planning.filter(x => x.item === it.id && x.soort !== "reis" && new Date(x.start) >= nu);
+  const oudVan = eigenOud.map(x => x.start).sort()[0] || null, oudTot = eigenOud.map(x => x.eind).sort().at(-1) || null;
+  for (const x of eigenOud) haalBlokWeg(x);
+  const st = planStatus(it);
+  const nodig = st.blokken.length ? st.rest : Math.max(R, nogNodig(it) || 30);
+  if (nodig <= 5) { herstel(); return { gevonden: false, alGenoeg: true }; }
+  // de andere taken in dezelfde werktijd die mogen wijken: even uit de planning
+  const fam = werkFamilie(it);
+  const pool = eenheden(d.planning.filter(x => x.item && x.item !== it.id && x.soort !== "reis" && x.soort !== "uitloop" && wijkbaar(x)
+    && new Date(x.start) >= nu && werkFamilie(itemVan(x)) === fam));
+  for (const e of pool) e.oud = { start: e.blok.start, eind: e.blok.eind, a: beginVan(e), b: eindVan(e) };
+  const delen = new Set(pool.flatMap(delenVan));
+  d.planning = d.planning.filter(x => !delen.has(x));
+  // de Doen-taak in de lege werktijd, vooraan, tot hij genoeg heeft (reserve voor uitloop telt als leeg)
+  const stuk = Math.min(nodig, Math.max(inst.blokMin || 15, R));
+  const gaten = voorstellen(it, stuk, { negeer: (b) => b.soort === "uitloop", hierAl, aantal: 300, dagen: hierAl ? 1 : 28 });
+  let rest = nodig; const blokken = [];
+  for (const v of gaten) {
+    if (rest <= 0) break;
+    let duur = Math.min(rest, v.duur);
+    if (rest - duur > 0 && rest - duur < stuk) duur = rest - stuk;
+    if (duur < stuk) continue;
+    blokken.push(plaatsBlok(it, v.a, duur, undefined, { hierAl }).blok); rest -= duur;
   }
-  for (const x of tijdelijk) delete x._oud;
+  if (!blokken.length) { herstel(); return { gevonden: false }; }
+  const eigenDelen = d.planning.filter(x => x.item === it.id && new Date(x.eind) > nu);
+  const raakt = (a, b) => eigenDelen.some(x => new Date(x.start) < b && new Date(x.eind) > a);
+  d.planning = d.planning.filter(x => !(x.soort === "uitloop" && raakt(new Date(x.start), new Date(x.eind))));
+  const inDeWeg = pool.filter(e => raakt(e.oud.a, e.oud.b));
+  const uit = { gevonden: true, a: new Date(blokken[0].start), b: new Date(blokken.at(-1).eind), duur: nodig - rest, rest, blokken,
+    inDeWeg: inDeWeg.map(e => ({ ...e.blok, start: e.oud.start, eind: e.oud.eind })), weg: [], verschoven: [], niet: [], probleem: [],
+    eerder: !oudVan || blokken[0].start < oudVan || blokken.at(-1).eind < oudTot };
+  if (modus === "weg") {
+    for (const e of pool) if (inDeWeg.includes(e)) uit.weg.push(e.blok); else d.planning.push(...delenVan(e));
+  } else {
+    const niet = stroomDoor(pool, nu);
+    uit.niet = niet.map(e => e.blok);
+    for (const e of pool) {
+      if (niet.includes(e)) continue;
+      if (e.naar !== e.oud.start || e.stukken !== 1 || !d.planning.includes(e.blok) || e.blok.eind !== e.oud.eind)
+        uit.verschoven.push({ blok: e.blok, van: e.oud.start, naar: e.naar, stukken: e.stukken });
+    }
+    // haalt een doorgeschoven taak zijn deadline daardoor niet meer?
+    for (const e of pool) {
+      const x = itemVan(e.blok), dl = x && harde(x);
+      if (!dl || uit.probleem.some(p => p.item === x)) continue;
+      const laatste = d.planning.filter(p => p.item === x.id && p.soort !== "reis").map(p => dagStr(new Date(p.eind))).sort().at(-1) || null;
+      const wasOk = !(dagStr(new Date(e.oud.eind)) > dl);
+      if (wasOk && (niet.includes(e) || (laatste && laatste > dl))) uit.probleem.push({ item: x, deadline: dl, tot: niet.includes(e) ? null : laatste });
+    }
+  }
+  const dl = harde(it);
+  if (dl && (rest > 0 || dagStr(uit.b) > dl)) uit.eigenDeadline = dl;
   werkGeplandBij(d.overzichten.map(o => o.id));
+  uit.gewijzigd = verschilIds(terug, d.planning);
+  if (modus === "kijk") herstel();
   return uit;
 }
 /**
