@@ -4,7 +4,7 @@ import { opslag, bewaar, KWADRANTEN, kwadrant, overzicht, project, taak, takenVa
          map, submappen, lijstenIn, lijstenOnder, mappenOnder, mapPad, boom, lijstVolgorde, idsVan,
          afspraak, koersVan, binnenDoel, koersScore, koersSuggesties, koppelKoers, mijnId, isIk, personen, naamVanPersoon, isMijn, isTeam, wie, wachtNogOp, wachtenOp, maaktKring, anderen as andereLeden } from "./data.js";
 import { familieHaak, planAutomatisch, werkGeplandBij, doelDatum, harde, prioriteit, googleLink, outlookLink, maakIcs, leesIcs, dagStr, dagIndeling, eventSoort, SOORTEN,
-  AFWIJKING, maakRuimte, magWijkenVoor, plaatsMetWijken, telt, isHerinnering, buitenBeschikbaarheid, regelVoor, rolKeuze, afspraakSleutel, standaardTijden, afwijkingOp, afwijkingDatums, zetAfwijking, dagTijden, tijdenZonder, tijdenMet, effLijst, rolBotsingen, planStatus, grootsteGat, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, plaatsVanaf, vrijkomend, vrijeTijd, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
+  AFWIJKING, maakRuimte, magWijkenVoor, plaatsMetWijken, telt, isHerinnering, buitenBeschikbaarheid, regelVoor, rolKeuze, afspraakSleutel, standaardTijden, afwijkingOp, afwijkingDatums, zetAfwijking, dagTijden, tijdenZonder, tijdenMet, effLijst, rolBotsingen, planStatus, grootsteGat, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, plaatsVanaf, vrijkomend, vrijeTijd, trekAllesNaarVoren, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
 import { ids, verbindingen as alleVerbindingen, heeft, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, zonderDoel, koppelHaak, neemGedeeldeOver } from "./koppeling.js";
 import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroniseerAlles, naamVan, lijstWeg } from "./schijf.js";
 import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD, eigenAgenda, viaEigenaar, vingerafdruk, kanVerplaatsen, verplaatsAgendaAfspraak } from "./sync.js";
@@ -744,6 +744,7 @@ function agenda() {
       ${gekoppeld && metDoel ? `<button class="knop" data-actie="naarAgenda" ${toekomst.length || Object.keys(d().extern || {}).length ? "" : "disabled"}>📤 In mijn agenda zetten</button>` : ""}
       ${gekoppeld ? "" : `<a class="knop" href="#instellingen" data-tab="koppelingen">🔗 Google/Outlook koppelen</a>`}
       <details class="meer"><summary class="knop">⋯</summary><div class="menu">
+        <button class="knop" data-actie="naarVoren" ${toekomst.length ? "" : "disabled"} title="Al het ingeplande werk in je vaste werktijden schuift (in dezelfde volgorde) naar de eerste lege werktijd, bijv. na een afgezegde afspraak">⏪ Werk naar voren halen</button>
         <button class="knop" data-actie="importIcs">📥 .ics importeren</button>
         <button class="knop" data-actie="exportIcs" ${toekomst.length ? "" : "disabled"}>📤 .ics downloaden</button>
         <button class="knop gevaar" data-actie="wisPlanning" ${toekomst.length ? "" : "disabled"}>Planning wissen</button>
@@ -1293,6 +1294,10 @@ function instLocaties() {
     <label class="schakel"><input type="checkbox" name="schrappenInplannen" ${inst.schrappenInplannen ? "checked" : ""}> Ook kwadrant „Schrappen” inplannen</label>
   </div>
   <div style="margin-top:12px">
+    <label class="veld">Eerder klaar dan gepland?<select name="klaarModus">
+      <option value="vragen" ${!["voren", "vorenUitloop"].includes(inst.klaarModus) ? "selected" : ""}>Vragen wat ik met de tijd wil</option>
+      <option value="voren" ${inst.klaarModus === "voren" ? "selected" : ""}>Meteen alles naar voren halen</option>
+      <option value="vorenUitloop" ${inst.klaarModus === "vorenUitloop" ? "selected" : ""}>Meteen alles naar voren halen, met de vrijgekomen tijd als uitloop</option></select></label>
     <label class="veld">Komt er iets in <b>Doen</b>?<select name="doenModus">
       <option value="vragen" ${inst.doenModus === "vragen" || !inst.doenModus ? "selected" : ""}>Vragen wat ik wil (met voorstel)</option>
       <option value="weg" ${inst.doenModus === "weg" ? "selected" : ""}>Meteen vooraan inplannen; wat in de weg zit gaat eruit (en komt op de lijst om opnieuw in te plannen)</option>
@@ -2523,7 +2528,20 @@ function doenVenster(it, hierAl = false) {
 }
 const minutenTussen = (b) => Math.round((new Date(b.eind) - new Date(b.start)) / 60000);
 // ---------- eerder klaar: wat doe je met de vrijgekomen tijd? ----------
+function naarVorenTekst(r) {
+  const n = new Set(r.details.map(x => x.blok.item)).size, eerste = r.details[0];
+  return `${n ? `⏪ ${n} ${n === 1 ? "taak" : "taken"} naar voren gehaald${eerste ? ` („${eerste.blok.titel}” nu ${fmtDatum(dagStr(new Date(eerste.naar)))} ${fmtTijd(eerste.naar)})` : ""}` : "Er stond niets meer om naar voren te halen"}${r.uitloop ? ` · uitloop ${fmtTijd(r.uitloop.start)}–${fmtTijd(r.uitloop.eind)} gereserveerd` : ""}`;
+}
 function vrijeTijdVenster(it, v, na) {
+  // ingesteld op meteen naar voren halen: niet vragen
+  const km = d().instellingen.klaarModus;
+  if (km === "voren" || km === "vorenUitloop") {
+    const voor = d().planning.map(b => ({ ...b }));
+    const r = vrijeTijd(it, v, "schuif", { uitloopAchteraan: km === "vorenUitloop" }); bewaar();
+    const ids = [v.blok.id, ...v.overig.map(b => b.id), ...r.gewijzigd, r.uitloop?.id];
+    toast(naarVorenTekst(r), { label: "Ongedaan maken", f: () => { d().planning = voor; werkGeplandBij(d().overzichten.map(o => o.id)); bewaar(); agendaBij(ids); toast("Teruggezet zoals het was"); } });
+    agendaBij(ids); na?.(); return;
+  }
   const tekst = `${fmtDatum(dagStr(v.a))} ${fmtTijd(v.a.toISOString())}–${fmtTijd(v.b.toISOString())}`;
   const kandidaten = [...d().taken, ...d().projecten.filter(p => !d().taken.some(t => t.project === p.id && t.status !== "klaar"))]
     .filter(t => t.id !== it.id && t.status !== "klaar" && isMijn(t) && !doorGelinktIngepland(t) && actieveOverzichten().includes(t.overzicht) && !wachtNogOp(t).length && planStatus(t).soort !== "ja")
@@ -2533,8 +2551,8 @@ function vrijeTijdVenster(it, v, na) {
       <h2 style="margin:0">${fmtDuur(v.min)} vrij: ${tekst}</h2>
       <p class="hint" style="margin:0">„${esc(it.titel)}” is eerder klaar dan gepland. Wat wil je met de vrijgekomen tijd?</p>
       <div class="keuzes">
-        <button type="button" class="keuzeknop" data-actie="schuif"><b>⏪ Alles hierna naar voren schuiven</b><small>Wat er in dit werkmoment nog komt, schuift op naar voren.</small></button>
-        <label class="schakel" style="margin:-4px 0 4px 10px"><input type="checkbox" id="uitloopAchter" checked> De tijd die aan het eind vrijkomt reserveren als uitloop</label>
+        <button type="button" class="keuzeknop" data-actie="schuif"><b>⏪ Alles naar voren halen</b><small>Al het werk hierna schuift in dezelfde volgorde naar voren, ook van latere dagen: de hele planning loopt op.</small></button>
+        <label class="schakel" style="margin:-4px 0 4px 10px"><input type="checkbox" id="uitloopAchter" ${d().instellingen.klaarModus === "voren" ? "" : "checked"}> ${fmtDuur(v.min)} reserve houden als uitloop (aan het eind van dit werkmoment)</label>
         <button type="button" class="keuzeknop" data-actie="uitloop"><b>⏳ Reserveren als uitloop</b><small>Blijft in je agenda staan, voor als iets uitloopt.</small></button>
         <button type="button" class="keuzeknop" data-actie="vrij"><b>☕ Vrijlaten</b><small>De tijd komt vrij; je agenda wordt bijgewerkt.</small></button>
       </div>
@@ -2542,7 +2560,13 @@ function vrijeTijdVenster(it, v, na) {
         `<button type="button" class="keuzeknop" data-pak="${t.id}" data-ptype="${t.type}"><b>${esc(t.titel)}</b><small>${KWADRANTEN[kwadrant(t)].naam} · nog ${fmtDuur(nogNodig(t))}${nogNodig(t) > v.min ? ` (past ${fmtDuur(v.min)})` : ""}</small></button>`).join("")}</div></div>` : ""}
     </div></form>`;
   let gekozen = false;
-  const klaar = (r, msg) => { gekozen = true; bewaar(); dlg2.close(); toast(msg); agendaBij([v.blok.id, ...v.overig.map(b => b.id), ...(r?.verschoven || []).map(b => b.id), r?.uitloop?.id, r?.nieuw]); };
+  const voor = d().planning.map(b => ({ ...b }));
+  const klaar = (r, msg) => {
+    gekozen = true; bewaar(); dlg2.close();
+    const ids = [v.blok.id, ...v.overig.map(b => b.id), ...(r?.verschoven || []).map(b => b.id), ...(r?.gewijzigd || []), r?.uitloop?.id, r?.nieuw];
+    toast(msg, { label: "Ongedaan maken", f: () => { d().planning = voor; werkGeplandBij(d().overzichten.map(o => o.id)); bewaar(); agendaBij(ids); toast("Teruggezet zoals het was"); } });
+    agendaBij(ids);
+  };
   dlg2.onclick = (e) => {
     const b = e.target.closest("button"); if (!b) return;
     if (b.dataset.pak) {
@@ -2554,7 +2578,7 @@ function vrijeTijdVenster(it, v, na) {
     }
     const a = b.dataset.actie; if (!["schuif", "uitloop", "vrij"].includes(a)) return;
     const r = vrijeTijd(it, v, a, { uitloopAchteraan: !!$("#uitloopAchter", dlg2)?.checked });
-    klaar(r, a === "schuif" ? `${r.verschoven.length} ${r.verschoven.length === 1 ? "blok" : "blokken"} naar voren geschoven${r.uitloop ? `, uitloop ${fmtTijd(r.uitloop.start)}–${fmtTijd(r.uitloop.eind)} gereserveerd` : ""}`
+    klaar(r, a === "schuif" ? naarVorenTekst(r)
       : a === "uitloop" ? "Gereserveerd als uitloop" : "Tijd vrijgelaten");
   };
   // dicht zonder keuze = vrijlaten
@@ -3263,6 +3287,14 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
       const r = planAutomatisch(actieveOverzichten()); laatsteWaarschuwingen = r.waarschuwingen; bewaar();
       toast(`${r.blokken} blokken ingepland${r.waarschuwingen.length ? " · " + r.waarschuwingen.length + " waarschuwing(en)" : ""}`);
     }
+    else if (a === "naarVoren") {
+      const voor = d().planning.map(b => ({ ...b }));
+      const r = trekAllesNaarVoren(actieveOverzichten());
+      bewaar(); agendaBij(r.gewijzigd);
+      const n = new Set(r.verschoven.map(v => v.blok.item)).size;
+      toast(n ? `⏪ ${n} ${n === 1 ? "taak" : "taken"} naar voren gehaald` : "Alles staat al zo vroeg als kan", n ? { label: "Ongedaan maken", f: () => {
+        d().planning = voor; werkGeplandBij(d().overzichten.map(o => o.id)); bewaar(); agendaBij(r.gewijzigd); toast("Teruggezet zoals het was"); } } : undefined);
+    }
     else if (a === "wisPlanning") { if (confirm("Alle toekomstige, niet-vastgezette blokken wissen?")) { const nu = new Date(); d().planning = d().planning.filter(b => b.vast || new Date(b.eind) <= nu); werkGeplandBij(d().overzichten.map(o => o.id)); laatsteWaarschuwingen = []; bewaar(); } }
     else if (a === "exportIcs") {
       const bl = d().planning.filter(b => new Date(b.eind) > new Date() && actieveOverzichten().includes(b.overzicht));
@@ -3492,6 +3524,7 @@ function hoofdWijzig(e) {
     o[veld] = waarde;
     bewaar(); return;
   }
+  if (e.target.name === "klaarModus") { d().instellingen.klaarModus = e.target.value; bewaar(); return; }
   if (e.target.name === "doenModus") { d().instellingen.doenModus = e.target.value; bewaar(); return; }
   if (e.target.name === "agendaDoel" || e.target.name === "vasteAgenda") {
     d().instellingen[e.target.name] = e.target.value; bewaar(); render(); return;

@@ -724,29 +724,6 @@ const zetTijd = (e, a) => {          // eenheid naar begintijd a (van het blok z
   if (e.terug) { e.terug.start = e.blok.eind; e.terug.eind = new Date(b.getTime() + e.rt * MIN).toISOString(); }
 };
 const delenVan = (e) => [e.blok, e.heen, e.terug].filter(Boolean);
-/**
- * Eenheden achter elkaar zetten vanaf `van`, binnen [van, tot), om alles heen wat vast ligt. Geeft terug wat niet meer past.
- * Wordt gebruikt om op te schuiven (naar achteren of naar voren).
- */
-function pak(eenhedenLijst, van, tot) {
-  const d = opslag.d, R = raster(), buf = (d.instellingen.buffer || 0) * MIN;
-  const bewegend = new Set(eenhedenLijst.flatMap(delenVan).map(x => x.id));
-  const dag = new Date(van.getFullYear(), van.getMonth(), van.getDate());
-  const I = dagIndeling(dag);
-  const vast = [...bezetBehalve(null, (b) => bewegend.has(b.id)), ...I.reis.map(r => ({ a: r.a, b: r.b, reis: true })), ...I.elders.map(r => ({ a: r.a, b: r.b }))];
-  const over = []; let c = van;
-  for (const e of eenhedenLijst) {
-    const g = vrijeGaten(c, tot, vast, R, buf).find(([ga, gb]) => { const a = rondOp(new Date(ga.getTime() + e.rh * MIN), R); return a.getTime() + (e.duur + e.rt) * MIN <= gb.getTime(); });
-    if (!g) { over.push(e); continue; }
-    const a = rondOp(new Date(g[0].getTime() + e.rh * MIN), R);
-    zetTijd(e, a);
-    vast.push({ a: new Date(e.heen ? e.heen.start : e.blok.start), b: new Date(e.terug ? e.terug.eind : e.blok.eind) });
-    c = new Date(e.terug ? e.terug.eind : e.blok.eind);
-  }
-  for (const e of over) d.planning = d.planning.filter(x => !delenVan(e).includes(x));
-  return over;
-}
-
 // Welke werktijd een item gebruikt: de vaste tijden van zijn lijst, of je vrije tijd (gedeeld door alle "vrij"-lijsten)
 function werkFamilie(it) { const ov = it && effLijst(overzicht(it.overzicht)); return !ov ? null : ov.modus === "vast" ? "vast:" + ov.id : "vrij"; }
 const eindVan = (e) => new Date(e.terug ? e.terug.eind : e.blok.eind);
@@ -762,13 +739,19 @@ function leegOp(a, b) {
  * eerder dan waar hij stond, en nooit vóór de vorige). Zonder reistijd mag een eenheid over meerdere gaten verdeeld worden,
  * in stukken van minstens het kortste blok. Wat nergens past (60 dagen) komt terug.
  */
-function stroomDoor(lijst, vanaf) {
+function stroomDoor(lijst, vanaf, { naarVoren = false } = {}) {
   const d = opslag.d, R = raster(), stuk = Math.max(d.instellingen.blokMin || 15, R);
   const niet = []; let c = vanaf;
   for (const e of lijst) {
-    const it = itemVan(e.blok), oud = beginVan(e), begin = c > oud ? c : oud;
+    const it = e.proxy || itemVan(e.blok), oud = beginVan(e), begin = naarVoren || c > oud ? c : oud;
     e.naar = e.blok.start; e.stukken = 1;
-    if (begin.getTime() === oud.getTime() && leegOp(oud, eindVan(e))) { d.planning.push(...delenVan(e)); c = eindVan(e); continue; }
+    const blijft = () => { d.planning.push(...delenVan(e)); c = eindVan(e); };
+    if (!naarVoren && begin.getTime() === oud.getTime() && leegOp(oud, eindVan(e))) { blijft(); continue; }
+    // naar voren: blijft staan als er vóór zijn plek niets past (en die plek nog vrij is)
+    if (naarVoren && it && !e.nieuw && c <= oud && leegOp(oud, eindVan(e))) {
+      const v = voorstellen(it, Math.min(e.duur, stuk), { vanaf: c, aantal: 1, dagen: Math.ceil((oud - c) / 864e5) + 1 })[0];
+      if (!v || v.a >= new Date(e.blok.start)) { blijft(); continue; }
+    }
     if (!it) { niet.push(e); continue; }
     if (e.heen || e.terug || e.duur <= stuk) {               // met reistijd (of kort): in één keer
       const v = voorstellen(it, e.duur, { vanaf: begin, aantal: 1, dagen: 60 })[0];
@@ -785,7 +768,7 @@ function stroomDoor(lijst, vanaf) {
       if (duur < stuk) { cc = v.b; continue; }
       const tot = new Date(v.a.getTime() + duur * MIN).toISOString();
       // sluit het direct aan op een blok van dezelfde taak, dan dat blok verlengen (geen twee blokken achter elkaar)
-      const vorige = d.planning.find(y => y.item === e.blok.item && y.soort !== "reis" && y.eind === v.a.toISOString()
+      const vorige = e.blok.item && d.planning.find(y => y.item === e.blok.item && y.soort !== "reis" && y.eind === v.a.toISOString()
         && !d.planning.some(r => r.soort === "reis" && r.item === y.item && r.start === y.eind));
       if (vorige) { verlengd.push([vorige, vorige.eind]); vorige.eind = tot; laatste = vorige; }
       else {
@@ -882,6 +865,47 @@ export function metVoorrang(it, { modus = "kijk", hierAl = false } = {}) {
   return uit;
 }
 /**
+ * Naar voren halen: vanaf `vanaf` schuift al het werk in dezelfde werktijd als `it` (in dezelfde volgorde, ook van latere
+ * dagen) naar de eerste lege werktijd. Zo vult tijd die vrijkomt (eerder klaar, iets geschrapt) zich vanzelf op.
+ * uitloop: zoveel minuten reserve houden direct na het werk dat in het huidige werkmoment stond.
+ * @returns {{verschoven: object[], uitloop: object|null, niet: object[], gewijzigd: string[]}}
+ */
+export function trekNaarVoren(it, vanaf, { uitloop = 0 } = {}) {
+  const d = opslag.d, nu = new Date(), fam = werkFamilie(it);
+  const van = rondOp(new Date(Math.max(vanaf, nu)), 5);
+  const terug = d.planning.map(x => ({ ...x }));
+  const pool = eenheden(d.planning.filter(x => x.item && x.soort !== "reis" && x.soort !== "uitloop" && new Date(x.start) >= van
+    && itemVan(x) && itemVan(x).status !== "klaar" && werkFamilie(itemVan(x)) === fam));
+  for (const e of pool) e.oud = { start: e.blok.start, eind: e.blok.eind };
+  const delen = new Set(pool.flatMap(delenVan));
+  d.planning = d.planning.filter(x => !delen.has(x));
+  let res = null;
+  if (uitloop >= 15) {
+    const [, wb] = werkmomentRond(it, van);
+    const i = pool.findIndex(e => new Date(e.blok.start) >= wb);
+    res = { id: uid(), soort: "uitloop", titel: "Uitloop (gereserveerd)", overzicht: it.overzicht, vast: true, start: van.toISOString(), eind: new Date(van.getTime() + uitloop * MIN).toISOString() };
+    pool.splice(i < 0 ? pool.length : i, 0, { blok: res, heen: null, terug: null, duur: uitloop, rh: 0, rt: 0, proxy: it, nieuw: true, oud: { start: null, eind: null } });
+  }
+  const niet = stroomDoor(pool, van, { naarVoren: true });
+  const verschoven = pool.filter(e => !e.nieuw && !niet.includes(e) && (e.naar !== e.oud.start || e.stukken !== 1 || e.blok.eind !== e.oud.eind || !d.planning.includes(e.blok)))
+    .map(e => ({ blok: e.blok, van: e.oud.start, naar: e.naar, stukken: e.stukken }));
+  werkGeplandBij(d.overzichten.map(o => o.id));
+  const uitloopBlok = res && d.planning.includes(res) ? res : null;
+  return { verschoven, uitloop: uitloopBlok, niet: niet.filter(e => !e.nieuw).map(e => e.blok), gewijzigd: verschilIds(terug, d.planning) };
+}
+/** Alles naar voren halen, voor de vaste werktijden van deze lijsten (bijv. na een afgezegde afspraak); vrije tijd blijft zoals hij is */
+export function trekAllesNaarVoren(overzichtIds, vanaf = new Date()) {
+  const d = opslag.d, gedaan = new Set(), uit = { verschoven: [], niet: [], gewijzigd: [] };
+  for (const id of overzichtIds) {
+    const proxy = d.taken.find(t => t.overzicht === id) || d.projecten.find(p => p.overzicht === id);
+    const fam = proxy && werkFamilie(proxy);
+    if (!fam || fam === "vrij" || gedaan.has(fam)) continue; gedaan.add(fam);
+    const r = trekNaarVoren(proxy, vanaf);
+    uit.verschoven.push(...r.verschoven); uit.niet.push(...r.niet); uit.gewijzigd.push(...r.gewijzigd);
+  }
+  return uit;
+}
+/**
  * Ruimte maken op [a, b) voor een item: eigen blokken van andere taken die daar staan gaan eruit (met hun reistijd) en
  * komen terug als eenheden, om daarna met plaatsVanaf() naar het volgende vrije moment te schuiven. Reserve (uitloop) vervalt.
  */
@@ -975,25 +999,15 @@ export function vrijeTijd(it, v, keuze, { uitloopAchteraan = true } = {}) {
     const r = { id: uid(), soort: "uitloop", titel: "Uitloop (gereserveerd)", overzicht: it.overzicht, start: a.toISOString(), eind: b.toISOString(), vast: true };
     d.planning.push(r); return r;
   };
-  let uitloop = null, verschoven = [];
+  let uitloop = null, verschoven = [], extra = null;
   if (keuze === "uitloop") uitloop = reserve(v.a, v.b);
   if (keuze === "schuif") {
-    const [wa, wb] = werkmomentRond(it, v.a);
-    const erna = d.planning.filter(x => x.soort !== "reis" && x.soort !== "uitloop" && wijkbaarOfEigen(x) && new Date(x.start) >= v.a && new Date(x.start) < wb && new Date(x.start) >= wa);
-    const e = eenheden(erna);
-    const oud = new Map(e.map(x => [x.blok.id, x.blok.start]));
-    const laatsteEind = e.length ? new Date(Math.max(...e.map(x => new Date(x.terug ? x.terug.eind : x.blok.eind)))) : v.b;
-    const over = pak(e, v.a, wb);
-    for (const x of over) d.planning.push(...delenVan(x));             // past altijd (het schuift alleen naar voren); voor de zekerheid terug
-    verschoven = e.filter(x => oud.get(x.blok.id) !== x.blok.start).map(x => x.blok);
-    const nieuwEind = e.length ? new Date(Math.max(...e.map(x => new Date(x.terug ? x.terug.eind : x.blok.eind)))) : v.a;
-    if (uitloopAchteraan) uitloop = reserve(nieuwEind, laatsteEind > nieuwEind ? laatsteEind : v.b);
+    const r = trekNaarVoren(it, v.a, { uitloop: uitloopAchteraan ? v.min : 0 });
+    verschoven = r.verschoven.map(x => x.blok); uitloop = r.uitloop; extra = r;
   }
   werkGeplandBij(d.overzichten.map(o => o.id));
-  return { verschoven, uitloop };
+  return { verschoven, uitloop, details: extra?.verschoven || [], niet: extra?.niet || [], gewijzigd: extra?.gewijzigd || [] };
 }
-// Naar voren schuiven mag met alle eigen blokken (ook Doen): ze komen alleen eerder, nooit later
-const wijkbaarOfEigen = (b) => !!itemVan(b);
 
 /** Een blok (met de reistijd die erbij hoort) weer uit de planning halen */
 export function haalBlokWeg(b) {
