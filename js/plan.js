@@ -7,7 +7,7 @@
 //              Staat de lijst (of taak) op een locatie met reistijd, dan krijgt elke sessie reis heen + terug;
 //              taken op dezelfde locatie worden achter elkaar gezet zodat je maar één keer reist.
 import { veiligeAfwijkingen, veiligGenegeerd } from "./veilig.js";
-import { opslag, kwadrant, kalibratie, project, overzicht, locatie, effectieveLocatie, uid, linkInfo, isMijn, taak, sessie, blokTitel } from "./data.js";
+import { opslag, kwadrant, kalibratie, project, overzicht, zelfInTePlannen, locatie, effectieveLocatie, uid, linkInfo, isMijn, taak, sessie, blokTitel } from "./data.js";
 
 // Agenda en planning van gelinkte accounts (privé ↔ werk): je bent één mens, dus daar plannen we omheen.
 // De app vult dit (cloud.familieAgenda); zonder gelinkte accounts is het leeg.
@@ -33,12 +33,16 @@ export const dagStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padS
 // Doeldatum: waar het inplannen op mikt.
 //   - Je eigen streefdatum gaat voor: eerder dan de deadline (marge), of juist later als de deadline niet haalbaar is.
 //   - Zonder streefdatum: de deadline (van de taak of van het project, de vroegste).
+// Een langlopend project heeft geen eind: zijn data tellen niet (wel die van een deelproject)
+const projectMetEind = (item) => { const p = item.project ? project(item.project) : null; return p && p.looptijd !== "lang" ? p : null; };
 export function doelDatum(item) {
-  const p = item.project ? project(item.project) : null;
+  if (item.type === "project" && item.looptijd === "lang") return null;
+  const p = projectMetEind(item);
   return item.streef || p?.streef || [item.deadline, p?.deadline].filter(Boolean).sort()[0] || null;
 }
 export function harde(item) {
-  const p = item.project ? project(item.project) : null;
+  if (item.type === "project" && item.looptijd === "lang") return null;
+  const p = projectMetEind(item);
   return [item.deadline, p?.deadline].filter(Boolean).sort()[0] || null;
 }
 
@@ -400,7 +404,7 @@ export function planAutomatisch(actieveOverzichten) {
 
   const items = [
     ...d.taken.filter(t => t.status !== "klaar"),
-    ...d.projecten.filter(p => p.status !== "klaar" && p.schatting > 0 && !d.taken.some(t => t.project === p.id && t.status !== "klaar")),
+    ...d.projecten.filter(p => p.status !== "klaar" && p.schatting > 0 && zelfInTePlannen(p)),
   ].filter(i => actieveOverzichten.includes(i.overzicht))
    .filter(i => !vanGelinkt(i.overzicht))
    .filter(isMijn)                                                   // gedeelde lijst: alleen wat (ook) aan jou is toegewezen

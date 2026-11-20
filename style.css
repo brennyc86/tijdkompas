@@ -666,3 +666,23 @@ a.koersitem{text-decoration:none;color:inherit}
 .vdagknop:hover{color:var(--accent)}
 @media (max-width:640px){ .vdagknop{flex:0 0 74px} }
 .deadlinekeuze{border-color:var(--rood)}
+/* kort- en langlopende projecten */
+.looptijd{display:flex;flex-direction:column;gap:8px}
+.looptijdkeuze button[aria-pressed="true"]{background:var(--accent);color:var(--accentTekst);border-color:var(--accent)}
+.deelrij{width:100%;text-align:left;border:1px solid transparent;cursor:pointer;color:inherit;font:inherit}
+.deelrij:hover{border-color:var(--accent)}
+.deelrij > span:nth-child(2){flex:1;min-width:0}
+.deelrij.klaar{opacity:.65}
+.projsectie{margin:18px 0 10px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.projsectie:first-of-type{margin-top:4px}
+.pdoel{font-size:13px;color:var(--meta)}
+.pkaart.lang{border-top-style:double;border-top-width:5px}
+.tussendoelen{display:flex;flex-direction:column;gap:8px}
+.tussendoel{border:1px solid var(--rand);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:4px;background:var(--bg2)}
+.tussendoel:hover{border-color:var(--accent)}
+.tussendoel.nu{border-color:var(--ok)}
+.tussendoel .tdkop{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.tussendoel .tdkop small{margin-left:auto;color:var(--meta)}
+.tussendoel .balk{height:4px}
+.deelgroep{margin-left:14px}
+.projsectie small{text-transform:none;letter-spacing:0;font-weight:400}

@@ -133,7 +133,7 @@ function laad() {
 /** Titel van een ingepland blok: bij een taak in een project "Project: taak" (zo staat het ook in je agenda) */
 export function blokTitel(it) {
   const p = it?.type === "taak" && it.project ? data.projecten.find(x => x.id === it.project) : null;
-  const ic = (x) => x?.icoon ? x.icoon + " " : "";                   // het icoon van het project komt vooraan, ook in je agenda
+  const ic = (x) => projectIcoon(x) ? projectIcoon(x) + " " : "";    // het icoon van het project komt vooraan, ook in je agenda (deelproject: dat van het grote project)
   const naam = (x) => (x?.kort || "").trim() || x?.titel || "";       // korte naam (als die er is) houdt de agenda overzichtelijk
   return p ? `${ic(p)}${naam(p)}: ${it.titel}` : it?.type === "project" ? `${ic(it)}${naam(it)}` : it?.titel || "";
 }
@@ -182,9 +182,21 @@ export function effectieveLocatie(item) {
 export const project = id => data.projecten.find(p => p.id === id);
 export const taak = id => data.taken.find(t => t.id === id);
 export const takenVan = pid => data.taken.filter(t => t.project === pid);
+// ---------- kort- en langlopende projecten ----------
+// kort: een duidelijk eind (iets wat je oplevert, vaak met deadline). lang: doorlopend, zonder (zicht op een) eind; op te
+// knippen in kortlopende deelprojecten (tussendoelen), die met `ouder` naar het langlopende project wijzen.
+export const isLang = p => p?.type === "project" && p.looptijd === "lang";
+export const deelprojecten = pid => data.projecten.filter(p => p.ouder === pid && p.id !== pid);
+export const ouderVan = p => { const o = p?.ouder ? project(p.ouder) : null; return isLang(o) && o.id !== p.id ? o : null; };
+/** Het icoon dat bij een project hoort: zijn eigen, of dat van het langlopende project waar het onder valt */
+export const projectIcoon = p => p?.icoon || ouderVan(p)?.icoon || "";
+/** Een project dat zelf (als één blok werk) ingepland wordt: kortlopend, zonder open taken */
+export const zelfInTePlannen = p => p?.type === "project" && !isLang(p) && !data.taken.some(t => t.project === p.id && t.status !== "klaar");
+/** Alle taken onder een project, ook die in zijn deelprojecten (voor een langlopend project) */
+export const allesVan = pid => [...takenVan(pid), ...(isLang(project(pid)) ? deelprojecten(pid).flatMap(dp => takenVan(dp.id)) : [])];
 
 export function projectVoortgang(p) {
-  const tk = takenVan(p.id);
+  const tk = isLang(p) ? allesVan(p.id) : takenVan(p.id);
   const klaar = tk.filter(t => t.status === "klaar").length;
   const schatTaken = tk.reduce((s, t) => s + (t.schatting || 0), 0);
   const werkelijk = tk.reduce((s, t) => s + (t.werkelijk || 0), 0) + (p.werkelijk || 0);
@@ -214,6 +226,7 @@ export function verwijder(item) {
   data.taken.forEach(t => { if (t.wachtOp?.includes(item.id)) t.wachtOp = t.wachtOp.filter(x => x !== item.id); });
   if (item.type === "project") {
     data.taken.forEach(t => { if (t.project === item.id) t.project = null; }); // taken blijven los bestaan
+    data.projecten.forEach(p => { if (p.ouder === item.id) p.ouder = ""; });   // deelprojecten blijven als losse projecten
     data.projecten = data.projecten.filter(p => p !== item);
     data.planning = data.planning.filter(b => b.item !== item.id);
   } else {
