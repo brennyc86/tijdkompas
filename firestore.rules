@@ -8,6 +8,7 @@ rules_version = '2';
 //                                  (behalve je eigen gelinkte accounts, en leden van een gedeelde map waar de lijst in staat).
 //   lijsten/{id}/items, …/koers    alleen leden van die lijst of map
 //   koppelcodes/{hash}             tijdelijke code om twee accounts te linken (10 minuten, en het andere account moet bevestigen)
+//   apps/knooppunt/spelers/{uid}/spellen/{slot}  opgeslagen spellen van de OV-simulator, alleen voor jezelf
 //   feeds/{sleutel}                abonneer-link (.ics) met je ingeplande blokken voor bijv. je werkagenda: alleen te lezen met de
 //                                  (lange, willekeurige) sleutel, niet op te sommen; alleen jij en je gelinkte accounts schrijven hem
 // Een gelinkt account is pas "familie" als beide kanten hebben ingestemd: het hoofd zet het in zijn aliassen, en het account
@@ -211,6 +212,16 @@ service cloud.firestore {
       allow create: if sleutelOk() && magFeed(request.resource.data.eigenaar) && feedOk(request.resource.data);
       allow update: if magFeed(resource.data.eigenaar) && request.resource.data.eigenaar == resource.data.eigenaar && feedOk(request.resource.data);
       allow delete: if sleutelOk() && ingelogd() && (resource == null || magFeed(resource.data.eigenaar));
+    }
+
+    // ---------- Knooppunt (OV-simulator, brennyc86.github.io/ov-simulator) ----------
+    // Elke speler heeft eigen spellen; alleen jijzelf leest en schrijft ze. Het spel staat als één JSON-tekst in het document.
+    match /apps/knooppunt/spelers/{uid}/spellen/{slot} {
+      allow read, delete: if ingelogd() && request.auth.uid == uid;
+      allow create, update: if ingelogd() && request.auth.uid == uid && veiligeId(slot)
+        && request.resource.data.keys().hasOnly(['naam', 'spel', 'bijgewerkt', 'versie', 'samenvatting'])
+        && request.resource.data.spel is string && request.resource.data.spel.size() < 900000
+        && request.resource.data.naam is string && request.resource.data.naam.size() <= 80;
     }
   }
 }
