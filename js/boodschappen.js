@@ -4,7 +4,8 @@
 // supermarktproducten waar het nu het goedkoopst is en of het ergens in de aanbieding is (zie prijzen.js).
 // Wat je zelf indeelt onthoudt de lijst (geleerd), en wat je vaak koopt komt terug als snelle keuze.
 
-import { opslag, bewaar, uid, mijnId } from "./data.js";
+import { opslag, bewaar, uid, mijnId, locatie, nieuweTaak, isIk } from "./data.js";
+import { dagIndeling, dagStr, plaatsBlok } from "./plan.js";
 import { laadPrijzen, prijsStand, zoek, keuzeRuimte, verfijningen, aanbiedingen, productUrl, stammen, stam, woorden, leesMaat, eenheidNaam } from "./prijzen.js";
 
 const d = () => opslag.d;
@@ -123,14 +124,119 @@ export function categorie(tekst) {
 // ---------- prijzen (in het geheugen, per omschrijving) ----------
 let idx = null, opnieuw = () => {};
 const zoekCache = new Map();
-function prijsVan(tekst) {
+function prijsVan(tekst, bij = ketens()) {
   if (!idx || categorie(tekst)) return null;
-  const k = tekst.toLowerCase().trim() + "|" + ketens().join(",");
-  if (!zoekCache.has(k)) { if (zoekCache.size > 500) zoekCache.clear(); zoekCache.set(k, zoek(idx, tekst, { ketens: ketens().length ? ketens() : null })); }
+  const k = tekst.toLowerCase().trim() + "|" + bij.join(",");
+  if (!zoekCache.has(k)) { if (zoekCache.size > 800) zoekCache.clear(); zoekCache.set(k, zoek(idx, tekst, { ketens: bij.length ? bij : null })); }
   return zoekCache.get(k);
 }
-/** De supermarkten waar je wilt vergelijken ([] = allemaal) */
-const ketens = () => (B().ketens || []).filter(n => !idx || idx.ketens.some(k => k.n === n));
+/** De supermarkten waar je wilt vergelijken: zelf gekozen, anders die van je eigen winkels, anders allemaal ([]) */
+const ketens = () => {
+  const eigen = (B().ketens || []).length ? B().ketens : [...new Set(winkels().flatMap(w => w.ketens || []))];
+  return eigen.filter(n => !idx || idx.ketens.some(k => k.n === n));
+};
+
+// ---------- je eigen winkels (locaties met soort "winkel") ----------
+// Een winkel of winkelcentrum is een locatie met: welke supermarkten (ketens) en soorten winkels er zitten, en hoe je er komt:
+// "langs" = even heen vanaf huis (reistijd = enkele reis), "route" = op de terugweg van een andere locatie (bv. kantoor; omweg in min).
+export const KETENS = [["ah", "AH"], ["jumbo", "Jumbo"], ["lidl", "Lidl"], ["aldi", "ALDI"], ["plus", "PLUS"], ["dirk", "Dirk"], ["hoogvliet", "Hoogvliet"],
+  ["spar", "SPAR"], ["dekamarkt", "DekaMarkt"], ["poiesz", "Poiesz"], ["vomar", "Vomar"], ["coop", "Coop"], ["janlinders", "Jan Linders"], ["ekoplaza", "Ekoplaza"]];
+export const winkels = () => (d().locaties || []).filter(l => l.soort === "winkel");
+const winkelSoorten = (w) => new Set([...(w.soorten || []), ...((w.ketens || []).length ? ["supermarkt"] : [])]);
+const winkeltijd = (n) => Math.min(45, 10 + 2 * n);
+const DAGNAAM = ["zondag", "maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag"];
+const hhmm = (x) => String(x.getHours()).padStart(2, "0") + ":" + String(x.getMinutes()).padStart(2, "0");
+
+/** Wanneer kom je de komende dagen terug van een locatie (einde van je laatste vaste blok daar die dag) */
+export function terugwegen(locId, dagen = 7, vanaf = new Date()) {
+  const uit = [];
+  for (let i = 0; i < dagen; i++) {
+    const dag = new Date(vanaf.getFullYear(), vanaf.getMonth(), vanaf.getDate() + i);
+    let I; try { I = dagIndeling(dag); } catch { continue; }
+    const blokken = (I.vast || []).filter(x => x.locatie === locId);
+    if (!blokken.length) continue;
+    const eind = new Date(Math.max(...blokken.map(x => +x.b)));
+    if (eind > vanaf) uit.push({ dag, eind });
+  }
+  return uit;
+}
+/** Advies: welke van je winkels, wanneer, met wat erbij (beste eerst) */
+export function winkelAdvies(open = B().items.filter(i => !i.klaar), vanaf = new Date()) {
+  const uit = [];
+  for (const w of winkels()) {
+    const ws = winkelSoorten(w), dekt = open.filter(it => ws.has(soortVan(it)));
+    if (!dekt.length) continue;
+    // prijzen bij de supermarkt(en) van deze winkel
+    let som = 0, gevonden = 0; const aanb = [];
+    if (idx && (w.ketens || []).length) for (const it of dekt) {
+      const r = prijsVan(it.tekst, w.ketens); if (!r?.perKeten.size) continue;
+      gevonden++; som += Math.min(...[...r.perKeten.values()].map(p => p.p)) * (it.aantal || 1);
+      const a = aanbiedingen(r)[0]; if (a) aanb.push({ it, p: a });
+    }
+    const tijd = winkeltijd(dekt.length);
+    let moment = null, extra;
+    if (w.bereik === "route" && w.route) {
+      extra = (w.omweg || 0) + tijd;
+      moment = terugwegen(w.route, 7, vanaf).map(t => ({ ...t, start: t.eind }))
+        .find(t => !w.sluit || hhmm(new Date(t.start.getTime() + (w.omweg || 0) * 6e4)) < w.sluit) || null;
+    } else extra = 2 * (w.reistijd || 0) + tijd;
+    // meer boodschappen en aanbiedingen = beter; omrijden en lang wachten = minder
+    const wacht = moment ? (moment.start - vanaf) / 864e5 : 1.5;
+    const score = dekt.length * 10 + aanb.length * 6 - extra / 4 - wacht * 2;
+    uit.push({ w, dekt, som, gevonden, aanb, tijd, extra, moment, score });
+  }
+  return uit.sort((a, b) => b.score - a.score);
+}
+const momentTekst = (m, w) => {
+  const vd = dagStr(new Date()), ds = dagStr(m.dag), morgen = dagStr(new Date(Date.now() + 864e5));
+  const dag = ds === vd ? "vandaag" : ds === morgen ? "morgen" : DAGNAAM[m.dag.getDay()];
+  return `${dag} ± ${hhmm(m.start)}, op de terugweg van ${esc(locatie(w.route)?.naam || "je werk")}`;
+};
+function adviesBlok() {
+  const open = B().items.filter(i => !i.klaar);
+  if (!open.length) return "";
+  if (!winkels().length) return `<div class="bsadvies leegadvies"><span>🧭 <b>Tip:</b> zet je eigen winkels erin — een supermarkt om de hoek, of het winkelcentrum op je route terug van je werk.
+      Dan zegt Tijdkompas wáár en wanneer je het beste kunt gaan, en plant het in.</span><button type="button" class="knop klein" data-bs="winkelBij">＋ Winkel toevoegen</button></div>`;
+  const adv = winkelAdvies(open).slice(0, 3);
+  if (!adv.length) return `<div class="bsadvies leegadvies"><span>🧭 Wat er nu op je lijst staat, haal je niet bij een van je eigen winkels. <a href="#instellingen" data-bs="winkelBeheer">Winkels beheren</a></span></div>`;
+  return `<div class="bsadvies"><div class="hint">🧭 Waar en wanneer</div>${adv.map((a, i) => `<div class="bsadv ${i === 0 ? "beste" : ""}" data-winkel="${esc(a.w.id)}">
+      <div class="bsadvkop"><span class="bsadvicoon">${esc(a.w.icoon || "🏪")}</span><div><b>${esc(a.w.naam)}</b>
+        <div class="hint">${a.moment ? momentTekst(a.moment, a.w) : a.w.bereik === "route" ? "op je route — de komende week geen werkdag daar gevonden" : `even langs · ± ${a.extra} min heen en terug met winkelen`}${a.w.sluit ? ` · open tot ${esc(a.w.sluit)}` : ""}</div></div></div>
+      <div class="imeta"><span>${a.dekt.length} van ${open.length} boodschappen</span>${a.gevonden ? `<span class="bsprijs">± ${euro(a.som)}</span>` : ""}
+        ${a.aanb.length ? `<span class="tag bsaanb" title="${esc(a.aanb.map(x => x.it.tekst).join(", "))}">📉 ${a.aanb.length} in de aanbieding</span>` : ""}
+        ${a.w.bereik === "route" && a.moment ? `<span>+${a.extra} min</span>` : ""}</div>
+      <div class="hint bsadvitems">${a.dekt.map(it => esc(it.tekst)).join(" · ")}</div>
+      <div><button type="button" class="knop klein ${i === 0 ? "prim" : ""}" data-bs="plan" data-w="${esc(a.w.id)}">${a.moment ? `🗓️ Na je werk inplannen` : "🗓️ Inplannen…"}</button></div>
+    </div>`).join("")}</div>`;
+}
+/** Voor Vandaag: kom je vandaag op de terugweg langs een van je winkels terwijl er boodschappen open staan? */
+export function boodschappenVandaag() {
+  const open = B().items.filter(i => !i.klaar); if (!open.length) return "";
+  const vd = dagStr(new Date());
+  const a = winkelAdvies(open).find(x => x.moment && dagStr(x.moment.dag) === vd);
+  if (!a) return "";
+  return `<div class="paneel bsvandaag"><span>🛒 Vandaag ± ${hhmm(a.moment.start)} op de terugweg van ${esc(locatie(a.w.route)?.naam || "je werk")}: <b>${esc(a.w.naam)}</b> —
+    ${a.dekt.length} boodschap${a.dekt.length === 1 ? "" : "pen"}${a.aanb.length ? `, ${a.aanb.length} in de aanbieding` : ""}.</span> <a class="knop klein" href="#boodschappen">Bekijk lijstje</a></div>`;
+}
+/** Het lijstje als taak bij die winkel: op de terugweg meteen na je werk, of "even langs" via het inplanvenster */
+let haken = { planTaak: null, agendaBij: null };
+function lijstVoorBoodschappen() {
+  const eigen = d().overzichten.filter(o => !o.slot && (!o.eigenaar || isIk(o.eigenaar)));
+  return eigen.find(o => o.id === B().lijst) || eigen.find(o => o.modus === "vrij" && /priv|thuis|huis/i.test(o.naam)) || eigen.find(o => o.modus === "vrij") || eigen[0] || null;
+}
+export function planWinkel(wid) {
+  const a = winkelAdvies().find(x => x.w.id === wid); if (!a) return;
+  const o = lijstVoorBoodschappen(); if (!o) { toast("Maak eerst een lijst (bv. Privé), dan kan het lijstje als taak worden ingepland"); return; }
+  const titel = `🛒 Boodschappen ${a.w.naam}`, notitie = a.dekt.map(it => (it.aantal > 1 ? it.aantal + "× " : "") + it.tekst).join("\n");
+  let t = d().taken.find(x => x.status !== "klaar" && x.locatie === a.w.id && x.titel.startsWith("🛒"));
+  const v = { titel, notitie, schatting: a.moment ? a.extra : a.tijd, locatie: a.w.id, overzicht: o.id, belangrijk: true, urgent: a.aanb.length > 0 };
+  if (t) Object.assign(t, v); else t = nieuweTaak({ ...v, streef: a.moment ? dagStr(a.moment.dag) : "" });
+  if (a.moment) {
+    const r = plaatsBlok(t, a.moment.start, a.extra, undefined, { hierAl: true });   // je komt er toch langs: geen reistijd vanaf huis
+    bewaar(); haken.agendaBij?.([r.blok.id]);
+    toast(`Ingepland: ${momentTekst(a.moment, a.w).replace(/<[^>]+>/g, "")} (${a.extra} min)`);
+  } else { bewaar(); haken.planTaak?.(t); }
+}
 export function startPrijzen() {
   if (idx || prijsStand.bezig) return;
   laadPrijzen().then(i => { idx = i; zoekCache.clear(); opnieuw(); }).catch(() => opnieuw());
@@ -278,7 +384,7 @@ export function boodschappenWeergave() {
     ${hist.length && !winkelModus ? `<div class="chips bsvaak"><span class="hint">Vaak gekocht:</span>${hist.map(h => `<button type="button" data-bs="vaak" data-tekst="${esc(h.tekst)}">＋ ${esc(h.tekst)}</button>`).join("")}</div>` : ""}
     ${items.length ? `<div class="bsbalk"><div class="segment" role="group" aria-label="Indeling">${MODI.map(([k, t]) => `<button type="button" data-bs="modus" data-m="${k}" aria-pressed="${modus === k}">${t}</button>`).join("")}</div>
       ${prijsStatus()}</div>` : ""}
-    ${!winkelModus ? samenvatting(open) : ""}
+    ${!winkelModus ? adviesBlok() + samenvatting(open) : ""}
     <div class="bslijst ${winkelModus ? "inwinkel" : ""}">${lijf}</div>
     ${!winkelModus ? instellingenBlok() : ""}`;
 }
@@ -323,7 +429,7 @@ function samenvatting(open) {
 function instellingenBlok() {
   const bs = B(), gekozen = new Set(bs.ketens || []);
   return `<details class="bsinst"><summary>⚙️ Supermarkten en vaste winkels</summary>
-    <p class="hint">Vergelijk alleen bij de supermarkten waar je echt komt (niets gekozen = allemaal).</p>
+    <p class="hint">Vergelijk alleen bij de supermarkten waar je echt komt. Niets gekozen = ${winkels().some(w => (w.ketens || []).length) ? "die van je eigen winkels (Instellingen → Locaties)" : "allemaal"}.</p>
     <div class="chips">${(idx?.ketens || []).map(k => `<button type="button" data-bs="keten" data-n="${esc(k.n)}" aria-pressed="${gekozen.has(k.n)}" class="${gekozen.has(k.n) ? "aan" : ""}">${esc(k.c)}</button>`).join("") || `<span class="hint">Supermarkten verschijnen zodra de prijzen geladen zijn.</span>`}</div>
     <p class="hint">Je vaste winkel per soort (verschijnt bij de kop, bv. "Gamma Drachten"):</p>
     <div class="bsvast">${SOORTEN.filter(s => s.id !== "overig" && s.id !== "supermarkt").map(s => `<label>${s.icoon} ${esc(s.naam)}<input type="text" data-bs="vast" data-s="${s.id}" value="${esc(bs.voorkeur?.[s.id] || "")}" maxlength="40" placeholder="—"></label>`).join("")}</div>
@@ -410,6 +516,13 @@ function klik(e) {
     toast(`${weg.length} afgevinkt${weg.length === 1 ? "" : "e"} van de lijst gehaald`, { label: "Ongedaan maken", f: () => { B().items.push(...weg); bewaar(); } }); return;
   }
   if (a === "vaak") { voegToe(el.dataset.tekst); return; }
+  if (a === "plan") { planWinkel(el.dataset.w); return; }
+  if (a === "winkelBij" || a === "winkelBeheer") {
+    e.preventDefault();
+    if (a === "winkelBij") d().locaties.push({ id: uid(), naam: "Mijn supermarkt", icoon: "🏪", reistijd: 5, adres: "", soort: "winkel", ketens: [], soorten: [], bereik: "langs" });
+    try { localStorage.setItem("tk_instTab", JSON.stringify("locaties")); } catch {}
+    bewaar(); location.hash = "#instellingen"; return;
+  }
   if (a === "modus") { voorkeur.zet("modus", el.dataset.m); opnieuw(); return; }
   if (a === "keten") {
     const n = el.dataset.n, l = new Set(B().ketens || []); l.has(n) ? l.delete(n) : l.add(n); B().ketens = [...l]; zoekCache.clear(); bewaar(); return;
@@ -437,8 +550,8 @@ function wijzig(e) {
   if (el.dataset.bs === "vast") { const v = (B().voorkeur ||= {}); const t = el.value.trim().slice(0, 40); if (t) v[el.dataset.s] = t; else delete v[el.dataset.s]; bewaar(); }
 }
 /** Koppelt de lijst aan de pagina (één keer): klikken, invoer en hertekenen */
-export function initBoodschappen({ main, toast: t, render }) {
-  toast = t; opnieuw = render;
+export function initBoodschappen({ main, toast: t, render, planTaak, agendaBij }) {
+  toast = t; opnieuw = render; haken = { planTaak, agendaBij };
   main.addEventListener("click", (e) => { if (e.target.closest("[data-bs]") && e.target.closest(".bspagina")) klik(e); });
   main.addEventListener("change", (e) => { if (e.target.closest(".bspagina")) wijzig(e); });
   main.addEventListener("submit", (e) => {
@@ -449,3 +562,24 @@ export function initBoodschappen({ main, toast: t, render }) {
   });
 }
 export const focusInvoer = () => document.getElementById("bsInvoer")?.focus();
+
+// ---------- winkel-velden bij een locatie (Instellingen → Locaties) ----------
+export const winkelOpen = new Set();      // welke winkels je net aan het instellen bent (blijft open na hertekenen)
+export function winkelVelden(l) {
+  const andere = (d().locaties || []).filter(x => x.id !== l.id && x.id !== "thuis" && x.soort !== "winkel");
+  const ks = new Set(l.ketens || []), ss = new Set(l.soorten || []);
+  return `<div class="winkelvelden">
+    <label class="schakel"><input type="checkbox" data-locveld="soort" ${l.soort === "winkel" ? "checked" : ""}> 🏪 Winkel of winkelcentrum</label>
+    ${l.soort === "winkel" ? `
+    <details class="winkelkeuze" data-wopen="${esc(l.id)}" ${winkelOpen.has(l.id) || !(ks.size + ss.size) ? "open" : ""}><summary>${[...KETENS.filter(([n]) => ks.has(n)).map(([, c]) => c), ...SOORTEN.filter(x => ss.has(x.id)).map(x => x.icoon + " " + esc(x.naam))].join(" · ") || "Wat zit er?"} <span class="hint">· wijzigen</span></summary>
+    <div><div class="hint">Supermarkt(en) hier</div><div class="chips">${KETENS.map(([n, c]) => `<button type="button" data-wketen="${n}" aria-pressed="${ks.has(n)}" class="${ks.has(n) ? "aan" : ""}">${c}</button>`).join("")}</div></div>
+    <div><div class="hint">Andere winkels hier</div><div class="chips">${SOORTEN.filter(x => !["supermarkt", "overig"].includes(x.id)).map(x => `<button type="button" data-wsoort="${x.id}" aria-pressed="${ss.has(x.id)}" class="${ss.has(x.id) ? "aan" : ""}">${x.icoon} ${esc(x.naam)}</button>`).join("")}</div></div></details>
+    <div class="rij">
+      <label class="veld">Hoe kom je er?<select data-locveld="bereik"><option value="langs" ${l.bereik !== "route" ? "selected" : ""}>Even langs vanaf huis</option>
+        <option value="route" ${l.bereik === "route" ? "selected" : ""}>Op de terugweg van…</option></select></label>
+      ${l.bereik === "route" ? `<label class="veld">Terugweg van<select data-locveld="route"><option value="">— kies —</option>${andere.map(x => `<option value="${esc(x.id)}" ${l.route === x.id ? "selected" : ""}>${esc(x.icoon)} ${esc(x.naam)}</option>`).join("")}</select></label>
+        <label class="veld">Omweg (min)<input type="number" min="0" max="120" step="5" value="${+l.omweg || 0}" data-locveld="omweg"></label>` : ""}
+      <label class="veld">Open tot<input type="time" value="${esc(l.sluit || "")}" data-locveld="sluit"></label>
+    </div>` : ""}
+  </div>`;
+}

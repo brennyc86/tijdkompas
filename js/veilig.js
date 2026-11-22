@@ -122,6 +122,17 @@ export function ontsmet(n) {
   }
   n.locaties = (n.locaties || []).filter(l => l && veiligId(l.id));
   for (const l of n.locaties) { l.icoon = veiligIcoon(l.icoon, "📍"); l.naam = tekst(l.naam, 200); }
+  // winkels en winkelcentra (voor de boodschappenlijst)
+  for (const l of n.locaties) {
+    l.reistijd = Math.max(0, Math.min(1e4, Number(l.reistijd) || 0));
+    if (l.soort !== "winkel") { delete l.soort; continue; }
+    l.ketens = (Array.isArray(l.ketens) ? l.ketens : []).filter(kortId).slice(0, 30);
+    l.soorten = (Array.isArray(l.soorten) ? l.soorten : []).filter(kortId).slice(0, 30);
+    l.bereik = l.bereik === "route" ? "route" : "langs";
+    l.route = veiligId(l.route) ? l.route : "";
+    l.omweg = Math.max(0, Math.min(120, Number(l.omweg) || 0));
+    l.sluit = typeof l.sluit === "string" && /^\d{2}:\d{2}$/.test(l.sluit) ? l.sluit : "";
+  }
   const tijd = (t) => typeof t === "string" && /^\d{2}:\d{2}$/.test(t);
   const tijdvakken = (l) => (Array.isArray(l) ? l : []).filter(t => t && tijd(t.van) && tijd(t.tot)).map(t => ({ ...t, locatie: veiligId(t.locatie) ? t.locatie : "" }));
   for (const o of n.overzichten) if (o.tijden) o.tijden = tijdvakken(o.tijden);

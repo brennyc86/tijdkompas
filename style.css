@@ -765,3 +765,21 @@ a.koersitem{text-decoration:none;color:inherit}
 .bsdetail .veld{display:flex;flex-direction:column;gap:4px}
 .bsdetail .veld .vlabel{position:static;font-size:12px;color:var(--zacht)}
 .bsdetail .dvoet{margin:4px -18px 0;position:sticky;bottom:0;background:var(--paneel)}
+/* winkels bij locaties + advies */
+.locrij .winkelvelden{grid-column:1/-1;display:flex;flex-direction:column;gap:8px;border-top:1px dashed var(--rand);padding-top:8px}
+.winkelvelden .chips button{font-size:12.5px;padding:3px 10px}
+.winkelvelden .rij{display:flex;gap:10px;flex-wrap:wrap;align-items:end}
+.bsadvies{background:var(--paneel);border:1px solid var(--rand);border-radius:var(--r);padding:10px 12px;margin-bottom:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:8px}
+.bsadvies > .hint{grid-column:1/-1}
+.bsadvies.leegadvies{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:14px}
+.bsadvies.leegadvies span{flex:1;min-width:220px}
+.bsadv{background:var(--bg2);border:1px solid var(--rand);border-radius:10px;padding:9px 10px;display:flex;flex-direction:column;gap:6px}
+.bsadv.beste{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.bsadvkop{display:flex;gap:10px;align-items:flex-start}
+.bsadvicoon{font-size:22px;line-height:1}
+.bsadvitems{overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.bsvandaag{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;border-left:3px solid var(--accent)}
+.bsvandaag span{flex:1;min-width:220px}
+.winkelkeuze summary{cursor:pointer;font-size:13.5px}
+.winkelkeuze[open] summary{margin-bottom:6px}
+.winkelkeuze > div{margin-bottom:6px}

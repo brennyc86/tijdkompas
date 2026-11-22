@@ -10,7 +10,7 @@ import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroni
 import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD, eigenAgenda, viaEigenaar, vingerafdruk, kanVerplaatsen, verplaatsAgendaAfspraak } from "./sync.js";
 import { syncTaken, takenVerbindingen, koppelTakenlijst, takenlijstVan, takenVerbindingVan } from "./takensync.js";
 import { kiesEmoji, voorstellen } from "./emoji.js";
-import { boodschappenWeergave, initBoodschappen, focusInvoer } from "./boodschappen.js";
+import { boodschappenWeergave, initBoodschappen, focusInvoer, winkelVelden, winkelOpen, boodschappenVandaag } from "./boodschappen.js";
 import { veiligeUrl, veiligeFoto } from "./veilig.js";
 import { familieBezetRuw, familieRegels, familieLijstInst, familieVoorMij, emailVan, feedsLater, feedsBijwerken, feedStand, feedUrl, feedWeg, nieuweFeedSleutel, feedBlokken, cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda, gelinkteInfo, stuurInlogLink,
          koppel as koppelStaat, vraagKoppelcode, gebruikKoppelcode, beantwoordKoppel, stopKoppelcode, stuurBevestiging, controleerBevestiging } from "./cloud.js";
@@ -473,6 +473,7 @@ function vandaag() {
 
   return `${demoBanner()}
   <div class="titelbalk"><h1>${groet}</h1><span class="sub">${DAG[nu.getDay()]} ${nu.getDate()} ${MAAND[nu.getMonth()]}</span></div>
+  ${boodschappenVandaag()}
   ${d().overzichten.length ? "" : `<div class="paneel welkom"><b>Welkom bij Tijdkompas!</b> Begin met je eerste lijst, bijvoorbeeld <i>Werk</i>, <i>Thuis</i> of je hobby.
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button type="button" class="knop prim" data-actie="eersteLijst">＋ Lijst maken</button>
     ${ids().google || ids().microsoft ? `<a class="knop" href="#instellingen" data-tab="koppelingen">✅ Takenlijst van Google of Microsoft gebruiken</a>` : ""}</div></div>`}
@@ -1301,13 +1302,15 @@ function instLijsten() {
 function instLocaties() {
   const inst = d().instellingen;
   return `<h3 style="margin-top:0">Locaties</h3>
-  <p class="hint">Reistijd = enkele reis vanaf huis, in minuten. Het adres (optioneel) gebruikt Tijdkompas om afspraken met die plaats te herkennen en er reistijd omheen te plannen.</p>
+  <p class="hint">Reistijd = enkele reis vanaf huis, in minuten. Het adres (optioneel) gebruikt Tijdkompas om afspraken met die plaats te herkennen en er reistijd omheen te plannen.
+    Een winkel of winkelcentrum (om even langs te gaan, of op je terugweg van je werk) gebruikt de boodschappenlijst voor advies: waar en wanneer je het beste kunt gaan.</p>
   <div class="lijst">${d().locaties.map(l => `<div class="locrij" data-loc="${l.id}">
     <button type="button" class="emojiknop" data-emoji="locatie" aria-label="Icoon kiezen" title="Icoon kiezen">${esc(l.icoon)}</button>
     <input type="text" value="${esc(l.naam)}" data-locveld="naam" aria-label="Naam">
     <label class="veld klein">${l.id === "thuis" ? "Startpunt" : "Reistijd (min)"}${l.id === "thuis" ? `<input type="text" value="—" disabled>` : `<input type="number" min="0" step="5" value="${l.reistijd || 0}" data-locveld="reistijd">`}</label>
     <input type="text" value="${esc(l.adres || "")}" data-locveld="adres" placeholder="adres of plaatsnaam (optioneel)" aria-label="Adres">
     ${l.id === "thuis" ? "<span></span>" : `<button type="button" class="x" data-actie="locWeg" title="Verwijderen">✕</button>`}
+    ${l.id === "thuis" ? "" : winkelVelden(l)}
   </div>`).join("")}</div>
   <button class="knop" data-actie="locBij" style="margin-top:8px">＋ Locatie</button>
 
@@ -3310,6 +3313,12 @@ function kiesBestand(accept) {
 // ---------- event-delegatie in hoofdvenster ----------
 async function hoofdKlik(e) {
   if (e.target.closest(".bspagina")) return;            // boodschappen: eigen afhandeling (boodschappen.js)
+  const wk = e.target.closest("[data-wketen],[data-wsoort]");
+  if (wk) {                                             // winkel bij een locatie: welke supermarkten en soorten winkels er zitten
+    const l = locatie(wk.closest("[data-loc]")?.dataset.loc); if (!l) return;
+    const veld = wk.dataset.wketen ? "ketens" : "soorten", w = wk.dataset.wketen || wk.dataset.wsoort, set = new Set(l[veld] || []);
+    set.has(w) ? set.delete(w) : set.add(w); l[veld] = [...set]; winkelOpen.add(l.id); bewaar(); return;
+  }
   const ek = e.target.closest("[data-emoji]");
   if (ek) {
     const orij = ek.closest("[data-ov]"), mrij = ek.closest("[data-map]"), lrij = ek.closest("[data-loc]");
@@ -3585,7 +3594,9 @@ function hoofdWijzig(e) {
   const loc = e.target.closest("[data-loc]"), ag = e.target.closest("[data-agenda]");
   if (loc && e.target.dataset.locveld) {
     const l = locatie(loc.dataset.loc), k = e.target.dataset.locveld;
-    l[k] = k === "reistijd" ? Math.max(0, +e.target.value || 0) : e.target.value; bewaar(); return;
+    if (k === "soort") { l.soort = e.target.checked ? "winkel" : ""; if (l.soort) { l.ketens ||= []; l.soorten ||= []; l.bereik ||= "langs"; if (l.icoon === "📍") l.icoon = "🏪"; } }
+    else l[k] = k === "reistijd" || k === "omweg" ? Math.max(0, Math.min(k === "omweg" ? 120 : 1e4, +e.target.value || 0)) : e.target.value;
+    bewaar(); return;
   }
   if (ag && e.target.dataset.aveld) {
     const a = d().agendas[ag.dataset.agenda]; a[e.target.dataset.aveld] = e.target.value;
@@ -3631,6 +3642,7 @@ function hoofdWijzig(e) {
   } else if (g.dataset.actie === "toonKlaarProj") { voorkeur.zet("toonKlaarProj", e.target.checked); render(); }
 }
 main.addEventListener("click", hoofdKlik);
+main.addEventListener("toggle", (e) => { const id = e.target.dataset?.wopen; if (id) e.target.open ? winkelOpen.add(id) : winkelOpen.delete(id); }, true);
 main.addEventListener("change", hoofdWijzig);
 main.addEventListener("input", (e) => {
   if (e.target.name === "zoek") {
@@ -3639,7 +3651,7 @@ main.addEventListener("input", (e) => {
   }
 });
 
-initBoodschappen({ main, toast, render });
+initBoodschappen({ main, toast, render, planTaak, agendaBij });
 $("#nieuwKnop").addEventListener("click", () => { if (huidige() === "boodschappen") { focusInvoer(); return; } if (!eersteLijst()) openEditor(null, huidige() === "projecten" ? { type: "project" } : {}); });
 // Nog geen lijsten? Eerst er een maken (geeft true als dat venster nu opent)
 function eersteLijst() {

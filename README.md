@@ -147,6 +147,10 @@ Een boodschappenlijstje waar je alles op kunt zetten, van heel algemeen (`drinke
 - **Weergaven**: per soort winkel, per supermarkt (waar het het goedkoopst is) of op volgorde; *In de winkel* geeft grote regels zonder prijzen. Afgevinkt gaat naar *In je mandje*; *Lijst opschonen* haalt dat weg en onthoudt het voor *Vaak gekocht*.
 - **Bron**: de open dataset van [Checkjebon.nl](https://github.com/supermarkt/checkjebon) (MIT-licentie), ± 100.000 producten van AH, Jumbo, Lidl, Plus, Dirk, Hoogvliet, SPAR, DekaMarkt, Poiesz en Vomar.
   De workflow `.github/workflows/prijzen.yml` (`tools/prijzen.mjs`) haalt die elke ochtend op, houdt 35 dagen prijsgeschiedenis bij en zet `prijzen.json.gz` op de tak `data` (altijd één commit). Lukt dat niet, dan haalt de app de dataset rechtstreeks bij Checkjebon (dan zonder aanbiedingen).
+- **Je eigen winkels**: maak bij ⚙️ Instellingen → Locaties een locatie aan en vink *Winkel of winkelcentrum* aan. Geef aan welke supermarkten en andere winkels er zitten, en hoe je er komt: *even langs vanaf huis* (reistijd) of *op de terugweg van* een andere locatie (bv. Kantoor, met omweg in minuten), en hoe laat hij dichtgaat.
+  De lijst geeft dan advies *Waar en wanneer*: welke winkel het meeste van je lijstje heeft, wat het daar kost, wat er in de aanbieding is, en wanneer je er langskomt (de eerstvolgende werkdag op die locatie, als de winkel dan nog open is).
+  *Na je werk inplannen* zet het lijstje als taak met een blok direct na je werk (zonder extra reistijd vanaf huis); *Inplannen…* maakt een taak bij die winkel en opent het inplanvenster (met reistijd). Op Vandaag verschijnt een seintje als je vandaag langs zo'n winkel komt.
+  Zonder eigen keuze vergelijkt de prijslijst alleen de supermarkten van je eigen winkels.
 - De lijst is persoonlijk en gaat via je gebruikersdocument mee naar je andere apparaten (geen nieuwe Firestore-regels nodig).
 
 ## Kleuren

@@ -82,7 +82,9 @@ const vijand = {
     { id: `t3"><xss-i>`, type: "taak", overzicht: "goed", titel: "weg", status: "open" },
   ],
   koers: [{ id: "k1", titel: "Koers " + P, toelichting: P, trefwoorden: P, van: P, tot: "2026-12-31", status: P, evaluatie: P, taken: ["t1", "t2", P], nee: [], doel: { soort: "lijst", id: "goed" } }],
-  locaties: [{ id: "thuis", naam: "Thuis " + P, icoon: P, reistijd: 0 }, { id: "kantoor", naam: P, icoon: "🏢", reistijd: 20 }],
+  locaties: [{ id: "thuis", naam: "Thuis " + P, icoon: P, reistijd: 0 }, { id: "kantoor", naam: P, icoon: "🏢", reistijd: 20 },
+    { id: "winkel1", naam: "Winkel " + P, icoon: P, soort: "winkel", ketens: [P, "testmarkt"], soorten: [P, "drogist"], bereik: "route", route: "kantoor", omweg: P, sluit: P, reistijd: P },
+    { id: "winkel2", naam: P, soort: "winkel", ketens: ["testmarkt"], bereik: P, reistijd: 5 }],
   bezet: [{ id: "e1", titel: "Afspraak " + P, plaats: P, start: new Date(Date.now() + 3600e3).toISOString(), eind: new Date(Date.now() + 7200e3).toISOString(), kleur: P, bron: P }],
   planning: [{ id: "b1", item: "t1", overzicht: "goed", titel: "Blok " + P, start: new Date(Date.now() + 9000e3).toISOString(), eind: new Date(Date.now() + 12600e3).toISOString() }],
   agendaLinks: [{ id: "l1", naam: P, url: "https://outlook.live.com/x.ics", kleur: P }],
@@ -200,6 +202,7 @@ function allesTekenen(ronde) {
     controleer(`${ronde}/boodschappen ${m}`);
   }
   if (!main.querySelector(".bsitem")) fout(`${ronde}/boodschappen: geen items getekend`);
+  if (!main.querySelector(".bsadv")) fout(`${ronde}/boodschappen: geen winkeladvies getekend`);
   if (!main.querySelector(".bsprijs")) fout(`${ronde}/boodschappen: geen prijzen getekend`);
   for (const rij of main.querySelectorAll("[data-bs=open]")) {
     try { rij.dispatchEvent(new window.Event("click", { bubbles: true })); } catch (e) { fout(`${ronde}/boodschap openen: ${e.message}`); }
@@ -215,6 +218,8 @@ function allesTekenen(ronde) {
 const B = D.boodschappen;
 if (B.items.some(i => i.id.includes('"'))) fout("boodschap met onveilige id niet weggefilterd");
 if (B.items.some(i => i.soort === P || i.keten === P)) fout("boodschap: onveilige soort/keten niet weggefilterd");
+const W = D.locaties.find(l => l.id === "winkel1");
+if (!W || W.ketens.includes(P) || W.soorten.includes(P) || W.sluit === P || typeof W.omweg !== "number") fout("winkel-locatie niet ontsmet");
 if (B.ketens.includes(P) || Object.values(B.geleerd).includes(P) || Object.keys(B.voorkeur).includes(P)) fout("boodschappen: onveilige instellingen niet weggefilterd");
 globalThis.location.hash = "#boodschappen"; bewaar();          // de pagina vraagt de prijzen op
 const { laadPrijzen } = await import(ROOT + "/js/prijzen.js");
@@ -236,6 +241,7 @@ for (const x of Object.values(o.afwijkingen || {})) Object.assign(x, { reden: P 
 for (const x of Object.values(D.afwezig || {})) Object.assign(x, { reden: P });
 D.taken[0].links = [{ url: "javascript:alert(1)", label: P }];
 for (const i of D.boodschappen.items) Object.assign(i, { tekst: "melk " + P, notitie: P, soort: P, keten: P });
+for (const l of D.locaties.filter(l => l.soort === "winkel")) Object.assign(l, { naam: P, icoon: P, sluit: P });
 D.boodschappen.voorkeur = { bouwmarkt: P }; D.boodschappen.historie = { y: { tekst: P, n: 9, laatst: P } };
 const echtBewaar = bewaar;
 allesTekenen("zonder filter");
