@@ -1,0 +1,51 @@
+name: Prijzen bijwerken
+# Elke ochtend de supermarktprijzen van Checkjebon.nl (MIT) ophalen, de prijsgeschiedenis bijwerken en aanbiedingen
+# herkennen. Het resultaat komt op de tak `data` (altijd één commit, zodat de repo niet groeit); de app leest
+# https://raw.githubusercontent.com/brennyc86/tijdkompas/data/prijzen.json.gz
+on:
+  schedule:
+    - cron: "40 7 * * *"        # Checkjebon werkt rond 06:30 UTC bij
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: prijzen
+  cancel-in-progress: false
+jobs:
+  prijzen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Vorige prijsgeschiedenis ophalen
+        run: |
+          mkdir -p uit
+          if git fetch --depth=1 origin data 2>/dev/null; then
+            git show FETCH_HEAD:staat.json.gz > uit/staat.json.gz 2>/dev/null || rm -f uit/staat.json.gz
+          fi
+          ls -la uit
+      - name: Prijzen bijwerken
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node tools/prijzen.mjs uit
+      - name: Naar de tak data
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd uit
+          cat > README.md <<'TXT'
+          # Tijdkompas — prijsdata
+          Automatisch bijgewerkt door `.github/workflows/prijzen.yml` op `main`.
+          - `prijzen.json.gz`: prijzen per supermarkt, met normale prijs + sinds-datum bij aanbiedingen
+          - `staat.json.gz`: prijsgeschiedenis (laatste 35 dagen) waarmee aanbiedingen worden herkend
+          Bron: [Checkjebon.nl](https://github.com/supermarkt/checkjebon) (MIT-licentie).
+          TXT
+          git init -q -b data
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -qm "Prijzen $(date -u +%F)"
+          git push -fq "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" data

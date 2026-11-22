@@ -1,6 +1,7 @@
 name: Veiligheidstest
 on:
   push:
+    branches-ignore: [data]
   pull_request:
 permissions:
   contents: read

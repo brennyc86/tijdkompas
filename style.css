@@ -686,3 +686,82 @@ a.koersitem{text-decoration:none;color:inherit}
 .tussendoel .balk{height:4px}
 .deelgroep{margin-left:14px}
 .projsectie small{text-transform:none;letter-spacing:0;font-weight:400}
+
+/* ===== Boodschappen ===== */
+.navkort{display:none}
+.nav a b{font-weight:inherit}
+@media (max-width:860px){ .navlang{display:none} .navkort{display:inline} }
+.bsinvoer input{font-size:16px}
+.bsvaak{margin:-8px 0 14px;align-items:center}
+.bsvaak button{font-size:13px;padding:4px 10px}
+.bsbalk{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.bsbalk .segment{align-self:auto}
+.bsstatus{margin-left:auto}
+@media (max-width:640px){ .bsbalk .segment button{padding:7px 8px;font-size:12.5px} .bsstatus{margin-left:0} }
+.bsgroep{margin-bottom:6px}
+.bsgroepkop{display:flex;align-items:baseline;gap:8px;margin:18px 0 8px;flex-wrap:wrap}
+.bsgroepkop h2{font-size:16px}
+.bsgroepkop .tel{color:var(--meta);font-size:13px}
+.bsgroepkop .knop{margin-left:auto}
+.bsitem{display:flex;align-items:center;gap:12px;padding:9px 10px 9px 12px;background:var(--kaart);border:1px solid var(--rand);border-radius:var(--r);transition:opacity .2s}
+.bsitem .bsbody{flex:1;min-width:0;cursor:pointer}
+.bsitem.klaar{opacity:.55}
+.bsitem.klaar .bstitel{text-decoration:line-through;text-decoration-color:var(--zacht)}
+.bsitem.klaar .vink{background:var(--groen);border-color:var(--groen)}
+.bstitel{font-weight:500;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.bsaantal{color:var(--accent);font-weight:700}
+.bssoort{flex:none;background:var(--bg2);border:1px solid var(--rand);border-radius:10px;width:36px;height:36px;font-size:18px;cursor:pointer;display:grid;place-items:center}
+.bssoort:hover{border-color:var(--accent)}
+.bsprijs{font-variant-numeric:tabular-nums;color:var(--tekst)}
+.bsprijs small{color:var(--meta)}
+.tag.bsaanb{background:color-mix(in srgb,var(--oranje) 18%,transparent);border-color:color-mix(in srgb,var(--oranje) 55%,transparent);color:var(--tekst)}
+.tag.bsaanb s{opacity:.65}
+.tag.bsdubbel{cursor:pointer;border-style:dashed}
+.tag.bsdubbel:hover{border-color:var(--accent)}
+/* hoeveel keuze laat de omschrijving nog over: 4 streepjes, gevuld van "alles open" tot "precies dit" */
+.bsruimte{display:inline-flex;gap:2px;align-items:flex-end;height:12px}
+.bsruimte i{width:4px;border-radius:2px;background:var(--rand)}
+.bsruimte i:nth-child(1){height:5px}.bsruimte i:nth-child(2){height:7px}.bsruimte i:nth-child(3){height:9px}.bsruimte i:nth-child(4){height:12px}
+.bsruimte.r1 i:nth-child(-n+1),.bsruimte.r2 i:nth-child(-n+2),.bsruimte.r3 i:nth-child(-n+3),.bsruimte.r4 i{background:var(--accent2,var(--accent))}
+.bssamen{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-bottom:6px}
+.bsvergelijk,.bsaanbod{background:var(--paneel);border:1px solid var(--rand);border-radius:var(--r);padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.bsketen{display:flex;align-items:baseline;gap:8px;padding:4px 8px;border-radius:8px;background:var(--bg2);font-variant-numeric:tabular-nums}
+.bsketen span{flex:1}
+.bsketen small{color:var(--zacht);font-size:11px}
+.bsketen.beste{background:color-mix(in srgb,var(--groen) 20%,var(--bg2));box-shadow:inset 3px 0 0 var(--groen)}
+.bsaanbod .linkrij span:first-child{flex:1}
+.bsinst{margin-top:26px;background:var(--paneel);border:1px solid var(--rand);border-radius:var(--r);padding:10px 14px}
+.bsinst summary{cursor:pointer;color:var(--meta)}
+.bsinst .chips{margin:6px 0}
+.chips button.aan,.chips button[aria-pressed="true"]{background:var(--accent);color:var(--accentTekst);border-color:var(--accent)}
+.bsvast{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px 12px}
+.bsvast label{display:flex;flex-direction:column;gap:3px;font-size:13px;color:var(--meta)}
+.bsvast input{padding:5px 8px}
+/* in de winkel: groot en rustig, alleen wat je moet pakken */
+.bslijst.inwinkel .bsitem{padding:14px 12px}
+.bslijst.inwinkel .bstitel{font-size:18px}
+.bslijst.inwinkel .imeta,.bslijst.inwinkel .bsruimte{display:none}
+.bslijst.inwinkel .vink{width:30px;height:30px;font-size:16px}
+/* detailvenster */
+.bsdlg form.bsdetail{padding:16px 18px 0;gap:12px;overflow:auto}
+.bsdkop{display:flex;gap:10px;align-items:center}
+.bsdkop input{flex:1;min-width:0;font-size:17px;font-weight:600;padding:9px 12px}
+.bsaantalkies{display:flex;align-items:center;gap:8px}
+.bsaantalkies b{min-width:22px;text-align:center}
+.bsruimteuitleg{display:flex;gap:8px;align-items:center}
+.bsdetail .chips button{font-size:13px;padding:4px 10px}
+.bsprijzen{overflow-x:auto}
+.bsprijzen .tabel td{padding:6px;vertical-align:top}
+.bsprijzen .tabel td:first-child{white-space:nowrap}
+.bsknoppen{white-space:nowrap;text-align:right}
+.bskiessoort summary{cursor:pointer;padding:4px 0}
+.bskiessoort .chips{margin-top:6px}
+@media (max-width:640px){ .bsprijzen .tabel{font-size:12.5px} .bsprijzen .tabel td{padding:5px 4px} .bsknoppen{white-space:normal;width:28px} .bsdlg form.bsdetail{padding:14px 12px 0} .bsdetail .dvoet{margin:4px -12px 0} }
+.bsprijzen .tabel td.getal{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.bsprijzen .tabel tr.vast td{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.bsprijzen .tabel a{color:var(--tekst)}
+.bsprijzen details{margin-top:6px}
+.bsprijzen > .knop{margin-top:8px}
+.bsdetail .veld{display:flex;flex-direction:column;gap:4px}
+.bsdetail .veld .vlabel{position:static;font-size:12px;color:var(--zacht)}
+.bsdetail .dvoet{margin:4px -18px 0;position:sticky;bottom:0;background:var(--paneel)}

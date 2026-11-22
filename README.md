@@ -135,6 +135,20 @@ Eenmalige setup door de eigenaar: zie [SETUP.md](SETUP.md).
   De planner plant om alles heen; lijsten van het andere account plant dat account zelf in, in zijn eigen agenda.
 - Loskoppelen kan altijd: ieder houdt zijn eigen lijsten.
 
+## Boodschappen 🛒
+
+Een boodschappenlijstje waar je alles op kunt zetten, van heel algemeen (`drinken`) tot heel precies (`Arla biologische halfvolle melk 1,5 l`).
+
+- **Invoer**: `2x melk`, `melk x2`, `3 bananen`; meerdere tegelijk met komma's; `lamp #bouwmarkt` kiest het soort winkel, `cola @jumbo` zet de supermarkt vast.
+- **Per soort winkel**: Tijdkompas deelt alles zelf in (supermarkt, bouwmarkt, drogist, tuincentrum, dierenwinkel, watersport, …). Klopt het niet, tik dan op het icoon rechts en kies; dat wordt onthouden, ook voor varianten (`brood` → bakker geldt dan ook voor `volkoren brood`).
+- **Keuzeruimte**: de vier streepjes naast een boodschap laten zien hoeveel keuze je nog openlaat. Tik op een boodschap voor *Specifieker maken*: woorden en merken die in de passende producten voorkomen (`melk` → halfvolle, volle, bio, Campina…). Bij een soort (`drinken`, `fruit`, `gereedschap`) krijg je voorstellen.
+- **Prijzen**: per supermarkt het goedkoopste passende product, vergeleken per liter/kilo/stuk (geen grootverpakking als je gewoon "melk" schrijft), plus *Alles bij één supermarkt* (totaal per winkel) en *Per product de goedkoopste*. 📌 = hier halen, 🎯 = precies dit product.
+- **Aanbiedingen**: 📉 betekent nu minstens 10% onder de gewone prijs van de afgelopen weken. Bonus-acties als "2e halve prijs" en de folder van volgende week zitten er (nog) niet in.
+- **Weergaven**: per soort winkel, per supermarkt (waar het het goedkoopst is) of op volgorde; *In de winkel* geeft grote regels zonder prijzen. Afgevinkt gaat naar *In je mandje*; *Lijst opschonen* haalt dat weg en onthoudt het voor *Vaak gekocht*.
+- **Bron**: de open dataset van [Checkjebon.nl](https://github.com/supermarkt/checkjebon) (MIT-licentie), ± 100.000 producten van AH, Jumbo, Lidl, Plus, Dirk, Hoogvliet, SPAR, DekaMarkt, Poiesz en Vomar.
+  De workflow `.github/workflows/prijzen.yml` (`tools/prijzen.mjs`) haalt die elke ochtend op, houdt 35 dagen prijsgeschiedenis bij en zet `prijzen.json.gz` op de tak `data` (altijd één commit). Lukt dat niet, dan haalt de app de dataset rechtstreeks bij Checkjebon (dan zonder aanbiedingen).
+- De lijst is persoonlijk en gaat via je gebruikersdocument mee naar je andere apparaten (geen nieuwe Firestore-regels nodig).
+
 ## Kleuren
 - Kies per account de kleuren bij ⚙️ Instellingen → Overig (Bos, Perkament, Aubergine & cyaan, Aubergine licht, Nachtzee, Herfst, Grafiet, Lente).
   Een gelinkt account zonder eigen keuze krijgt aubergine & cyaan, zodat je meteen ziet met welk account je kijkt.
@@ -153,4 +167,4 @@ Eenmalige setup door de eigenaar: zie [SETUP.md](SETUP.md).
 Een Content-Security-Policy in `index.html` laat alleen scripts van de app zelf en van Google/Firebase toe. MSAL staat vast in `js/vendor/`, met een SRI-hash.
 `tests/veiligheid.mjs` controleert dit (`cd tests && npm install && node veiligheid.mjs`); dat gebeurt ook bij elke push (GitHub Actions).
 
-Statische site zonder build-stap: `js/data.js` (model + opslag), `js/plan.js` (dagindeling, inroosteren, .ics), `js/cloud.js` (Firebase: inloggen, Firestore-opslag als verschil-synchronisatie, delen), `js/koppeling.js` + `js/sync.js` (Google Agenda / Outlook), `js/schijf.js` (lijsten in eigen Drive/OneDrive, 3-wegs samenvoegen), `js/app.js` (UI). Beveiligingsregels: `firestore.rules`.
+Statische site zonder build-stap: `js/data.js` (model + opslag), `js/plan.js` (dagindeling, inroosteren, .ics), `js/cloud.js` (Firebase: inloggen, Firestore-opslag als verschil-synchronisatie, delen), `js/koppeling.js` + `js/sync.js` (Google Agenda / Outlook), `js/schijf.js` (lijsten in eigen Drive/OneDrive, 3-wegs samenvoegen), `js/app.js` (UI), `js/boodschappen.js` + `js/prijzen.js` (boodschappenlijst en prijsvergelijking). Beveiligingsregels: `firestore.rules`.

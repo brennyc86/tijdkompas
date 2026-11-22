@@ -87,6 +87,13 @@ const vijand = {
   planning: [{ id: "b1", item: "t1", overzicht: "goed", titel: "Blok " + P, start: new Date(Date.now() + 9000e3).toISOString(), eind: new Date(Date.now() + 12600e3).toISOString() }],
   agendaLinks: [{ id: "l1", naam: P, url: "https://outlook.live.com/x.ics", kleur: P }],
   afwezig: { [dagNa(3)]: { reden: P }, [P]: { reden: P } },
+  boodschappen: {
+    items: [{ id: "b1", tekst: "melk " + P, aantal: P, soort: P, keten: P, notitie: P, door: P, gemaakt: P },
+            { id: "b2", tekst: "halfvolle melk", aantal: 2, keten: "testmarkt" }, { id: "b3", tekst: P, klaar: true, klaarOp: P },
+            { id: `b4"><xss-b>`, tekst: "weg" }],
+    geleerd: { [P]: P, "lamp": "bouwmarkt" }, historie: { [P]: { tekst: P, n: P, laatst: P }, x: { tekst: "brood " + P, n: 3, laatst: "2026-11-01" } },
+    ketens: [P, "testmarkt"], voorkeur: { bouwmarkt: P, [P]: "x" },
+  },
 };
 
 const { window, document } = parseHTML(html);
@@ -102,6 +109,11 @@ for (const [k, v] of Object.entries({
   structuredClone: globalThis.structuredClone, HTMLElement: window.HTMLElement,
 })) zet(k, v);
 window.top = window.self = window;
+// Prijzen: geen internet in de test; de "eigen" prijsdata faalt, Checkjebon geeft vijandige productnamen en links
+const prijsData = [{ n: "testmarkt", c: "Markt " + P, u: "https://winkel.example/", d: [
+  { n: "Halfvolle melk " + P, l: `x"><xss-p>`, p: 1.09, s: "1 liter" }, { n: "Volle melk", l: "y", p: 1.19, s: "1 l" }, { n: "Melk " + P, l: P, p: 0.99, s: P }] },
+  { n: `kwaad"><xss-k>`, c: P, u: "javascript:alert(1)//", d: [{ n: "Halfvolle melk", l: "z", p: 0.89, s: "1 l" }] }];
+zet("fetch", async (url) => String(url).includes("checkjebon") ? new Response(JSON.stringify(prijsData)) : new Response("nee", { status: 404 }));
 globalThis.addEventListener = () => {}; globalThis.setInterval = () => 0;
 window.HTMLElement.prototype.showModal = function () { this.open = true; };
 window.HTMLElement.prototype.close = function (v) { this.open = false; if (v !== undefined) this.returnValue = v; this.onclose?.(); };
@@ -135,7 +147,7 @@ if (D.overzichten[0]?.kleur !== "#8a978e") fout("onveilige kleur niet vervangen"
 if (D.taken.find(t => t.id === "t1")?.links?.some(l => /^javascript/i.test(l.url))) fout("javascript:-link niet weggehaald");
 
 function allesTekenen(ronde) {
-  for (const v of ["vandaag", "matrix", "projecten", "taken", "agenda", "inzicht", "koers", "instellingen"]) {
+  for (const v of ["vandaag", "matrix", "projecten", "taken", "agenda", "boodschappen", "inzicht", "koers", "instellingen"]) {
     globalThis.location.hash = "#" + v;
     try { bewaar(); } catch (e) { fout(`${ronde}/${v}: ${e.message}`); }
     controleer(`${ronde}/${v}`);
@@ -182,10 +194,32 @@ function allesTekenen(ronde) {
   const inst = document.querySelector("#ovChips [data-inst]");
   try { inst?.dispatchEvent(new window.Event("click", { bubbles: true })); } catch (e) { fout(`${ronde}/inst-venster: ${e.message}`); }
   controleer(`${ronde}/inst-venster`);
+  // boodschappen: elke rij openen (detailvenster met prijzen, verfijnen, zoeklinks), modi en winkelstand
+  for (const m of ["soort", "winkel", "lijst"]) {
+    localStorage.setItem("tk_bs_modus", JSON.stringify(m)); globalThis.location.hash = "#boodschappen"; bewaar();
+    controleer(`${ronde}/boodschappen ${m}`);
+  }
+  if (!main.querySelector(".bsitem")) fout(`${ronde}/boodschappen: geen items getekend`);
+  if (!main.querySelector(".bsprijs")) fout(`${ronde}/boodschappen: geen prijzen getekend`);
+  for (const rij of main.querySelectorAll("[data-bs=open]")) {
+    try { rij.dispatchEvent(new window.Event("click", { bubbles: true })); } catch (e) { fout(`${ronde}/boodschap openen: ${e.message}`); }
+    controleer(`${ronde}/boodschap venster`);
+    document.querySelector(".bsdlg")?.close?.();
+  }
+  if (!document.querySelector(".bsdlg .bsdetail")) fout(`${ronde}/boodschappen: detailvenster niet geopend`);
+  if (!document.querySelector(".bsdlg .bsprijzen")) fout(`${ronde}/boodschappen: geen prijstabel in het venster`);
   try { document.querySelector("#accountKnop").dispatchEvent(new window.Event("click", { bubbles: true })); } catch (e) { fout(`${ronde}/account: ${e.message}`); }
   controleer(`${ronde}/account`);
 }
 
+const B = D.boodschappen;
+if (B.items.some(i => i.id.includes('"'))) fout("boodschap met onveilige id niet weggefilterd");
+if (B.items.some(i => i.soort === P || i.keten === P)) fout("boodschap: onveilige soort/keten niet weggefilterd");
+if (B.ketens.includes(P) || Object.values(B.geleerd).includes(P) || Object.keys(B.voorkeur).includes(P)) fout("boodschappen: onveilige instellingen niet weggefilterd");
+globalThis.location.hash = "#boodschappen"; bewaar();          // de pagina vraagt de prijzen op
+const { laadPrijzen } = await import(ROOT + "/js/prijzen.js");
+await laadPrijzen().catch(e => fout("prijzen laden: " + e.message));
+await new Promise(r => setTimeout(r, 20));
 // Ronde 1: zoals binnengekomen (na de filter)
 allesTekenen("na filter");
 // Ronde 2: de filter overgeslagen (tweede laag: elk veld moet bij het tonen óók veilig zijn).
@@ -201,6 +235,8 @@ for (const b of D.planning) Object.assign(b, { titel: P });
 for (const x of Object.values(o.afwijkingen || {})) Object.assign(x, { reden: P });
 for (const x of Object.values(D.afwezig || {})) Object.assign(x, { reden: P });
 D.taken[0].links = [{ url: "javascript:alert(1)", label: P }];
+for (const i of D.boodschappen.items) Object.assign(i, { tekst: "melk " + P, notitie: P, soort: P, keten: P });
+D.boodschappen.voorkeur = { bouwmarkt: P }; D.boodschappen.historie = { y: { tekst: P, n: 9, laatst: P } };
 const echtBewaar = bewaar;
 allesTekenen("zonder filter");
 

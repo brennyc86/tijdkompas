@@ -19,6 +19,24 @@ export function veiligeUrl(u) {
 export const veiligeFoto = (u) => { const v = veiligeUrl(u); try { return v.startsWith("https:") && new URL(v).hostname.endsWith(".googleusercontent.com") ? v : ""; } catch { return ""; } };
 const tekst = (x, max = 2000) => (typeof x === "string" ? x : x == null ? "" : String(x)).slice(0, max);
 
+// Boodschappenlijst: tekst blijft tekst (wordt bij tonen ge-escaped); soorten en supermarkten alleen als korte id
+const kortId = (x) => typeof x === "string" && /^[a-z0-9_-]{1,40}$/.test(x);
+const obj = (x) => x && typeof x === "object" && !Array.isArray(x) ? x : {};
+export function veiligeBoodschappen(b) {
+  b = obj(b);
+  const items = (Array.isArray(b.items) ? b.items : []).filter(i => i && veiligId(i.id) && typeof i.tekst === "string" && i.tekst.trim()).slice(0, 500).map(i => ({
+    id: i.id, tekst: tekst(i.tekst, 120), aantal: Math.max(1, Math.min(99, Math.round(Number(i.aantal) || 1))), klaar: !!i.klaar,
+    gemaakt: tekst(i.gemaakt, 40), ...(i.klaarOp ? { klaarOp: tekst(i.klaarOp, 40) } : {}), ...(kortId(i.soort) ? { soort: i.soort } : {}),
+    ...(kortId(i.keten) ? { keten: i.keten } : {}), ...(i.notitie ? { notitie: tekst(i.notitie, 300) } : {}), ...(veiligId(i.door) ? { door: i.door } : {}),
+  }));
+  const geleerd = Object.fromEntries(Object.entries(obj(b.geleerd)).filter(([k, v]) => k.length <= 200 && kortId(v)).slice(-600));
+  const historie = Object.fromEntries(Object.entries(obj(b.historie)).filter(([k, v]) => k.length <= 200 && v && typeof v.tekst === "string").slice(-400)
+    .map(([k, v]) => [k, { tekst: tekst(v.tekst, 120), n: Math.max(0, Math.min(1e5, Math.round(Number(v.n) || 0))), laatst: tekst(v.laatst, 10) }]));
+  const ketens = (Array.isArray(b.ketens) ? b.ketens : []).filter(kortId).slice(0, 30);
+  const voorkeur = Object.fromEntries(Object.entries(obj(b.voorkeur)).filter(([k, v]) => kortId(k) && typeof v === "string").map(([k, v]) => [k, tekst(v, 40)]));
+  return { items, geleerd, historie, ketens, voorkeur };
+}
+
 /** Ledeninfo ({uid: {naam, email, foto}}) van een gedeelde lijst of map */
 export function veiligeLeden(info) {
   const uit = {};
@@ -141,6 +159,7 @@ export function ontsmet(n) {
   n.rolKeuzes = Object.fromEntries(Object.entries(n.rolKeuzes && typeof n.rolKeuzes === "object" && !Array.isArray(n.rolKeuzes) ? n.rolKeuzes : {})
     .filter(([k, v]) => k.length <= 500 && v && ["werk", "prive"].includes(v.rol) && veiligId(v.lijst) && (k.split("|").at(-2) || "") >= grensV)
     .slice(-500).map(([k, v]) => [k, { rol: v.rol, lijst: v.lijst }]));
+  n.boodschappen = veiligeBoodschappen(n.boodschappen);
   const weg = n.afwezig && typeof n.afwezig === "object" && !Array.isArray(n.afwezig) ? n.afwezig : {};
   n.afwezig = Object.fromEntries(Object.entries(weg).filter(([k, x]) => datum(k) && k >= grens && x && typeof x === "object").map(([k, x]) => [k, { reden: tekst(x.reden, 100) }]));
   return n;

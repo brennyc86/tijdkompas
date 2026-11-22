@@ -10,6 +10,7 @@ import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroni
 import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD, eigenAgenda, viaEigenaar, vingerafdruk, kanVerplaatsen, verplaatsAgendaAfspraak } from "./sync.js";
 import { syncTaken, takenVerbindingen, koppelTakenlijst, takenlijstVan, takenVerbindingVan } from "./takensync.js";
 import { kiesEmoji, voorstellen } from "./emoji.js";
+import { boodschappenWeergave, initBoodschappen, focusInvoer } from "./boodschappen.js";
 import { veiligeUrl, veiligeFoto } from "./veilig.js";
 import { familieBezetRuw, familieRegels, familieLijstInst, familieVoorMij, emailVan, feedsLater, feedsBijwerken, feedStand, feedUrl, feedWeg, nieuweFeedSleutel, feedBlokken, cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda, gelinkteInfo, stuurInlogLink,
          koppel as koppelStaat, vraagKoppelcode, gebruikKoppelcode, beantwoordKoppel, stopKoppelcode, stuurBevestiging, controleerBevestiging } from "./cloud.js";
@@ -353,7 +354,9 @@ $("#ovChips").addEventListener("click", (e) => {
 });
 
 // ---------- weergaves ----------
-const weergaves = { vandaag, matrix, projecten, taken, agenda, inzicht, koers, instellingen };
+// Boodschappen: eigen module; de invoer (wat je aan het typen bent) blijft staan als de pagina opnieuw getekend wordt
+const boodschappen = () => `<div class="bspagina">${boodschappenWeergave()}</div>`;
+const weergaves = { vandaag, matrix, projecten, taken, agenda, boodschappen, inzicht, koers, instellingen };
 function huidige() { const h = location.hash.slice(1); return weergaves[h] ? h : "vandaag"; }
 
 // Koppelingen (agenda's, takenlijsten, schijf) horen bij het hele Tijdkompas: via de cloud gedeeld met al je inlogs
@@ -369,7 +372,9 @@ function render() {
   const v = huidige();
   $$("#nav a").forEach(a => a.classList.toggle("actief", a.dataset.v === v));
   const scroll = window.scrollY;
+  const inv = $("#bsInvoer"), bsTekst = inv?.value, bsFocus = inv && document.activeElement === inv, bsPos = inv?.selectionStart;
   main.innerHTML = sessieBanner() + weergaves[v]();
+  if (v === "boodschappen" && inv) { const n = $("#bsInvoer"); if (n) { n.value = bsTekst; if (bsFocus) { n.focus(); try { n.setSelectionRange(bsPos, bsPos); } catch {} } } }
   markeerFocus(main);
   if (v === "matrix") activeerSlepen();
   if ((v === "agenda" || v === "vandaag") && (verbindingen().length || (d().agendaLinks || []).length) && !doeOphalen.bezig && Date.now() - new Date(d().agendaSync || 0) > 15 * 60e3) {
@@ -3304,6 +3309,7 @@ function kiesBestand(accept) {
 
 // ---------- event-delegatie in hoofdvenster ----------
 async function hoofdKlik(e) {
+  if (e.target.closest(".bspagina")) return;            // boodschappen: eigen afhandeling (boodschappen.js)
   const ek = e.target.closest("[data-emoji]");
   if (ek) {
     const orij = ek.closest("[data-ov]"), mrij = ek.closest("[data-map]"), lrij = ek.closest("[data-loc]");
@@ -3546,6 +3552,7 @@ main.addEventListener("submit", async (e) => {
   }
 });
 function hoofdWijzig(e) {
+  if (e.target.closest?.(".bspagina")) return;
   const fd = e.target.closest?.("[data-feed]");
   if (fd && (e.target.dataset.feedlijst || e.target.dataset.feedopt || e.target.dataset.feedveld)) {
     const f = feedVan(e.target); if (!f) return;
@@ -3632,7 +3639,8 @@ main.addEventListener("input", (e) => {
   }
 });
 
-$("#nieuwKnop").addEventListener("click", () => { if (!eersteLijst()) openEditor(null, huidige() === "projecten" ? { type: "project" } : {}); });
+initBoodschappen({ main, toast, render });
+$("#nieuwKnop").addEventListener("click", () => { if (huidige() === "boodschappen") { focusInvoer(); return; } if (!eersteLijst()) openEditor(null, huidige() === "projecten" ? { type: "project" } : {}); });
 // Nog geen lijsten? Eerst er een maken (geeft true als dat venster nu opent)
 function eersteLijst() {
   if (d().overzichten.some(o => !o.slot)) return false;
