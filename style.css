@@ -795,3 +795,4 @@ a.koersitem{text-decoration:none;color:inherit}
 .bsfavnaam{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bsster{font-size:12px}
 .bsfavknop.aan,.bsknoppen .x.aan{color:var(--accent)}
+.voorstel .vwijkt{color:var(--q-doen,var(--accent));white-space:normal;max-width:180px}

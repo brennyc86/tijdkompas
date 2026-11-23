@@ -705,11 +705,22 @@ function werkmomentRond(it, t, hierAl = false) {
   return w || [t, new Date(dag.getTime() + 864e5)];
 }
 const itemVan = (b) => taak(b.item) || project(b.item);
-/** Mag dit blok wijken voor een Doen-taak? Alles behalve andere Doen-taken (en reserve voor uitloop mag altijd). */
-export function wijkbaar(b) {
+/** Moet dit item op een bepaalde plek gebeuren (niet thuis, niet "overal")? */
+export function plekGebonden(it) {
+  const p = plekVan(it), l = p.eigenLoc || p.loc;
+  return !!l && l !== "thuis" && (p.reis > 0 || (p.ov?.modus === "vast" && !!p.eigenLoc));
+}
+/**
+ * Mag dit blok wijken voor een Doen-taak? Taken uit lagere kwadranten altijd (reserve voor uitloop ook). Andere Doen-taken
+ * alleen voor een plekgebonden Doen-taak, en alleen als zij zelf niet aan een plek vastzitten: als je er toch bent, gaat dat voor.
+ * (Dat de plek klopt, regelen de voorstellen: die bieden een plekgebonden taak alleen tijd op die plek aan.)
+ */
+export function wijkbaar(b, voor = null) {
   if (b.soort === "uitloop") return true;
-  const it = itemVan(b);
-  return !!it && kwadrant(it) !== "doen";
+  const x = itemVan(b);
+  if (!x || x.status === "klaar" || (voor && x.id === voor.id)) return false;
+  if (kwadrant(x) !== "doen") return true;
+  return !!voor && kwadrant(voor) === "doen" && plekGebonden(voor) && !plekGebonden(x);
 }
 // Een blok met de reistijd die er direct aan vast zit, als één geheel om te verschuiven
 function eenheden(blokken) {
@@ -818,7 +829,7 @@ export function metVoorrang(it, { modus = "kijk", hierAl = false } = {}) {
   if (nodig <= 5) { herstel(); return { gevonden: false, alGenoeg: true }; }
   // de andere taken in dezelfde werktijd die mogen wijken: even uit de planning
   const fam = werkFamilie(it);
-  const pool = eenheden(d.planning.filter(x => x.item && x.item !== it.id && x.soort !== "reis" && x.soort !== "uitloop" && wijkbaar(x)
+  const pool = eenheden(d.planning.filter(x => x.item && x.item !== it.id && x.soort !== "reis" && x.soort !== "uitloop" && wijkbaar(x, it)
     && new Date(x.start) >= nu && werkFamilie(itemVan(x)) === fam));
   for (const e of pool) e.oud = { start: e.blok.start, eind: e.blok.eind, a: beginVan(e), b: eindVan(e) };
   const delen = new Set(pool.flatMap(delenVan));

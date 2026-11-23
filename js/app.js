@@ -4,7 +4,7 @@ import { opslag, bewaar, KWADRANTEN, kwadrant, overzicht, project, taak, takenVa
          map, submappen, lijstenIn, lijstenOnder, mappenOnder, mapPad, boom, lijstVolgorde, idsVan,
          afspraak, koersVan, binnenDoel, koersScore, koersSuggesties, koppelKoers, mijnId, isIk, personen, naamVanPersoon, isMijn, isTeam, wie, wachtNogOp, wachtenOp, maaktKring, anderen as andereLeden } from "./data.js";
 import { familieHaak, planAutomatisch, werkGeplandBij, doelDatum, harde, prioriteit, googleLink, outlookLink, maakIcs, leesIcs, dagStr, dagIndeling, eventSoort, SOORTEN,
-  AFWIJKING, maakRuimte, magWijkenVoor, plaatsMetWijken, telt, isHerinnering, buitenBeschikbaarheid, regelVoor, rolKeuze, afspraakSleutel, standaardTijden, afwijkingOp, afwijkingDatums, zetAfwijking, dagTijden, tijdenZonder, tijdenMet, effLijst, rolBotsingen, planStatus, grootsteGat, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, plaatsVanaf, vrijkomend, vrijeTijd, trekAllesNaarVoren, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
+  AFWIJKING, maakRuimte, magWijkenVoor, wijkbaar, plekGebonden, plaatsMetWijken, telt, isHerinnering, buitenBeschikbaarheid, regelVoor, rolKeuze, afspraakSleutel, standaardTijden, afwijkingOp, afwijkingDatums, zetAfwijking, dagTijden, tijdenZonder, tijdenMet, effLijst, rolBotsingen, planStatus, grootsteGat, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, plaatsVanaf, vrijkomend, vrijeTijd, trekAllesNaarVoren, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
 import { ids, verbindingen as alleVerbindingen, heeft, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, zonderDoel, koppelHaak, neemGedeeldeOver } from "./koppeling.js";
 import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroniseerAlles, naamVan, lijstWeg } from "./schijf.js";
 import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD, eigenAgenda, viaEigenaar, vingerafdruk, kanVerplaatsen, verplaatsAgendaAfspraak } from "./sync.js";
@@ -2342,7 +2342,11 @@ function planTaak(it) {
   const heeftDeadline = !!harde(it);
   let deadlineVoor = heeftDeadline;                                // deadline gaat voor: taken zonder (of met latere) deadline schuiven op
   let keuze = null;                                                // { start, duur, probleem } — wachten op jouw keuze bij een deadlineprobleem
-  const negeer = () => deadlineVoor ? (b) => magWijkenVoor(it, b) : null;                               // kijk: { dag, van, tot } voor het dagbeeld; schuifMee: andere taken wijken
+  const isDoen = () => kwadrant(it) === "doen";                    // Doen gaat zonder pardon over lagere kwadranten heen (die schuiven op)
+  // welke (wijkende) blokken staan er nu in een voorstel — om te laten zien wat er opschuift
+  const staatEr = (v) => { const f = negeer(); return f ? d().planning.filter(b => b.item && b.item !== it.id && b.soort !== "reis" && b.soort !== "uitloop" && new Date(b.start) < v.b && new Date(b.eind) > v.a && f(b)) : []; };
+  const negeer = () => isDoen() ? (b) => (b.item !== it.id && wijkbaar(b, it)) || (deadlineVoor && magWijkenVoor(it, b))
+    : deadlineVoor ? (b) => magWijkenVoor(it, b) : null;                               // kijk: { dag, van, tot } voor het dagbeeld; schuifMee: andere taken wijken
   const kanAgenda = () => Object.entries(d().agendas || {}).some(([k, a]) => a.schrijf && verbindingVanBron(k));
   const R = raster();
   const opRaster = (m) => Math.ceil(m / R) * R;
@@ -2396,9 +2400,10 @@ function planTaak(it) {
         <label class="veld" title="Alleen vrije gaten van minstens deze lengte worden voorgesteld">Gaten van minstens<input type="text" name="pmin" value="${fmtDuur(minDuur)}" style="max-width:110px"></label>
         <button type="button" class="knop klein" data-actie="pmin">Zoeken</button>
       </div>
-      <div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">Vrije gaten — klik om het hele gat te plannen; <b>rechtsklik of lang drukken</b> om het blok in te korten of te verschuiven</div>
+      ${isDoen() ? `<div class="hint">⚡ Doen gaat voor: hieronder staan ook de momenten waar nu een taak uit een lager kwadrant staat (⏩). Die schuift door naar het volgende lege moment${plekGebonden(it) ? "; omdat deze taak op een vaste plek moet, wijken daar ook Doen-taken die overal kunnen" : ""}.</div>` : ""}
+      <div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">${isDoen() ? "Momenten" : "Vrije gaten"} — klik om het hele gat te plannen; <b>rechtsklik of lang drukken</b> om het blok in te korten of te verschuiven</div>
         ${perDag.length ? `<div class="voorstellen">${perDag.map(g => `<div class="vdag"><button type="button" class="vdagknop" data-kijk="${g.dag}" title="Laat de agenda van deze dag zien">${fmtDatum(g.dag)} 👁</button>${g.v.map(v =>
-          `<button type="button" class="voorstel${v.naDeadline ? " laat" : ""}" data-zet="${v.a.toISOString()}" data-tot="${v.b.toISOString()}" title="${v.naDeadline ? "Ná de deadline · " : ""}Klik: hele gat plannen · rechtsklik of lang drukken: aanpassen">${fmtTijd(v.a.toISOString())}–${fmtTijd(v.b.toISOString())}<small>${fmtDuur(v.duur)}${v.reis ? ` · 🚗 ${v.reis}m heen/terug` : ""}</small>${v.naDeadline ? "<small>na deadline</small>" : ""}</button>`).join("")}</div>`).join("")}</div>
+          `<button type="button" class="voorstel${v.naDeadline ? " laat" : ""}" data-zet="${v.a.toISOString()}" data-tot="${v.b.toISOString()}" title="${v.naDeadline ? "Ná de deadline · " : ""}Klik: hele gat plannen · rechtsklik of lang drukken: aanpassen">${fmtTijd(v.a.toISOString())}–${fmtTijd(v.b.toISOString())}<small>${fmtDuur(v.duur)}${v.reis ? ` · 🚗 ${v.reis}m heen/terug` : ""}</small>${v.naDeadline ? "<small>na deadline</small>" : ""}${staatEr(v).length ? `<small class="vwijkt" title="Staat er nu; schuift door naar het volgende lege moment">⏩ ${staatEr(v).map(b => esc(String(b.titel || "").slice(0, 28))).join(", ")}</small>` : ""}</button>`).join("")}</div>`).join("")}</div>
           ${vs.length >= aantal ? `<button type="button" class="knop klein" data-actie="pmeer" style="margin-top:8px">Meer gaten tonen</button>` : ""}`
           : `<div class="leeg" style="padding:14px">Geen vrij gat van ${fmtDuur(minDuur)} of langer in de komende 4 weken ${waar}. Kies een kortere lengte, of kies hieronder zelf een moment.</div>`}
       </div>
@@ -2407,7 +2412,7 @@ function planTaak(it) {
           <label class="veld">Van${tijdIn("pvan", kijk.van)}</label><label class="veld">Tot${tijdIn("ptot", kijk.tot)}</label>
           <button type="button" class="knop" data-actie="pzelf">Hier plaatsen</button></div>
         <label class="schakel" style="margin-top:6px"><input type="checkbox" id="pschuif" ${schuifMee ? "checked" : ""}> Staan er andere taken? Die schuiven automatisch door naar het volgende lege moment</label>
-        <div id="dagbeeld">${dagBeeld(kijk, it, schuifMee)}</div></div>`}
+        <div id="dagbeeld">${dagBeeld(kijk, it, schuifMee || isDoen())}</div></div>`}
       <p class="hint" style="margin:0">Blokken beginnen op een heel of half uur: eindigt een afspraak om kwart over, dan begin je om half (de rest is pauze). Afspraken die in je agenda op „vrij” staan tellen niet mee.
         Wat je hier plaatst wordt 📌 vastgezet: ⚡ Automatisch inplannen laat het staan en plant alleen de rest; het komt meteen in de gekozen agenda.</p>
     </div>
@@ -2418,9 +2423,9 @@ function planTaak(it) {
     const duur = Math.round((eind - start) / 60000);
     if (!(duur > 0)) { toast("De eindtijd moet na de begintijd liggen"); return; }
     if (eind <= new Date()) { toast("Dat moment is al voorbij"); return; }
-    const bots = controleer && !forceer ? botsingen(it, start, eind, { blokkenMogenWijken: schuifMee || deadlineVoor }) : [];
+    const bots = controleer && !forceer ? botsingen(it, start, eind, { blokkenMogenWijken: schuifMee || deadlineVoor || isDoen() }) : [];
     if (bots.length && !confirm(`Let op:\n• ${bots.join("\n• ")}\n\nToch hier plaatsen?`)) return;
-    const rr = plaatsMetWijken(it, start, duur, agendaKeuze || undefined, { wijken: schuifMee || deadlineVoor, forceer });
+    const rr = plaatsMetWijken(it, start, duur, agendaKeuze || undefined, { wijken: schuifMee || deadlineVoor || isDoen(), forceer: forceer || isDoen() });
     if (!rr.ok) { keuze = { start, duur, probleem: rr.probleem }; melding = ""; teken(); $(".deadlinekeuze", dlg2)?.scrollIntoView?.({ block: "nearest" }); return; }
     keuze = null;
     const r = rr, wijk = [...rr.geschoven, ...rr.niet], nietGepast = rr.niet;
@@ -2471,7 +2476,7 @@ function planTaak(it) {
       const min = minDuur || 30, gezet = [];
       for (let n = 0, st = planStatus(it); st.rest > 0 && n < 30; n++, st = planStatus(it)) {
         const v = planVoorstellen(it, Math.min(st.rest, min), { aantal: 1, negeer: negeer() })[0]; if (!v) break;
-        const dur = Math.min(st.rest, v.duur), r = plaatsMetWijken(it, v.a, dur, agendaKeuze || undefined, { wijken: schuifMee || deadlineVoor });
+        const dur = Math.min(st.rest, v.duur), r = plaatsMetWijken(it, v.a, dur, agendaKeuze || undefined, { wijken: schuifMee || deadlineVoor || isDoen(), forceer: isDoen() });
         if (!r.ok) { keuze = { start: v.a, duur: dur, probleem: r.probleem }; break; }
         gezet.push(r.blok);
       }
@@ -2492,7 +2497,7 @@ function planTaak(it) {
   };
   dlg2.onkeydown = (e) => { if (e.key === "Enter" && e.target.name === "pmin") { e.preventDefault(); $('[data-actie="pmin"]', dlg2).click(); } };
   // dagbeeld bijwerken zonder het hele venster opnieuw te tekenen
-  const kijkBij = () => { const db = $("#dagbeeld", dlg2); if (db) db.innerHTML = dagBeeld(kijk, it, schuifMee); };
+  const kijkBij = () => { const db = $("#dagbeeld", dlg2); if (db) db.innerHTML = dagBeeld(kijk, it, schuifMee || isDoen()); };
   const leesKijk = () => { const v = (n) => $(`[name=${n}]`, dlg2)?.value || ""; kijk = { dag: v("pdag") || kijk.dag, van: v("pvan") || kijk.van, tot: v("ptot") || kijk.tot }; };
   dlg2.onchange = (e) => {
     if (e.target.name === "pagenda") agendaKeuze = e.target.value;
