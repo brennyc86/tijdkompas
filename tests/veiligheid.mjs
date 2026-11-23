@@ -95,6 +95,7 @@ const vijand = {
             { id: `b4"><xss-b>`, tekst: "weg" }],
     geleerd: { [P]: P, "lamp": "bouwmarkt" }, historie: { [P]: { tekst: P, n: P, laatst: P }, x: { tekst: "brood " + P, n: 3, laatst: "2026-11-01" } },
     ketens: [P, "testmarkt"], voorkeur: { bouwmarkt: P, [P]: "x" },
+    favorieten: [{ id: "f1", tekst: "verse halfvolle melk", bron: { k: P } }, { id: "f2", tekst: P, gemaakt: P }, { id: `f3"><xss-f>`, tekst: "weg" }],
   },
 };
 
@@ -204,6 +205,7 @@ function allesTekenen(ronde) {
   if (!main.querySelector(".bsitem")) fout(`${ronde}/boodschappen: geen items getekend`);
   if (!main.querySelector(".bsadv")) fout(`${ronde}/boodschappen: geen winkeladvies getekend`);
   if (!main.querySelector(".bsprijs")) fout(`${ronde}/boodschappen: geen prijzen getekend`);
+  if (!main.querySelector(".bsfavs .bsfav")) fout(`${ronde}/boodschappen: geen favorieten getekend`);
   for (const rij of main.querySelectorAll("[data-bs=open]")) {
     try { rij.dispatchEvent(new window.Event("click", { bubbles: true })); } catch (e) { fout(`${ronde}/boodschap openen: ${e.message}`); }
     controleer(`${ronde}/boodschap venster`);
@@ -220,6 +222,7 @@ if (B.items.some(i => i.id.includes('"'))) fout("boodschap met onveilige id niet
 if (B.items.some(i => i.soort === P || i.keten === P)) fout("boodschap: onveilige soort/keten niet weggefilterd");
 const W = D.locaties.find(l => l.id === "winkel1");
 if (!W || W.ketens.includes(P) || W.soorten.includes(P) || W.sluit === P || typeof W.omweg !== "number") fout("winkel-locatie niet ontsmet");
+if (B.favorieten.some(f => f.id.includes('"') || f.bron)) fout("favorieten niet ontsmet");
 if (B.ketens.includes(P) || Object.values(B.geleerd).includes(P) || Object.keys(B.voorkeur).includes(P)) fout("boodschappen: onveilige instellingen niet weggefilterd");
 globalThis.location.hash = "#boodschappen"; bewaar();          // de pagina vraagt de prijzen op
 const { laadPrijzen } = await import(ROOT + "/js/prijzen.js");
@@ -242,6 +245,7 @@ for (const x of Object.values(D.afwezig || {})) Object.assign(x, { reden: P });
 D.taken[0].links = [{ url: "javascript:alert(1)", label: P }];
 for (const i of D.boodschappen.items) Object.assign(i, { tekst: "melk " + P, notitie: P, soort: P, keten: P });
 for (const l of D.locaties.filter(l => l.soort === "winkel")) Object.assign(l, { naam: P, icoon: P, sluit: P });
+for (const f of D.boodschappen.favorieten) Object.assign(f, { tekst: "halfvolle melk " + P, bron: { k: P } });
 D.boodschappen.voorkeur = { bouwmarkt: P }; D.boodschappen.historie = { y: { tekst: P, n: 9, laatst: P } };
 const echtBewaar = bewaar;
 allesTekenen("zonder filter");

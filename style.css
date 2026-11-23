@@ -783,3 +783,15 @@ a.koersitem{text-decoration:none;color:inherit}
 .winkelkeuze summary{cursor:pointer;font-size:13.5px}
 .winkelkeuze[open] summary{margin-bottom:6px}
 .winkelkeuze > div{margin-bottom:6px}
+/* favorieten */
+.bsfavaanbod,.bsfavdlg{background:color-mix(in srgb,var(--accent) 9%,var(--paneel));border:1px solid color-mix(in srgb,var(--accent) 35%,var(--rand));border-radius:var(--r);padding:10px 12px;display:flex;flex-direction:column;gap:6px;margin-bottom:6px}
+.bsfavaanbod .linkrij,.bsfavdlg .linkrij{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.bsfavaanbod .linkrij span:first-child,.bsfavdlg .linkrij span:first-child{flex:1;min-width:140px}
+.bsfavdlg>.knop{align-self:flex-start}
+.bsfavs .snel{margin:8px 0}
+.bsfav{display:flex;align-items:center;gap:10px;padding:8px 4px;border-top:1px solid var(--rand)}
+.bsfav>div{flex:1;min-width:0}
+.bsfavknoppen{display:flex;gap:4px;align-items:center}
+.bsfavnaam{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bsster{font-size:12px}
+.bsfavknop.aan,.bsknoppen .x.aan{color:var(--accent)}

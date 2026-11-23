@@ -10,7 +10,7 @@ import { laadPrijzen, prijsStand, zoek, keuzeRuimte, verfijningen, aanbiedingen,
 
 const d = () => opslag.d;
 const B = () => (d().boodschappen ||= leegBs());
-export const leegBs = () => ({ items: [], geleerd: {}, historie: {}, ketens: [], voorkeur: {} });
+export const leegBs = () => ({ items: [], geleerd: {}, historie: {}, ketens: [], voorkeur: {}, favorieten: [] });
 
 // ---------- soorten winkels ----------
 export const SOORTEN = [
@@ -136,6 +136,59 @@ const ketens = () => {
   return eigen.filter(n => !idx || idx.ketens.some(k => k.n === n));
 };
 
+// ---------- favorieten: je vaste, precieze producten ----------
+// Een favoriet is een precieze omschrijving ("Arla biologische halfvolle melk 1 l"). Zet je iets algemeens op je lijstje ("melk"),
+// dan kijkt Tijdkompas naar de prijzen en aanbiedingen van je favoriet(en) in plaats van naar alle melk. Per item uit te zetten (geenFav).
+const favs = () => (B().favorieten ||= []);
+const FAV_MAX = 200;
+const isFavoriet = (tekst) => { const k = sleutel(tekst); return !!k && favs().some(f => sleutel(f.tekst) === k); };
+const dektWoord = (s, b, samen) => b.some(w => w === s || (samen && s.length >= 3 && w.length > s.length && w.endsWith(s)));
+/** Welke favorieten vallen onder dit item? "melk" → je favoriete melk; "drinken" → je favoriete melk, sap, frisdrank… */
+export function favorietenVoor(it) {
+  if (!favs().length || it.geenFav) return [];
+  const k = sleutel(it.tekst); if (!k) return [];
+  const cat = categorie(it.tekst), a = stammen(it.tekst);
+  const past = (samen) => favs().filter(f => {
+    const b = stammen(f.tekst);
+    if (sleutel(f.tekst) === k) return false;                                   // het item ís de favoriet
+    if (cat) return cat.voorstel.some(v => stammen(v).every(s => dektWoord(s, b, true)));
+    return b.length > a.length && a.every(s => dektWoord(s, b, samen));     // de favoriet is preciezer dan wat je opschreef
+  });
+  const los = past(false);                                                       // liefst als los woord: "melk" → niet je chocolademelk
+  return los.length ? los : past(true);
+}
+/** Per liter/kilo als dat kan (zelfde eenheid), anders op prijs */
+const goedkoper = (a, b) => a.pe != null && b.pe != null && a.maat?.e === b.maat?.e ? a.pe < b.pe : a.p < b.p;
+const opPrijs = (a, b) => (goedkoper(a, b) ? -1 : goedkoper(b, a) ? 1 : 0);
+/** Prijzen van één favoriet: per supermarkt het passende product */
+const favPrijs = (f, bij = ketens()) => { const r = prijsVan(f.tekst, bij); return r?.perKeten.size ? r : null; };
+/** Prijs voor een item op je lijst: via je favorieten als die eronder vallen (en prijzen hebben), anders gewoon op de omschrijving */
+function prijsItem(it, bij = ketens()) {
+  if (!idx) return null;
+  const fs = favorietenVoor(it).map(f => ({ f, r: favPrijs(f, bij) })).filter(x => x.r);
+  if (!fs.length) return prijsVan(it.tekst, bij);
+  const perKeten = new Map(), treffers = [];
+  for (const { f, r } of fs) for (const p of r.perKeten.values()) {
+    const q = { ...p, fav: f.tekst }; treffers.push(q);
+    const oud = perKeten.get(p.k); if (!oud || goedkoper(q, oud)) perKeten.set(p.k, q);
+  }
+  return { treffers, perKeten, eenheid: fs[0].r.eenheid, aantal: treffers.length, favs: fs.map(x => x.f) };
+}
+function favorietBij(tekst, bron) {
+  const t = String(tekst || "").replace(/\s+/g, " ").trim().slice(0, 120); if (!t) return false;
+  const k = sleutel(t), i = favs().findIndex(f => sleutel(f.tekst) === k);
+  if (i >= 0) { favs().splice(i, 1); toast(`„${t}” is geen favoriet meer`); bewaar(); return false; }
+  if (favs().length >= FAV_MAX) { toast(`Maximaal ${FAV_MAX} favorieten`); return false; }
+  favs().push({ id: uid(), tekst: t, ...(bron ? { bron } : {}), gemaakt: new Date().toISOString().slice(0, 10) });
+  toast(`⭐ „${t}” is nu een favoriet — zet je iets algemeens op je lijstje, dan kijkt Tijdkompas naar deze`); bewaar(); return true;
+}
+/** Je favorieten die nu in de aanbieding zijn (ook als ze niet op je lijst staan): om in te slaan */
+export function favorietenAanbod() {
+  if (!idx) return [];
+  return favs().map(f => { const r = favPrijs(f); const a = r && aanbiedingen({ treffers: [...r.perKeten.values()] })[0]; return a ? { f, p: a } : null; })
+    .filter(Boolean).sort((x, y) => (x.p.p / x.p.w) - (y.p.p / y.p.w));
+}
+
 // ---------- je eigen winkels (locaties met soort "winkel") ----------
 // Een winkel of winkelcentrum is een locatie met: welke supermarkten (ketens) en soorten winkels er zitten, en hoe je er komt:
 // "langs" = even heen vanaf huis (reistijd = enkele reis), "route" = op de terugweg van een andere locatie (bv. kantoor; omweg in min).
@@ -169,7 +222,7 @@ export function winkelAdvies(open = B().items.filter(i => !i.klaar), vanaf = new
     // prijzen bij de supermarkt(en) van deze winkel
     let som = 0, gevonden = 0; const aanb = [];
     if (idx && (w.ketens || []).length) for (const it of dekt) {
-      const r = prijsVan(it.tekst, w.ketens); if (!r?.perKeten.size) continue;
+      const r = prijsItem(it, w.ketens); if (!r?.perKeten.size) continue;
       gevonden++; som += Math.min(...[...r.perKeten.values()].map(p => p.p)) * (it.aantal || 1);
       const a = aanbiedingen(r)[0]; if (a) aanb.push({ it, p: a });
     }
@@ -319,7 +372,7 @@ const voorkeur = { lees(k, s) { try { const v = localStorage.getItem("tk_bs_" + 
 
 /** Beste keuze voor een item: vastgezette supermarkt, anders de goedkoopste (op prijs per liter/kilo) */
 function besteVoor(it) {
-  const r = prijsVan(it.tekst); if (!r || !r.perKeten.size) return null;
+  const r = prijsItem(it); if (!r || !r.perKeten.size) return null;
   const opties = [...r.perKeten.values()];
   const vast = it.keten && opties.find(p => idx.ketens[p.k].n === it.keten || idx.ketens[p.k].c.toLowerCase().startsWith(it.keten));
   const goedkoopst = opties.slice().sort((a, b) => (a.pe ?? 1e9) - (b.pe ?? 1e9) || a.p - b.p)[0];
@@ -337,13 +390,15 @@ function itemRij(it, items) {
   const s = soort(soortVan(it)), b = !it.klaar && besteVoor(it), cat = categorie(it.tekst), dub = !it.klaar && dubbelVan(it, items);
   const aanb = b && aanbiedingen(b.r)[0];
   const ookBij = b && s.id !== "supermarkt" && s.id !== "overig";
-  const prijs = ookBij ? `<span class="hint">ook bij ${ketenNaam(b.gekozen.k)} ${euro(b.gekozen.p)}</span>` : b ? `<span class="bsprijs" title="${b.vast ? "Vastgezet" : "Goedkoopst"}: ${esc(b.gekozen.n)} ${esc(b.gekozen.s)}">${b.vast ? "📌 " : ""}${ketenNaam(b.gekozen.k)} ${euro(b.gekozen.p * (it.aantal || 1))}${b.gekozen.pe && b.gekozen.maat && b.gekozen.maat.e !== "st" ? ` <small>${euro(b.gekozen.pe)}/${eenheidNaam[b.gekozen.maat.e]}</small>` : ""}</span>` : "";
+  const fav = b ? b.r.favs : null, ster = !fav && isFavoriet(it.tekst);
+  const prijs = ookBij ? `<span class="hint">ook bij ${ketenNaam(b.gekozen.k)} ${euro(b.gekozen.p)}</span>` : b ? `<span class="bsprijs" title="${b.vast ? "Vastgezet" : "Goedkoopst"}: ${esc(b.gekozen.n)} ${esc(b.gekozen.s)}">${b.vast ? "📌 " : ""}${fav ? "⭐ " : ""}${ketenNaam(b.gekozen.k)} ${euro(b.gekozen.p * (it.aantal || 1))}${b.gekozen.pe && b.gekozen.maat && b.gekozen.maat.e !== "st" ? ` <small>${euro(b.gekozen.pe)}/${eenheidNaam[b.gekozen.maat.e]}</small>` : ""}</span>` : "";
   return `<div class="bsitem ${it.klaar ? "klaar" : ""}" data-bsid="${esc(it.id)}">
     <button type="button" class="vink" data-bs="vink" aria-label="${it.klaar ? "Terug op de lijst" : "Afvinken"}">${it.klaar ? "✓" : ""}</button>
     <div class="bsbody" data-bs="open">
-      <div class="bstitel">${it.aantal > 1 ? `<b class="bsaantal">${it.aantal}×</b> ` : ""}${esc(it.tekst)}${ruimteBolletjes(it)}</div>
+      <div class="bstitel">${it.aantal > 1 ? `<b class="bsaantal">${it.aantal}×</b> ` : ""}${esc(it.tekst)}${ster ? ` <span class="bsster" title="Favoriet">⭐</span>` : ""}${ruimteBolletjes(it)}</div>
       ${it.klaar ? "" : `<div class="imeta">${prijs}
-        ${aanb ? `<span class="tag bsaanb" title="Normaal ${euro(aanb.w)} · ${sindsTekst(aanb.v)}">📉 ${ketenNaam(aanb.k)} −${Math.round((1 - aanb.p / aanb.w) * 100)}%</span>` : ""}
+        ${aanb ? `<span class="tag bsaanb" title="${aanb.fav ? esc(aanb.fav) + " · " : ""}Normaal ${euro(aanb.w)} · ${sindsTekst(aanb.v)}">📉 ${aanb.fav ? "⭐ " : ""}${ketenNaam(aanb.k)} −${Math.round((1 - aanb.p / aanb.w) * 100)}%</span>` : ""}
+        ${fav ? `<span class="hint bsfavnaam">⭐ ${esc(b.gekozen.fav)}${fav.length > 1 ? ` <small>(+${fav.length - 1})</small>` : ""}</span>` : ""}
         ${cat ? `<span class="hint">Nog alle kanten op — tik om specifieker te maken</span>` : ""}
         ${dub ? `<span class="tag bsdubbel" data-bs="samen" data-met="${esc(dub.id)}" title="Samenvoegen: houd de preciezere">🔗 ook: ${esc(dub.tekst)}</span>` : ""}
         ${it.notitie ? `<span class="hint">${esc(it.notitie)}</span>` : ""}</div>`}
@@ -384,9 +439,9 @@ export function boodschappenWeergave() {
     ${hist.length && !winkelModus ? `<div class="chips bsvaak"><span class="hint">Vaak gekocht:</span>${hist.map(h => `<button type="button" data-bs="vaak" data-tekst="${esc(h.tekst)}">＋ ${esc(h.tekst)}</button>`).join("")}</div>` : ""}
     ${items.length ? `<div class="bsbalk"><div class="segment" role="group" aria-label="Indeling">${MODI.map(([k, t]) => `<button type="button" data-bs="modus" data-m="${k}" aria-pressed="${modus === k}">${t}</button>`).join("")}</div>
       ${prijsStatus()}</div>` : ""}
-    ${!winkelModus ? adviesBlok() + samenvatting(open) : ""}
+    ${!winkelModus ? adviesBlok() + samenvatting(open) + favAanbodBlok(open) : ""}
     <div class="bslijst ${winkelModus ? "inwinkel" : ""}">${lijf}</div>
-    ${!winkelModus ? instellingenBlok() : ""}`;
+    ${!winkelModus ? favorietenBlok() + instellingenBlok() : ""}`;
 }
 function perSoort(lijst, groep) {
   const per = new Map();
@@ -407,7 +462,7 @@ function prijsStatus() {
 function samenvatting(open) {
   if (!idx) return "";
   // alleen wat je in de supermarkt haalt (een lamp van de Dirk telt niet mee)
-  const met = open.filter(it => soortVan(it) === "supermarkt").map(it => ({ it, r: prijsVan(it.tekst) })).filter(x => x.r?.perKeten.size);
+  const met = open.filter(it => soortVan(it) === "supermarkt").map(it => ({ it, r: prijsItem(it) })).filter(x => x.r?.perKeten.size);
   if (!met.length) return "";
   const totaal = new Map();   // keten → {som, n}
   for (const { it, r } of met) for (const [k, p] of r.perKeten) { const t = totaal.get(k) || { som: 0, n: 0 }; t.som += p.p * (it.aantal || 1); t.n++; totaal.set(k, t); }
@@ -422,9 +477,35 @@ function samenvatting(open) {
     <div class="bsvergelijk"><div class="hint">Alles bij één supermarkt (${maxN} van ${met.length} producten gevonden)</div>
       ${rij.map(([k, t], i) => `<div class="bsketen ${i === 0 && t.n === maxN ? "beste" : ""}"><span>${ketenNaam(k)}</span><b>${euro(t.som)}</b>${t.n < maxN ? `<small>${maxN - t.n} niet gevonden</small>` : ""}</div>`).join("")}
       ${scheelt >= 0.5 ? `<div class="hint">Per product de goedkoopste supermarkt: ± ${euro(slim)} — ${euro(scheelt)} minder dan alles bij ${ketenNaam(besteK)}</div>` : ""}</div>
-    ${aanb.length ? `<div class="bsaanbod"><div class="hint">📉 Nu goedkoper dan normaal</div>${aanb.map(({ it, p }) => `<div class="linkrij"><span>${esc(it.tekst)}</span>
+    ${aanb.length ? `<div class="bsaanbod"><div class="hint">📉 Nu goedkoper dan normaal</div>${aanb.map(({ it, p }) => `<div class="linkrij"><span>${esc(it.tekst)}${p.fav ? ` <small class="hint">⭐ ${esc(p.fav)}</small>` : ""}</span>
       <span class="tag bsaanb">${ketenNaam(p.k)} ${euro(p.p)} <s>${euro(p.w)}</s></span><span class="hint">${sindsTekst(p.v)}</span></div>`).join("")}</div>` : ""}
   </div>`;
+}
+/** Favorieten in de aanbieding die (nog) niet op je lijstje staan: misschien nu inslaan? */
+function favAanbodBlok(open) {
+  const opLijst = (f) => open.some(it => sleutel(it.tekst) === sleutel(f.tekst) || favorietenVoor(it).includes(f));
+  const l = favorietenAanbod().filter(x => !opLijst(x.f)).slice(0, 5);
+  if (!l.length) return "";
+  return `<div class="bsfavaanbod"><div class="hint">⭐📉 Je favorieten nu in de aanbieding — misschien inslaan?</div>${l.map(({ f, p }) => `<div class="linkrij">
+      <span>${esc(f.tekst)}</span><span class="tag bsaanb">${ketenNaam(p.k)} ${euro(p.p)} <s>${euro(p.w)}</s> −${Math.round((1 - p.p / p.w) * 100)}%</span>
+      <span class="hint">${sindsTekst(p.v)}</span><button type="button" class="knop klein" data-bs="favErop" data-f="${esc(f.id)}">＋ Erop</button></div>`).join("")}</div>`;
+}
+function favorietenBlok() {
+  const l = favs();
+  const rij = (f) => {
+    const r = favPrijs(f), opties = r ? [...r.perKeten.values()].sort(opPrijs) : [], g = opties[0];
+    const a = r && aanbiedingen({ treffers: opties })[0];
+    return `<div class="bsfav" data-f="${esc(f.id)}"><div><b>⭐ ${esc(f.tekst)}</b>
+        <div class="imeta">${g ? `<span class="bsprijs">${ketenNaam(g.k)} ${euro(g.p)}</span>${g.pe && g.maat && g.maat.e !== "st" ? `<small class="hint">${euro(g.pe)}/${eenheidNaam[g.maat.e]}</small>` : ""}${opties.length > 1 ? `<span class="hint">duurst ${ketenNaam(opties.at(-1).k)}</span>` : ""}` : idx ? `<span class="hint">Geen supermarktprijs gevonden</span>` : ""}
+        ${a ? `<span class="tag bsaanb">📉 ${ketenNaam(a.k)} −${Math.round((1 - a.p / a.w) * 100)}%</span>` : ""}</div></div>
+      <span class="bsfavknoppen"><button type="button" class="knop klein" data-bs="favErop" data-f="${esc(f.id)}" title="Op je lijstje">＋</button><button type="button" class="x" data-bs="favWeg" data-f="${esc(f.id)}" title="Geen favoriet meer" aria-label="Geen favoriet meer">✕</button></span></div>`;
+  };
+  return `<details class="bsinst bsfavs" ${voorkeur.lees("favOpen", false) ? "open" : ""} data-bsfavs><summary>⭐ Favorieten${l.length ? ` (${l.length})` : ""}</summary>
+    <p class="hint">Je vaste producten, zo precies als je wilt (merk, soort, maat). Zet je daarna iets algemeens op je lijstje, zoals <i>melk</i>, dan kijkt Tijdkompas
+      naar de prijzen en aanbiedingen van je favoriete melk. Ook te maken met ⭐ in het venster van een boodschap.</p>
+    <form class="snel" data-bs="favToevoegen"><input type="text" name="f" maxlength="120" placeholder="bv. Arla biologische halfvolle melk 1 l" aria-label="Favoriet toevoegen" autocomplete="off"><button class="knop">⭐ Toevoegen</button></form>
+    <div class="lijst">${l.map(rij).join("")}</div>
+  </details>`;
 }
 function instellingenBlok() {
   const bs = B(), gekozen = new Set(bs.ketens || []);
@@ -470,19 +551,29 @@ export function open(id, openSoort = false) {
   const ver = cat ? cat.voorstel.map(w => ({ woord: w, vervang: true })) : r && idx ? verfijningen(idx, r, it.tekst) : [];
   const rijen = r ? [...r.perKeten.values()].sort((a, b) => (a.pe ?? 1e9) - (b.pe ?? 1e9) || a.p - b.p) : [];
   const andere = r ? r.treffers.filter(p => !rijen.includes(p)).sort((a, b) => (a.pe ?? 1e9) - (b.pe ?? 1e9)).slice(0, 6) : [];
-  const prod = (p, hoofd) => { const url = productUrl(idx, p), a = p.w && p.p <= p.w * 0.9;
+  const fv = favorietenVoor(it), favR = fv.map(f => ({ f, r: favPrijs(f) })), alFav = isFavoriet(it.tekst);
+  const prodTekst = (p) => p.n + (p.s && !/\d/.test(p.n) ? " " + p.s : "");
+  const prod = (p, hoofd) => { const url = productUrl(idx, p), a = p.w && p.p <= p.w * 0.9, pf = isFavoriet(prodTekst(p));
     return `<tr class="${hoofd && it.keten && (idx.ketens[p.k].n === it.keten) ? "vast" : ""}"><td>${ketenNaam(p.k)}</td>
       <td>${url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(p.n)}</a>` : esc(p.n)} <span class="hint">${esc(p.s)}</span>${a ? ` <span class="tag bsaanb" title="Normaal ${euro(p.w)}">📉 −${Math.round((1 - p.p / p.w) * 100)}% ${sindsTekst(p.v)}</span>` : ""}</td>
       <td class="getal"><b>${euro(p.p)}</b>${p.pe && p.maat && p.maat.e !== "st" ? `<br><small class="hint">${euro(p.pe)}/${eenheidNaam[p.maat.e]}</small>` : ""}</td>
-      <td class="bsknoppen">${hoofd ? `<button type="button" class="x" data-bs="vastzet" data-n="${esc(idx.ketens[p.k].n)}" title="Hier halen">📌</button>` : ""}<button type="button" class="x" data-bs="precies" data-p="${esc(p.n + (p.s && !/\d/.test(p.n) ? " " + p.s : ""))}" data-n="${esc(idx.ketens[p.k].n)}" title="Precies dit product">🎯</button></td></tr>`; };
+      <td class="bsknoppen">${hoofd ? `<button type="button" class="x" data-bs="vastzet" data-n="${esc(idx.ketens[p.k].n)}" title="Hier halen">📌</button>` : ""}<button type="button" class="x" data-bs="precies" data-p="${esc(prodTekst(p))}" data-n="${esc(idx.ketens[p.k].n)}" title="Precies dit product">🎯</button><button type="button" class="x ${pf ? "aan" : ""}" data-bs="favProduct" data-p="${esc(prodTekst(p))}" data-n="${esc(idx.ketens[p.k].n)}" title="${pf ? "Geen favoriet meer" : "Favoriet maken"}">${pf ? "⭐" : "☆"}</button></td></tr>`; };
+  const favBlok = fv.length ? `<div class="bsfavdlg"><div class="hint">⭐ Je favoriet${fv.length > 1 ? "en" : ""} voor „${esc(it.tekst)}” — daar kijkt Tijdkompas naar</div>
+      ${favR.map(({ f, r }) => { const o = r ? [...r.perKeten.values()].sort(opPrijs) : [], a = r && aanbiedingen({ treffers: o })[0];
+        return `<div class="linkrij"><span><b>${esc(f.tekst)}</b></span>${o[0] ? `<span class="bsprijs">${ketenNaam(o[0].k)} ${euro(o[0].p)}</span>` : `<span class="hint">geen prijs gevonden</span>`}
+          ${a ? `<span class="tag bsaanb" title="Normaal ${euro(a.w)}">📉 ${ketenNaam(a.k)} ${euro(a.p)} ${sindsTekst(a.v)}</span>` : ""}
+          <button type="button" class="knop klein" data-bs="favKies" data-p="${esc(f.tekst)}" title="Precies deze op je lijstje">🎯</button></div>`; }).join("")}
+      <button type="button" class="knop klein" data-bs="geenFav">Toch alle ${esc(it.tekst)} vergelijken</button></div>`
+    : it.geenFav && favs().length ? `<div class="bsfavdlg"><span class="hint">Je favorieten tellen hier niet mee.</span> <button type="button" class="knop klein" data-bs="welFav">⭐ Wel naar mijn favorieten kijken</button></div>` : "";
   dl.innerHTML = `<form method="dialog" class="bsdetail" data-bsid="${esc(it.id)}">
     <div class="bsdkop"><input name="tekst" value="${esc(it.tekst)}" maxlength="120" aria-label="Omschrijving">
       <div class="bsaantalkies"><button type="button" class="knop klein" data-bs="min">−</button><b>${it.aantal || 1}</b><button type="button" class="knop klein" data-bs="plus">＋</button></div></div>
-    <div class="bsruimteuitleg">${ruimteBolletjes(it)} <span class="hint">${cat ? "Een soort, geen product: kies hieronder wat je bedoelt — of laat het zo en kies in de winkel." : r?.aantal ? `${r.aantal} passende producten${r.eenheid ? ", vergeleken per " + eenheidNaam[r.eenheid] : ""}` : idx ? "Geen supermarktproduct gevonden" : "Prijzen laden…"}</span></div>
+    <div class="bsruimteuitleg">${ruimteBolletjes(it)} ${!cat ? `<button type="button" class="knop klein bsfavknop ${alFav ? "aan" : ""}" data-bs="favItem" title="${alFav ? "Geen favoriet meer" : "Dit als favoriet bewaren"}">${alFav ? "⭐ Favoriet" : "☆ Favoriet maken"}</button>` : ""} <span class="hint">${cat ? "Een soort, geen product: kies hieronder wat je bedoelt — of laat het zo en kies in de winkel." : r?.aantal ? `${r.aantal} passende producten${r.eenheid ? ", vergeleken per " + eenheidNaam[r.eenheid] : ""}` : idx ? "Geen supermarktproduct gevonden" : "Prijzen laden…"}</span></div>
+    ${favBlok}
     ${ver.length ? `<div class="bsverfijn"><div class="hint">${cat ? "Bedoel je…" : "Specifieker maken"}</div><div class="chips">${ver.map(v => `<button type="button" data-bs="verfijn" data-w="${esc(v.woord)}" data-vervang="${v.vervang ? 1 : ""}">${v.merk ? "🏷️ " : ""}${esc(v.woord)}</button>`).join("")}</div></div>` : ""}
     <details class="bskiessoort" ${s === "overig" || openSoort ? "open" : ""}><summary><span class="hint">Soort winkel:</span> ${soort(s).icoon} ${esc(soort(s).naam)} <span class="hint">· wijzigen</span></summary>
       <div class="chips">${SOORTEN.map(x => `<button type="button" data-bs="kiesSoort" data-s="${x.id}" aria-pressed="${x.id === s}" class="${x.id === s ? "aan" : ""}">${x.icoon} ${esc(x.naam)}</button>`).join("")}</div></details>
-    ${rijen.length ? `<div class="bsprijzen"><div class="hint">Goedkoopste per supermarkt · 📌 hier halen · 🎯 precies dit product</div>
+    ${rijen.length ? `<div class="bsprijzen"><div class="hint">${fv.length ? "Alle passende producten, " : ""}goedkoopste per supermarkt · 📌 hier halen · 🎯 precies dit product · ☆ favoriet</div>
       <table class="tabel"><tbody>${rijen.map(p => prod(p, true)).join("")}</tbody></table>
       ${andere.length ? `<details><summary class="hint">Meer passende producten</summary><table class="tabel"><tbody>${andere.map(p => prod(p, false)).join("")}</tbody></table></details>` : ""}
       ${it.keten ? `<button type="button" class="knop klein" data-bs="losmaken">📌 Niet meer vastzetten (${ketenNaamN(it.keten)})</button>` : ""}</div>` : ""}
@@ -524,6 +615,12 @@ function klik(e) {
     bewaar(); location.hash = "#instellingen"; return;
   }
   if (a === "modus") { voorkeur.zet("modus", el.dataset.m); opnieuw(); return; }
+  if (a === "favErop" || a === "favWeg") {
+    const f = favs().find(x => x.id === el.dataset.f); if (!f) return;
+    if (a === "favErop") { voegToe(f.tekst.replace(/[,;]/g, " ")); toast(`„${f.tekst}” staat op je lijstje`); }
+    else { B().favorieten = favs().filter(x => x !== f); bewaar(); toast(`„${f.tekst}” is geen favoriet meer`, { label: "Ongedaan maken", f: () => { favs().push(f); bewaar(); } }); }
+    return;
+  }
   if (a === "keten") {
     const n = el.dataset.n, l = new Set(B().ketens || []); l.has(n) ? l.delete(n) : l.add(n); B().ketens = [...l]; zoekCache.clear(); bewaar(); return;
   }
@@ -537,6 +634,10 @@ function klik(e) {
   }
   if (a === "vastzet") { it.keten = el.dataset.n; bewaar(); open(it.id); return; }
   if (a === "losmaken") { delete it.keten; bewaar(); open(it.id); return; }
+  if (a === "favProduct") { favorietBij(el.dataset.p, { k: el.dataset.n }); if (inDlg) open(it.id); return; }
+  if (a === "favItem") { favorietBij(it.tekst); if (inDlg) open(it.id); return; }
+  if (a === "favKies") { it.tekst = el.dataset.p.slice(0, 120); delete it.keten; delete it.geenFav; bewaar(); open(it.id); return; }
+  if (a === "geenFav" || a === "welFav") { if (a === "geenFav") it.geenFav = true; else delete it.geenFav; bewaar(); open(it.id); return; }
   if (a === "precies") { it.tekst = el.dataset.p.slice(0, 120); it.keten = el.dataset.n; bewaar(); open(it.id); return; }
   if (a === "weg") {
     B().items = B().items.filter(x => x !== it); bewaar(); dlg?.close();
@@ -554,7 +655,11 @@ export function initBoodschappen({ main, toast: t, render, planTaak, agendaBij }
   toast = t; opnieuw = render; haken = { planTaak, agendaBij };
   main.addEventListener("click", (e) => { if (e.target.closest("[data-bs]") && e.target.closest(".bspagina")) klik(e); });
   main.addEventListener("change", (e) => { if (e.target.closest(".bspagina")) wijzig(e); });
+  main.addEventListener("toggle", (e) => { if (e.target.matches?.("[data-bsfavs]")) voorkeur.zet("favOpen", e.target.open); }, true);
   main.addEventListener("submit", (e) => {
+    if (e.target.dataset.bs === "favToevoegen") {
+      e.preventDefault(); const inv = e.target.querySelector("input[name=f]"); if (inv.value.trim()) { voorkeur.zet("favOpen", true); favorietBij(inv.value); } return;
+    }
     if (e.target.dataset.bs !== "toevoegen") return;
     e.preventDefault();
     const inv = e.target.querySelector("input[name=t]"), nieuw = voegToe(inv.value);

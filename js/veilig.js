@@ -27,14 +27,17 @@ export function veiligeBoodschappen(b) {
   const items = (Array.isArray(b.items) ? b.items : []).filter(i => i && veiligId(i.id) && typeof i.tekst === "string" && i.tekst.trim()).slice(0, 500).map(i => ({
     id: i.id, tekst: tekst(i.tekst, 120), aantal: Math.max(1, Math.min(99, Math.round(Number(i.aantal) || 1))), klaar: !!i.klaar,
     gemaakt: tekst(i.gemaakt, 40), ...(i.klaarOp ? { klaarOp: tekst(i.klaarOp, 40) } : {}), ...(kortId(i.soort) ? { soort: i.soort } : {}),
-    ...(kortId(i.keten) ? { keten: i.keten } : {}), ...(i.notitie ? { notitie: tekst(i.notitie, 300) } : {}), ...(veiligId(i.door) ? { door: i.door } : {}),
+    ...(kortId(i.keten) ? { keten: i.keten } : {}), ...(i.geenFav ? { geenFav: true } : {}), ...(i.notitie ? { notitie: tekst(i.notitie, 300) } : {}), ...(veiligId(i.door) ? { door: i.door } : {}),
   }));
   const geleerd = Object.fromEntries(Object.entries(obj(b.geleerd)).filter(([k, v]) => k.length <= 200 && kortId(v)).slice(-600));
   const historie = Object.fromEntries(Object.entries(obj(b.historie)).filter(([k, v]) => k.length <= 200 && v && typeof v.tekst === "string").slice(-400)
     .map(([k, v]) => [k, { tekst: tekst(v.tekst, 120), n: Math.max(0, Math.min(1e5, Math.round(Number(v.n) || 0))), laatst: tekst(v.laatst, 10) }]));
   const ketens = (Array.isArray(b.ketens) ? b.ketens : []).filter(kortId).slice(0, 30);
   const voorkeur = Object.fromEntries(Object.entries(obj(b.voorkeur)).filter(([k, v]) => kortId(k) && typeof v === "string").map(([k, v]) => [k, tekst(v, 40)]));
-  return { items, geleerd, historie, ketens, voorkeur };
+  const favorieten = (Array.isArray(b.favorieten) ? b.favorieten : []).filter(f => f && veiligId(f.id) && typeof f.tekst === "string" && f.tekst.trim()).slice(0, 200).map(f => ({
+    id: f.id, tekst: tekst(f.tekst, 120), ...(f.bron && kortId(f.bron.k) ? { bron: { k: f.bron.k } } : {}), gemaakt: tekst(f.gemaakt, 10),
+  }));
+  return { items, geleerd, historie, ketens, voorkeur, favorieten };
 }
 
 /** Ledeninfo ({uid: {naam, email, foto}}) van een gedeelde lijst of map */

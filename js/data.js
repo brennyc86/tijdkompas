@@ -112,7 +112,7 @@ function normaliseer(d) {
   }
   // boodschappenlijst (persoonlijk, met je andere apparaten gedeeld via je gebruikersdocument)
   const bs = d.boodschappen && typeof d.boodschappen === "object" ? d.boodschappen : {};
-  n.boodschappen = { items: Array.isArray(bs.items) ? bs.items : [], geleerd: bs.geleerd || {}, historie: bs.historie || {}, ketens: Array.isArray(bs.ketens) ? bs.ketens : [], voorkeur: bs.voorkeur || {} };
+  n.boodschappen = { items: Array.isArray(bs.items) ? bs.items : [], geleerd: bs.geleerd || {}, historie: bs.historie || {}, ketens: Array.isArray(bs.ketens) ? bs.ketens : [], voorkeur: bs.voorkeur || {}, favorieten: Array.isArray(bs.favorieten) ? bs.favorieten : [] };
   delete n.accounts;
   n.versie = 2;
   return ontsmet(n);   // gedeelde en externe gegevens: alleen veilige id's, kleuren, iconen en links
