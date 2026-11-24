@@ -127,7 +127,7 @@ export function telt(ev) {
   const d = opslag.d, f = familieHaak.regels(), k = afspraakSleutel(ev);
   if (d.verborgen?.[k] || (f.verborgen?.[k] && !d.tochTonen?.[k])) return false;     // tochTonen: in je andere inlog weggedrukt, hier teruggehaald
   const r = regelVoor(ev);
-  if (r?.soort === "werkdag") { const o = overzicht(r.lijst); if (o && !dagTijden(o, dagStr(new Date(ev.start))).length) return false; }
+  if (r?.soort === "werkdag" && !d.tochTonen?.[k]) { const o = overzicht(r.lijst); if (o && !dagTijden(o, dagStr(new Date(ev.start))).length) return false; }
   return true;
 }
 export const eventLijst = (ev) => opslag.d.agendas[ev.bron]?.lijst || "";

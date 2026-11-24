@@ -818,3 +818,6 @@ a.koersitem{text-decoration:none;color:inherit}
 .abewerk summary{cursor:pointer;color:var(--meta)}
 .abewerkvelden{display:flex;flex-direction:column;gap:8px;margin-top:8px}
 .paneel.areis{padding:8px 10px;display:flex;flex-direction:column;gap:4px}
+.akop{display:flex;align-items:center;gap:10px;justify-content:space-between}
+.averborgen{border-color:var(--q-doen,#e0453a)}
+.wblok.verborgen{opacity:.6;border-style:dashed;border-color:var(--meta);background:var(--kaart);z-index:3}

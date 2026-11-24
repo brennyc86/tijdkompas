@@ -754,6 +754,11 @@ function agenda() {
       return `<div class="wblok bezet${ander ? " ander" : ""}" data-ev="${esc(ev.id)}" data-evfam="${ev.vanFamilie ? 1 : ""}" style="--ak:${esc(kleur)};top:${t}px;height:${h - 2}px" title="${esc(ev.titel)} ${fmtTijd(ev.start)}–${fmtTijd(ev.eind)}${k ? " · " + esc(k.naam) : ""}${ev.plaats ? " · " + esc(ev.plaats) : ""}">
         <b>${esc(ev.titel)}</b>${h > 30 ? `<span class="btijd">${fmtTijd(ev.start)}–${fmtTijd(ev.eind)}</span>` : ""}</div>`;
     }).join("");
+    const spook = !voorkeur.lees("toonVerborgen", false) ? "" : [...d().bezet.filter(afspraakZichtbaar), ...fam.bezet].filter(inDag).filter(ev => !ev.eigen).map(ev => [ev, verborgenReden(ev)]).filter(([, r]) => r).map(([ev, r]) => {
+      const t = Math.max(0, y(ev.start)), h = Math.max(16, Math.min(hoogte, y(ev.eind)) - t);
+      return `<div class="wblok bezet verborgen" data-ev="${esc(ev.id)}" data-evfam="${ev.vanFamilie ? 1 : ""}" style="top:${t}px;height:${h - 2}px" title="${esc(ev.titel)} — verborgen: ${esc(r)} (klik om weer zichtbaar te maken)">
+        <b>🙈 ${esc(ev.titel)}</b>${h > 30 ? `<span class="btijd">${esc(r)}</span>` : ""}</div>`;
+    }).join("");
     const herinn = d().bezet.filter(ev => !ev.eigen && inDag(ev) && afspraakZichtbaar(ev) && isHerinnering(ev)).map(ev => {
       const t = Math.max(0, y(ev.start));
       return `<div class="wblok herinnering" data-ev="${esc(ev.id)}" style="top:${t}px" title="🔔 ${esc(ev.titel)} ${fmtTijd(ev.start)} · herinnering (telt niet als bezet)">🔔 ${esc(ev.titel)}</div>`;
@@ -767,7 +772,7 @@ function agenda() {
         <b>${b.soort === "reis" ? "🚗 " : ""}${esc(b.titel)}</b>${h > 30 ? `<span class="btijd">${fmtTijd(b.start)}–${fmtTijd(b.eind)}${inAgenda ? " ✓" : ""}</span>` : ""}</div>`;
     }).join("");
     const nulijn = ds === dagStr(nu) && nu.getHours() >= UUR_VAN && nu.getHours() < UUR_TOT ? `<div class="nulijn" style="top:${y(nu)}px"></div>` : "";
-    return `<div class="wdag ${ds === dagStr(nu) ? "vandaag" : ""}" data-dag="${ds}" style="height:${hoogte}px;--uurH:${UUR_H}px" title="Klik op een lege plek voor een nieuwe afspraak">${beschikb}${vast}${elders}${reis}${herinn}${afspraken}${famBlokken}${blokken}${nulijn}</div>`;
+    return `<div class="wdag ${ds === dagStr(nu) ? "vandaag" : ""}" data-dag="${ds}" style="height:${hoogte}px;--uurH:${UUR_H}px" title="Klik op een lege plek voor een nieuwe afspraak">${beschikb}${vast}${elders}${reis}${spook}${herinn}${afspraken}${famBlokken}${blokken}${nulijn}</div>`;
   }).join("");
 
   const toekomst = d().planning.filter(b => new Date(b.eind) > nu && act.includes(b.overzicht));
@@ -781,7 +786,9 @@ function agenda() {
       <button class="knop prim" data-actie="plan" title="Automatisch inplannen">⚡ <span><span class="breed">Automatisch i</span><span class="smal">I</span>nplannen</span></button>
       <button class="knop" data-actie="agendaAfspraak" title="Een afspraak in je agenda zetten (ook in Google/Outlook)">＋ Afspraak</button>
       <button class="knop" data-actie="werkweek" data-w="${dagStr(dagen[0])}" title="Vakantie, cursus, geruilde dag of dagdeel vrij voor deze week">🗓️ Week aanpassen</button>
-      ${(() => { const n = weggedrukt().length; return n ? `<button class="knop" data-actie="verborgenLijst" title="Afspraken die je (hier of in je andere inlog) hebt weggedrukt terughalen">🙈 ${n} weggedrukt</button>` : ""; })()}
+      ${(() => { const n = weggedrukt().length, regels = (d().afspraakRegels || []).some(r => r.soort === "werkdag") || familieRegels().regels.some(r => r.soort === "werkdag"), aan = voorkeur.lees("toonVerborgen", false);
+        return `${n || regels || aan ? `<button class="knop" data-actie="toonVerborgen" aria-pressed="${aan}" title="Afspraken die niet meetellen (weggedrukt, of alleen op werkdagen) doorzichtig laten zien — klik er dan op om ze weer zichtbaar te maken">${aan ? "🙈 Verborgen verbergen" : "👁 Verborgen tonen"}</button>` : ""}
+          ${n ? `<button class="knop" data-actie="verborgenLijst" title="Lijst van weggedrukte afspraken">🙈 ${n} weggedrukt</button>` : ""}`; })()}
       ${gekoppeld ? `<button class="knop" data-actie="ophalen" title="${d().agendaSync ? "Laatst opgehaald " + new Date(d().agendaSync).toLocaleString("nl-NL", { weekday: "short", hour: "2-digit", minute: "2-digit" }) : ""}">🔄 Agenda's ophalen</button>` : ""}
       ${gekoppeld && metDoel ? `<button class="knop" data-actie="naarAgenda" ${toekomst.length || Object.keys(d().extern || {}).length ? "" : "disabled"}>📤 In mijn agenda zetten</button>` : ""}
       ${gekoppeld ? "" : `<a class="knop" href="#instellingen" data-tab="koppelingen">🔗 Google/Outlook koppelen</a>`}
@@ -2736,6 +2743,15 @@ function afspraakRegel(ev, soort, lijst, alles = false) {
     d().afspraakRegels = (d().afspraakRegels || []).filter(r => !(r.bron === ev.bron && r.soort === "werkdag" && r.titel.trim().toLowerCase() === t));
   }
 }
+/** Waarom telt deze afspraak niet mee (en zie je hem niet)? "" = hij telt gewoon */
+function verborgenReden(ev) {
+  const k = afspraakSleutel(ev), f = familieRegels();
+  if (d().verborgen?.[k]) return "weggedrukt";
+  if (f.verborgen?.[k] && !d().tochTonen?.[k]) return "weggedrukt in je andere inlog";
+  const r = regelVoor(ev);
+  if (r?.soort === "werkdag" && !d().tochTonen?.[k]) { const o = overzicht(r.lijst); if (o && !dagTijden(o, dagStr(new Date(ev.start))).length) return `alleen op werkdagen van ${o.naam}`; }
+  return "";
+}
 /** Alle weggedrukte afspraken: hier ({k, hier:true}) en in je andere inlog ({k, hier:false}), met de afspraak erbij als we die kennen */
 function weggedrukt() {
   const mijn = d().verborgen || {}, fam = familieRegels().verborgen || {}, toch = d().tochTonen || {};
@@ -2927,7 +2943,7 @@ function afspraakBewerk(ev) {
   const eigen = kanVerplaatsen(ev), fam = !!(ev.vanUid && ev.vanUid !== sessie.ik && ev.extId), lokaal = ev.bron === "tk";
   const kan = eigen || fam || lokaal, a = new Date(ev.start), b = new Date(ev.eind);
   const ov = d().afspraakPlaats?.[afspraakSleutel(ev)] != null;
-  return `<details class="abewerk" ${!plaatsVan(ev) ? "open" : ""}><summary>✏️ Aanpassen${kan ? "" : " (alleen de locatie)"}</summary>
+  return `<details class="abewerk"><summary>✏️ Wijzigen${kan ? ": titel, tijd en locatie" : " (alleen de locatie — deze agenda is alleen-lezen)"}</summary>
     <div class="abewerkvelden">
       <input type="text" name="atitel" value="${esc(ev.titel || "")}" maxlength="200" ${kan ? "" : "disabled"} aria-label="Titel">
       <div class="rij" style="align-items:end">
@@ -2981,7 +2997,12 @@ function afspraakVenster(ev) {
   const standaardLijst = r?.lijst || d().agendas?.[ev.bron]?.lijst || (vast.find(o => (o.eigenaar || sessie.ik) === (ev.vanUid || sessie.ik)) || vast[0])?.id || "";
   dlg2.innerHTML = `<form method="dialog"><div class="dkop"><span class="soort">📅 Afspraak</span><button type="button" class="sluit" data-sluit aria-label="Sluiten">×</button></div>
     <div class="dlijf">
-      <h2 style="margin:0">${esc(titel)}</h2>
+      <div class="akop"><h2 style="margin:0">${esc(titel)}</h2><button type="button" class="knop prim" data-awijzig>✏️ Wijzigen</button></div>
+      ${(() => { const rd = verborgenReden(ev); if (!rd) return "";
+        const regel = r?.soort === "werkdag" && rd.startsWith("alleen");
+        return `<div class="paneel averborgen"><b>🙈 Deze afspraak is verborgen</b> <span class="hint">(${esc(rd)}): hij telt niet mee en staat normaal niet in je agenda.</span>
+          <div class="rij" style="margin-top:6px;gap:6px"><button type="button" class="knop prim klein" data-akeuze="zichtbaar">↩ Weer zichtbaar maken</button>
+          ${regel ? `<button type="button" class="knop klein" data-akeuze="altijd">↩ Alle „${esc(r.titel)}” weer altijd tonen</button>` : ""}</div></div>`; })()}
       <div class="hint">${DAGLANG[a.getDay()]} ${a.getDate()} ${MAAND[a.getMonth()]} · ${fmtTijd(ev.start)}–${fmtTijd(ev.eind)}${plaatsVan(ev) ? " · 📍 " + esc(plaatsVan(ev)) : ""} · ${esc(bron)}</div>
       ${reisUitleg(ev)}
       ${afspraakBewerk(ev)}
@@ -3007,6 +3028,12 @@ function afspraakVenster(ev) {
     </div></form>`;
   dlg2.onclick = (e) => {
     if (e.target.closest("[data-abewaar]")) { bewaarAfspraak(ev); return; }
+    if (e.target.closest("[data-awijzig]")) { const det = $(".abewerk", dlg2); if (det) { det.open = true; det.scrollIntoView({ block: "nearest", behavior: "smooth" }); setTimeout(() => $("[name=atitel]:not([disabled]), [name=aplaats]", dlg2)?.focus(), 50); } return; }
+    if (e.target.closest("[data-akeuze]")?.dataset.akeuze === "zichtbaar") {
+      const sl = afspraakSleutel(ev), v = { ...(d().verborgen || {}) };
+      if (v[sl]) { delete v[sl]; d().verborgen = v; } else d().tochTonen = { ...(d().tochTonen || {}), [sl]: new Date().toISOString() };
+      bewaar(); dlg2.close(); render(); toast(`„${titel}” is weer zichtbaar`); return;
+    }
     const k = e.target.closest("[data-akeuze]")?.dataset.akeuze; if (!k) return;
     if (k === "wis") {
       if (!confirm(`„${titel}” verwijderen${ev.bron === "tk" ? "" : " uit " + (agendaNaam(ev.bron) || "je agenda")}?`)) return;
@@ -3739,6 +3766,7 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
     }
     else if (a === "agendaAfspraak") { const t = new Date(); t.setMinutes(0, 0, 0); t.setHours(t.getHours() + 1); nieuweAfspraak(t); }
     else if (a === "verborgenLijst") verborgenVenster();
+    else if (a === "toonVerborgen") { voorkeur.zet("toonVerborgen", !voorkeur.lees("toonVerborgen", false)); render(); }
     else if (a === "routesWis") { wisRoutes(); toast("Reistijden worden opnieuw berekend"); render(); }
     else if (a === "locBij") { d().locaties.push({ id: uid(), naam: "Nieuwe locatie", icoon: "📍", reistijd: 15, adres: "" }); bewaar(); }
     else if (a === "locWeg") {
