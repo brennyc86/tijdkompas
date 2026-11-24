@@ -341,8 +341,9 @@ export function reisVanDag(tijdvakken, afspraken) {
   for (const v of tijdvakken) if (v.locatie && v.locatie !== "thuis")
     plekken.push({ a: v.a, b: v.b, locatie: v.locatie, lijst: v.lijst, adres: locatie(v.locatie)?.adres || "", naam: naamVan(v.locatie), vast: true });
   for (const ev of afspraken) {
-    const pl = plaatsVan(ev), herkend = ev.loc ?? herkenLocatie(pl);
-    if (ev.loc === "" || herkend === "thuis") continue;
+    // ev.loc: herkende locatie zoals meegestuurd via de cloud; leeg betekent "geen eigen locatie herkend", niet "geen plaats"
+    const pl = plaatsVan(ev), herkend = ev.loc || herkenLocatie(pl);
+    if (herkend === "thuis") continue;
     const adres = (herkend && locatie(herkend)?.adres) || (isFysiek(pl) ? String(pl).trim() : "");   // herkende locatie zonder adres: dan het adres uit de agenda
     if (!herkend && !adres) continue;
     const a = new Date(ev.start), b = new Date(ev.eind);
@@ -420,7 +421,7 @@ export function dagIndeling(dag) {
       continue;
     }
     const rooster = d.bezet.filter(ev => eventSoort(ev) === "rooster" && eventLijst(ev) === o.id && opDezeDag(ev));
-    if (rooster.length) rooster.forEach(ev => vast.push({ lijst: o.id, a: new Date(ev.start), b: new Date(ev.eind), locatie: (ev.loc ?? herkenLocatie(ev.plaats)) || o.locatie || "", bron: "rooster" }));
+    if (rooster.length) rooster.forEach(ev => vast.push({ lijst: o.id, a: new Date(ev.start), b: new Date(ev.eind), locatie: (ev.loc || herkenLocatie(ev.plaats)) || o.locatie || "", bron: "rooster" }));
     else standaardTijden(o, dag.getDay()).filter(geldig)
       .forEach(t => vast.push({ lijst: o.id, a: opDag(dag, t.van), b: opDag(dag, t.tot), locatie: t.locatie ?? o.locatie ?? "", bron: "lijst" }));
   }
