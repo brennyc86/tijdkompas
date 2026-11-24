@@ -15,7 +15,7 @@ export const CONFIG = {
   microsoftClientId: "73100eed-6815-4770-a11d-e522c91512c4",   // OneDrive + Outlook (SPA-platform op de Entra-registratie, SETUP.md stap C)
   // Doorgeefluik voor agenda-links (.ics), bv. een gepubliceerde Outlook-agenda (worker/agenda-doorgeef.js, SETUP.md stap D)
   // Optioneel: Google Maps-sleutel (Routes API) voor reistijden met verkeer. Leeg = OpenStreetMap (gratis, zonder verkeer).
-  // Beperk de sleutel in de Google Cloud-console tot de Routes API en tot https://brennyc86.github.io/* (SETUP.md stap E).
+  // Beperk de sleutel in de Google Cloud-console tot de Routes API en tot https://brennyc86.github.io/* (SETUP.md stap F).
   mapsSleutel: "",
   icsProxy: "https://tijdkompas-agenda.brennycc86.workers.dev",
 };

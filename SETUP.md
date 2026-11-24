@@ -337,7 +337,7 @@ Een gepubliceerde agenda (stap D) kan iedereen lezen die de geheime link heeft. 
 - Koppel een werk-takenlijst niet aan een lijst die je met mensen buiten je werk deelt: die zien dan ook die taken.
 - Check bij twijfel het beleid van je werkgever over agenda's en taken in externe apps.
 
-## E. Reistijden met Google Maps (optioneel)
+## F. Reistijden met Google Maps (optioneel)
 
 Zonder sleutel rekent Tijdkompas reistijden naar afspraken uit met OpenStreetMap (gratis, zonder verkeer en zonder ov).
 Voor reistijden mét verkeer (en openbaar vervoer):
