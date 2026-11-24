@@ -112,14 +112,36 @@ async function google(van, naar, rond) {
 }
 
 let laatsteGeo = 0;
+export function varianten(adres) {
+  const t = String(adres).replace(/\s+/g, " ").trim(), delen = t.split(/\s*,\s*/).filter(Boolean), uit = [t];
+  for (let i = 1; i < delen.length - 1; i++) uit.push(delen.slice(i).join(", "));
+  const pc = t.match(/\b(\d{4})\s?([A-Za-z]{2})\b/), nr = t.match(/\b[A-Za-z\u00C0-\u017F.'-]+(?:\s[A-Za-z\u00C0-\u017F.'-]+)*\s(\d+[a-zA-Z]?)\b/);
+  if (pc) uit.push(`${pc[1]} ${pc[2].toUpperCase()}${nr ? " " + nr[1] : ""}`, `${pc[1]} ${pc[2].toUpperCase()}`);
+  return [...new Set(uit)].slice(0, 5);
+}
+/** Waarom is er (nog) geen route? "" (wel), "bezig", "niet gevonden" (adres onbekend), "uit" */
+export function routeUitleg(van, naar) {
+  const br = bron(); if (!br) return "uit";
+  if (!van || !naar) return "geen adres";
+  const k = [br, vervoer(), br === "google" && vervoer() === "auto" ? "" : "", norm(van), norm(naar)].join("|");
+  const r = Object.entries(routes).find(([x]) => x.startsWith(k.split("|").slice(0, 2).join("|")) && x.endsWith("|" + norm(van) + "|" + norm(naar)))?.[1];
+  if (r && !r.mis) return "";
+  if (r?.mis) return "niet gevonden";
+  return "bezig";
+}
 async function plek(adres) {
   const k = norm(adres), g = geo[k];
   if (g && (g.mis ? Date.now() - g.t < MISLUKT_OPNIEUW : Date.now() - g.t < 6 * HOUDBAAR)) return g.mis ? null : g;
-  const pauze = 1100 - (Date.now() - laatsteGeo); if (pauze > 0) await wacht(pauze);
-  laatsteGeo = Date.now();
-  const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&accept-language=nl&q=${encodeURIComponent(adres)}`);
-  if (!r.ok) throw new Error(`OpenStreetMap (adres zoeken): HTTP ${r.status}`);
-  const j = await r.json(), x = j[0];
+  // Google-locaties zijn vaak "Naam van de praktijk, Straat 1, 1234 AB Plaats, Nederland": OpenStreetMap kent de naam meestal niet.
+  // Dan proberen we het zonder de eerste delen, en anders op postcode + huisnummer.
+  let x = null;
+  for (const q of varianten(adres)) {
+    const pauze = 1100 - (Date.now() - laatsteGeo); if (pauze > 0) await wacht(pauze);
+    laatsteGeo = Date.now();
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&accept-language=nl&q=${encodeURIComponent(q)}`);
+    if (!r.ok) throw new Error(`OpenStreetMap (adres zoeken): HTTP ${r.status}`);
+    x = (await r.json())[0]; if (x) break;
+  }
   geo[k] = x ? { lat: +x.lat, lon: +x.lon, t: Date.now() } : { mis: 1, t: Date.now() };
   return x ? geo[k] : null;
 }

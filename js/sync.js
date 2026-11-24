@@ -1,6 +1,6 @@
 // Tijdkompas — afstemming met externe agenda's (ophalen + ingeplande blokken wegschrijven)
 import { opslag, bewaar, overzicht, locatie, sessie } from "./data.js";
-import { verbindingen as alleVerbindingen, heeft, VerlopenFout, agendaLijst, haalAfspraken, zetAfspraak, verwijderAfspraak, verplaatsAfspraak } from "./koppeling.js";
+import { verbindingen as alleVerbindingen, heeft, VerlopenFout, agendaLijst, haalAfspraken, zetAfspraak, verwijderAfspraak, verplaatsAfspraak, wijzigAfspraak } from "./koppeling.js";
 import { omschrijving, leesIcs, familieHaak } from "./plan.js";
 import { CONFIG } from "./config.js";
 
@@ -237,3 +237,12 @@ export async function verwijderAgendaAfspraak(ev) {
   d().bezet = d().bezet.filter(e => e.id !== ev.id); bewaar();
 }
 export const kanVerwijderen = (ev) => ev?.bron === "tk" || kanVerplaatsen(ev);
+
+/** Titel, locatie en tijden aanpassen in Google/Outlook (en hier meteen) */
+export async function wijzigAgendaAfspraak(ev, x) {
+  const v = verbindingVan(ev.bron); if (!v || !ev.extId) throw new Error("Deze agenda kan Tijdkompas niet aanpassen");
+  await wijzigAfspraak(v, agendaIdVan(ev.bron), ev.extId, x);
+  const e = d().bezet.find(y => y.id === ev.id);
+  if (e) { if (x.titel != null) e.titel = x.titel; if (x.plaats != null) e.plaats = x.plaats; if (x.start) e.start = x.start; if (x.eind) e.eind = x.eind; }
+  bewaar();
+}

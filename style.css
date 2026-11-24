@@ -814,3 +814,7 @@ a.koersitem{text-decoration:none;color:inherit}
 .wdag{cursor:cell}
 .naAgendas .schakel{justify-content:flex-start;text-align:left;display:flex;align-items:center;gap:8px}
 .naAgendas .schakel input{flex:none}
+.abewerk{border:1px solid var(--rand);border-radius:var(--r);padding:6px 10px}
+.abewerk summary{cursor:pointer;color:var(--meta)}
+.abewerkvelden{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.paneel.areis{padding:8px 10px;display:flex;flex-direction:column;gap:4px}

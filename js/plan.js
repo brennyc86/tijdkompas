@@ -125,7 +125,7 @@ export function telt(ev) {
   if (!ev.eigen && isDubbel(ev)) return false;
   if (isHerinnering(ev)) return false;
   const d = opslag.d, f = familieHaak.regels(), k = afspraakSleutel(ev);
-  if (d.verborgen?.[k] || f.verborgen?.[k]) return false;
+  if (d.verborgen?.[k] || (f.verborgen?.[k] && !d.tochTonen?.[k])) return false;     // tochTonen: in je andere inlog weggedrukt, hier teruggehaald
   const r = regelVoor(ev);
   if (r?.soort === "werkdag") { const o = overzicht(r.lijst); if (o && !dagTijden(o, dagStr(new Date(ev.start))).length) return false; }
   return true;
@@ -318,20 +318,32 @@ const zelfdePlek = (x, y) => (!!x.locatie && x.locatie === y.locatie) || zelfdeA
 export function reisRond(ev) {
   const a = new Date(ev.start), dag = new Date(a.getFullYear(), a.getMonth(), a.getDate()), eind = new Date(dag.getTime() + 864e5);
   const I = dagIndeling(dag), T = "\u0001nieuw";
-  const evs = opslag.d.bezet.filter(e => e.id !== ev.id && eventSoort(e) === "bezet" && !e.eigen && new Date(e.start) < eind && new Date(e.eind) > dag);
-  const { reis } = reisVanDag([...I.vast, ...I.elders], [...evs, { ...ev, id: "__nieuw", titel: T }]);
+  const op = (e) => new Date(e.start) < eind && new Date(e.eind) > dag;
+  const evs = afsprakenVoorReis(opslag.d.bezet.filter(e => eventSoort(e) === "bezet" && !e.eigen && op(e)), op).filter(e => e.id !== ev.id && !(e.start === ev.start && e.eind === ev.eind && String(plaatsVan(e)).trim() === String(plaatsVan(ev)).trim()));
+  const { reis } = reisVanDag([...I.vast, ...I.elders], [...evs, { ...ev, id: "__nieuw", titel: T, plaats: plaatsVan(ev), loc: undefined }]);
   const heen = reis.find(r => r.afspraak === T && r.richting !== "terug") || null, weg = reis.find(r => r.vanAfspraak === T) || null;
   return { heen, weg };
 }
+let famReis = { t: 0, l: [] };
+/** Afspraken waar je heen moet: die van jou plus die uit de agenda's van je andere inlog (zelfde persoon), elk één keer */
+function afsprakenVoorReis(eigen, opDezeDag) {
+  if (Date.now() - famReis.t > 2000) famReis = { t: Date.now(), l: (familieHaak.agenda().bezet || []).filter(ev => ev.soortF === "bezet" && !ev.eigen) };
+  const fam = famReis.l.filter(opDezeDag);
+  const gezien = new Set(), uit = [];
+  for (const ev of [...eigen, ...fam]) { const k = ev.start + "|" + ev.eind + "|" + String(plaatsVan(ev)).trim().toLowerCase(); if (gezien.has(k)) continue; gezien.add(k); uit.push(ev); }
+  return uit;
+}
+/** De locatie van een afspraak: wat je er in Tijdkompas zelf voor koos (voor agenda's die we niet kunnen aanpassen), anders die uit de agenda */
+export const plaatsVan = (ev) => opslag.d.afspraakPlaats?.[afspraakSleutel(ev)] ?? ev.plaats ?? "";
 export function reisVanDag(tijdvakken, afspraken) {
   const thuis = THUIS(), plekken = [];
   const naamVan = (l, alt = "") => locatie(l)?.naam || alt;
   for (const v of tijdvakken) if (v.locatie && v.locatie !== "thuis")
     plekken.push({ a: v.a, b: v.b, locatie: v.locatie, lijst: v.lijst, adres: locatie(v.locatie)?.adres || "", naam: naamVan(v.locatie), vast: true });
   for (const ev of afspraken) {
-    const herkend = ev.loc ?? herkenLocatie(ev.plaats);
+    const pl = plaatsVan(ev), herkend = ev.loc ?? herkenLocatie(pl);
     if (ev.loc === "" || herkend === "thuis") continue;
-    const adres = herkend ? locatie(herkend)?.adres || "" : isFysiek(ev.plaats) ? String(ev.plaats).trim() : "";
+    const adres = (herkend && locatie(herkend)?.adres) || (isFysiek(pl) ? String(pl).trim() : "");   // herkende locatie zonder adres: dan het adres uit de agenda
     if (!herkend && !adres) continue;
     const a = new Date(ev.start), b = new Date(ev.eind);
     const p = { a, b, locatie: herkend || "", adres, naam: herkend ? naamVan(herkend) : adres, afspraak: ev.titel || "Afspraak" };
@@ -362,7 +374,7 @@ export function reisVanDag(tijdvakken, afspraken) {
       const van = hoe === "direct" ? prev : thuis, l = been(van, cur, cur.a);
       if (l && l.min > 0) {
         const totaal = l.min + l.marge, x = { locatie: cur.locatie, lijst: cur.lijst, richting: hoe === "direct" ? "door" : "heen", afspraak: cur.afspraak, vanAfspraak: hoe === "direct" ? prev.afspraak : undefined,
-          van: van.naam, naar: cur.naam, min: l.min, marge: l.marge, route: l.route, km: l.km, status: "ok" };
+          van: van.naam, naar: cur.naam, vanAdres: van.adres, naarAdres: cur.adres, min: l.min, marge: l.marge, route: l.route, km: l.km, status: "ok" };
         if (hoe === "direct") {
           const gat = minuten(prev.b, cur.a);
           x.beschikbaar = gat;
@@ -379,7 +391,7 @@ export function reisVanDag(tijdvakken, afspraken) {
     if (via[i + 1] === "thuis" || i === plekken.length - 1) {                         // daarna naar huis
       const l = been(cur, thuis, cur.b);
       if (l && l.min > 0) reis.push({ a: cur.b, b: new Date(cur.b.getTime() + (l.min + l.marge) * MIN), locatie: cur.locatie, lijst: cur.lijst, richting: "terug",
-        afspraak: cur.afspraak, vanAfspraak: cur.afspraak, van: cur.naam, naar: thuis.naam, min: l.min, marge: l.marge, route: l.route, km: l.km, status: "ok" });
+        afspraak: cur.afspraak, vanAfspraak: cur.afspraak, van: cur.naam, naar: thuis.naam, vanAdres: cur.adres, naarAdres: thuis.adres, min: l.min, marge: l.marge, route: l.route, km: l.km, status: "ok" });
     }
   });
   return { reis, terPlekke };
@@ -414,7 +426,7 @@ export function dagIndeling(dag) {
   }
   vast.sort((x, y) => x.a - y.a);
 
-  const { reis, terPlekke } = reisVanDag([...vast, ...elders], d.bezet.filter(ev => eventSoort(ev) === "bezet" && !ev.eigen && opDezeDag(ev)));
+  const { reis, terPlekke } = reisVanDag([...vast, ...elders], afsprakenVoorReis(d.bezet.filter(ev => eventSoort(ev) === "bezet" && !ev.eigen && opDezeDag(ev)), opDezeDag));
 
   const beschikbaar = (d.beschikbaar || []).filter(t => (t.dagen || []).includes(dag.getDay()) && geldig(t)).map(t => [opDag(dag, t.van), opDag(dag, t.tot)]);
   const vrij = aftrekken(beschikbaar, [...vast, ...elders, ...reis, ...terPlekke].map(x => [x.a, x.b]));

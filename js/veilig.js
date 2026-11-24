@@ -26,12 +26,14 @@ const obj = (x) => x && typeof x === "object" && !Array.isArray(x) ? x : {};
 export function veiligeVerzoeken(l) {
   const iso = (x) => typeof x === "string" && !isNaN(Date.parse(x)) && x.length <= 40;
   const agendaK = (x) => typeof x === "string" && x.length <= 400 && /^(google|ms):/.test(x);
-  return (Array.isArray(l) ? l : []).filter(v => v && veiligId(v.id) && veiligId(v.voor) && ["maak", "wis"].includes(v.soort) && agendaK(v.k)).slice(-100).map(v => v.soort === "wis"
+  return (Array.isArray(l) ? l : []).filter(v => v && veiligId(v.id) && veiligId(v.voor) && ["maak", "wis", "wijzig"].includes(v.soort) && agendaK(v.k)).slice(-100).map(v => v.soort === "wijzig"
+    ? { id: v.id, voor: v.voor, soort: "wijzig", k: v.k, extId: tekst(v.extId, 400), titel: tekst(v.titel, 200), plaats: tekst(v.plaats, 300), start: iso(v.start) ? v.start : "", eind: iso(v.eind) ? v.eind : "", gemaakt: tekst(v.gemaakt, 40) }
+    : v.soort === "wis"
     ? { id: v.id, voor: v.voor, soort: "wis", k: v.k, extId: tekst(v.extId, 400), titel: tekst(v.titel, 200), gemaakt: tekst(v.gemaakt, 40) }
     : { id: v.id, voor: v.voor, soort: "maak", k: v.k, titel: tekst(v.titel, 200), plaats: tekst(v.plaats, 300), omschrijving: tekst(v.omschrijving, 500),
         start: iso(v.start) ? v.start : "", eind: iso(v.eind) ? v.eind : "", gemaakt: tekst(v.gemaakt, 40),
         extra: (Array.isArray(v.extra) ? v.extra : []).filter(x => x && iso(x.start) && iso(x.eind)).slice(0, 4).map(x => ({ titel: tekst(x.titel, 200), start: x.start, eind: x.eind })) }
-  ).filter(v => v.soort === "wis" ? !!v.extId : v.start && v.eind);
+  ).filter(v => v.soort === "maak" ? v.start && v.eind : !!v.extId);
 }
 export function veiligeBoodschappen(b) {
   b = obj(b);
@@ -189,6 +191,8 @@ export function ontsmet(n) {
     .slice(-500).map(([k, v]) => [k, { rol: v.rol, lijst: v.lijst }]));
   n.boodschappen = veiligeBoodschappen(n.boodschappen);
   n.afspraakVerzoeken = veiligeVerzoeken(n.afspraakVerzoeken);
+  n.afspraakPlaats = Object.fromEntries(Object.entries(obj(n.afspraakPlaats)).filter(([k, v]) => k.length <= 600 && typeof v === "string").slice(-300).map(([k, v]) => [k, tekst(v, 300)]));
+  n.tochTonen = Object.fromEntries(Object.entries(obj(n.tochTonen)).filter(([k, v]) => k.length <= 600 && typeof v === "string").slice(-300).map(([k, v]) => [k, tekst(v, 40)]));
   n.afspraakGedaan = Object.fromEntries(Object.entries(obj(n.afspraakGedaan)).filter(([k, v]) => veiligId(k) && v && typeof v === "object").slice(-300)
     .map(([k, v]) => [k, { ok: !!v.ok, t: tekst(v.t, 40), ...(v.fout ? { fout: tekst(v.fout, 200) } : {}) }]));
   const weg = n.afwezig && typeof n.afwezig === "object" && !Array.isArray(n.afwezig) ? n.afwezig : {};

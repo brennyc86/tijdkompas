@@ -323,6 +323,16 @@ export async function zetAfspraak(v, agendaId, ev, bestaandId) {
   }
   return (await api(v, `${M}/me/calendars/${enc(agendaId)}/events`, { method: "POST", body })).id;
 }
+/** Titel, locatie en/of tijden van een bestaande afspraak aanpassen (de rest — beschrijving, genodigden — blijft zoals het was) */
+export async function wijzigAfspraak(v, agendaId, id, { titel, plaats, start, eind }) {
+  if (v.soort === "google") {
+    const body = { ...(titel != null ? { summary: titel } : {}), ...(plaats != null ? { location: plaats } : {}), ...(start ? { start: { dateTime: start } } : {}), ...(eind ? { end: { dateTime: eind } } : {}) };
+    return api(v, `${G}/calendars/${enc(agendaId)}/events/${enc(id)}`, { method: "PATCH", body: JSON.stringify(body) });
+  }
+  const utc = (iso) => new Date(iso).toISOString().slice(0, 19);
+  const body = { ...(titel != null ? { subject: titel } : {}), ...(plaats != null ? { location: { displayName: plaats } } : {}), ...(start ? { start: { dateTime: utc(start), timeZone: "UTC" } } : {}), ...(eind ? { end: { dateTime: utc(eind), timeZone: "UTC" } } : {}) };
+  return api(v, `${M}/me/events/${enc(id)}`, { method: "PATCH", body: JSON.stringify(body) });
+}
 /** Alleen de tijden van een bestaande afspraak aanpassen (verder blijft alles zoals het was) */
 export async function verplaatsAfspraak(v, agendaId, id, start, eind) {
   if (v.soort === "google")
