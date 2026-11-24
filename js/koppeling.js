@@ -306,7 +306,8 @@ export async function haalAfspraken(v, agendaId, van, tot) {
 export async function zetAfspraak(v, agendaId, ev, bestaandId) {
   if (v.soort === "google") {
     const body = JSON.stringify({ summary: ev.titel, description: ev.omschrijving, location: ev.plaats || undefined,
-      start: { dateTime: ev.start }, end: { dateTime: ev.eind }, ...(ev.tkId ? { extendedProperties: { private: { tijdkompas: ev.tkId } } } : {}) });
+      start: { dateTime: ev.start }, end: { dateTime: ev.eind }, ...(ev.tkId ? { extendedProperties: { private: { tijdkompas: ev.tkId } } } : {}),
+      ...(ev.voorlopig ? { status: "tentative", transparency: "opaque" } : {}) });
     if (bestaandId) {
       const r = await api(v, `${G}/calendars/${enc(agendaId)}/events/${enc(bestaandId)}`, { method: "PATCH", body, weg: true });
       if (r) return r.id;
@@ -316,7 +317,7 @@ export async function zetAfspraak(v, agendaId, ev, bestaandId) {
   const utc = (iso) => new Date(iso).toISOString().slice(0, 19);
   const body = JSON.stringify({ subject: ev.titel, body: { contentType: "text", content: ev.omschrijving },
     start: { dateTime: utc(ev.start), timeZone: "UTC" }, end: { dateTime: utc(ev.eind), timeZone: "UTC" },
-    location: ev.plaats ? { displayName: ev.plaats } : undefined, ...(ev.tkId ? { categories: ["Tijdkompas"], isReminderOn: false } : {}) });   // zonder tkId: een gewone afspraak
+    location: ev.plaats ? { displayName: ev.plaats } : undefined, ...(ev.tkId ? { categories: ["Tijdkompas"], isReminderOn: false } : {}), ...(ev.voorlopig ? { showAs: "tentative" } : {}) });   // zonder tkId: een gewone afspraak
   if (bestaandId) {
     const r = await api(v, `${M}/me/events/${enc(bestaandId)}`, { method: "PATCH", body, weg: true });
     if (r) return r.id;

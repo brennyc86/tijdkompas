@@ -70,7 +70,7 @@ function normaliseer(d) {
   if (!Array.isArray(d.locaties) || !d.locaties.length) n.locaties = basisLocaties();
   if (!n.locaties.some(l => l.id === "thuis")) n.locaties.unshift({ id: "thuis", naam: "Thuis", icoon: "🏠", reistijd: 0 });
   if (!Array.isArray(d.beschikbaar) || !d.beschikbaar.length) n.beschikbaar = basisBeschikbaar();
-  n.agendas ||= {}; n.extern ||= {}; n.takenlijsten ||= {}; n.agendaLinks ||= [];
+  n.agendas ||= {}; n.extern ||= {}; n.reisExtern ||= {}; n.takenlijsten ||= {}; n.agendaLinks ||= [];
   for (const o of n.overzichten) {
     o.modus ||= (o.id === "werk" || /werk|kantoor|baan/i.test(o.naam)) ? "vast" : "vrij";
     o.locatie ??= "";

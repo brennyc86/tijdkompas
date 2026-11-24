@@ -7,7 +7,7 @@ import { familieHaak, planAutomatisch, werkGeplandBij, doelDatum, harde, priorit
   AFWIJKING, maakRuimte, magWijkenVoor, wijkbaar, plekGebonden, plaatsMetWijken, telt, isHerinnering, buitenBeschikbaarheid, regelVoor, rolKeuze, afspraakSleutel, standaardTijden, afwijkingOp, afwijkingDatums, zetAfwijking, dagTijden, tijdenZonder, tijdenMet, effLijst, rolBotsingen, planStatus, grootsteGat, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, plaatsVanaf, vrijkomend, vrijeTijd, trekAllesNaarVoren, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland, reisRond, plaatsVan, herkenLocatie } from "./plan.js";
 import { ids, verbindingen as alleVerbindingen, heeft, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, zonderDoel, koppelHaak, neemGedeeldeOver } from "./koppeling.js";
 import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroniseerAlles, naamVan, lijstWeg } from "./schijf.js";
-import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD, eigenAgenda, viaEigenaar, vingerafdruk, kanVerplaatsen, verplaatsAgendaAfspraak, schrijfAgendas, maakAfspraak, verwijderAgendaAfspraak, kanVerwijderen, wijzigAgendaAfspraak } from "./sync.js";
+import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD, eigenAgenda, viaEigenaar, vingerafdruk, kanVerplaatsen, verplaatsAgendaAfspraak, schrijfAgendas, maakAfspraak, verwijderAgendaAfspraak, kanVerwijderen, wijzigAgendaAfspraak, zetReisNaarAgendas, reisNaarAgendaAan, haalReisUitAgendas } from "./sync.js";
 import { syncTaken, takenVerbindingen, koppelTakenlijst, takenlijstVan, takenVerbindingVan } from "./takensync.js";
 import { kiesEmoji, voorstellen } from "./emoji.js";
 import { boodschappenWeergave, initBoodschappen, focusInvoer, winkelVelden, winkelOpen, boodschappenVandaag } from "./boodschappen.js";
@@ -1321,12 +1321,14 @@ function routeInstellingen() {
   ${thuisAdres ? "" : `<div class="hint" style="color:var(--q-doen,#d9534f)">📍 Vul hierboven bij <b>Thuis</b> je adres in: zonder startpunt kan alleen de reis tússen afspraken berekend worden. Doe dat ook bij Kantoor.</div>`}
   <div class="paneel"><div class="rij">
     <label class="schakel"><input type="checkbox" data-route="routes" ${inst.routes !== false ? "checked" : ""}> Reistijd berekenen</label>
+    <label class="schakel" title="Als voorlopige (gestreepte) afspraak, in de agenda van de afspraak zelf of anders je hoofdagenda"><input type="checkbox" data-route="reisNaarAgenda" ${inst.reisNaarAgenda !== false ? "checked" : ""}> Reistijd als „voorlopig” in je agenda zetten</label>
     <label class="veld">Hoe reis je?<select data-route="vervoer">${Object.entries(VERVOER).map(([k, v]) => `<option value="${k}" ${vervoer() === k ? "selected" : ""}>${v.icoon} ${v.naam}</option>`).join("")}</select></label>
     <label class="veld" style="flex:2;min-width:240px">Google Maps-sleutel (Routes API)<input type="text" data-route="mapsSleutel" value="${esc(inst.mapsSleutel || "")}" placeholder="${mapsSleutel() ? "ingebouwde sleutel" : "AIza… (optioneel)"}" autocomplete="off" spellcheck="false"></label>
   </div>
   <div class="hint" style="margin-top:6px">${!routesAan() ? "Staat uit." : br === "google" ? "✓ Rekent met Google Maps, met verkeer in de spits." : br === "osm" ? "Rekent nu met OpenStreetMap (gratis, zonder file-informatie). Met een Google Maps-sleutel rekent hij met het echte verkeer." : "Openbaar vervoer kan alleen met een Google Maps-sleutel."}
     ${routeStand.bezig ? ` · ⏳ nog ${routeStand.bezig} route${routeStand.bezig === 1 ? "" : "s"} berekenen…` : ""}${routeStand.fout ? ` · ⚠️ ${esc(routeStand.fout)}` : ""}
-    · Adressen gaan naar ${br === "google" ? "Google" : "OpenStreetMap"}; de uitkomsten blijven op dit apparaat. <button type="button" class="knop klein" data-actie="routesWis">Opnieuw berekenen</button></div></div>`;
+    · Adressen gaan naar ${br === "google" ? "Google" : "OpenStreetMap"}; de uitkomsten blijven op dit apparaat. <button type="button" class="knop klein" data-actie="routesWis">Opnieuw berekenen</button>
+    ${Object.keys(d().reisExtern || {}).length ? `<div style="margin-top:6px">${Object.keys(d().reisExtern).length} reistijden staan als „voorlopig” in je agenda. <button type="button" class="knop klein" data-actie="reisUitAgenda">Reistijd uit agenda halen</button></div>` : ""}</div></div>`;
 }
 function instLocaties() {
   const inst = d().instellingen;
@@ -1826,6 +1828,7 @@ async function doeOphalen(stil = false) {
   const r = verbindingen().length ? await verversAgendas() : { verlopen: [], fouten: [] };
   if (links.length) { r.fouten.push(...await verversLinks()); d().agendaSync = new Date().toISOString(); bewaar(); }
   r.verlopen.forEach(v => verlopenSessies.set(v.id, v));
+  reisStraks(3000);
   if (r.fouten.length) toast(r.fouten[0]);
   else if (!stil) toast(`Agenda's opgehaald (${d().bezet.filter(b => verbindingVanBron(b.bron)).length} afspraken)`);
 }
@@ -1854,6 +1857,23 @@ function takenStraks(ms = 2500) {
   clearTimeout(takenTimer);
   takenTimer = setTimeout(() => { if (doeTakenSync.bezig) takenStraks(3000); else doeTakenSync(true); }, ms);
 }
+// ---------- reistijd als voorlopige afspraak in je agenda (zie sync.js) ----------
+let reisTimer = null;
+function reisStraks(ms = 20000) {
+  clearTimeout(reisTimer);
+  if (!reisNaarAgendaAan() || !verbindingen().length) return;
+  reisTimer = setTimeout(async () => {
+    if (document.visibilityState === "hidden") { reisStraks(60000); return; }
+    try { const r = await zetReisNaarAgendas(); if (r.fouten.length) console.warn("Reistijd naar agenda:", r.fouten[0]); else if (r.nieuw || r.weg) render(); } catch (e) { console.warn(e); }
+  }, ms);
+}
+let reisAfdruk = "";
+opslag.luister(() => {     // afspraken, werktijden, locaties of instellingen veranderd: reistijd in de agenda bijwerken
+  const a = JSON.stringify([d().bezet.length, d().bezet.at(-1)?.start, d().locaties.map(l => l.adres), d().instellingen.vervoer, d().overzichten.map(o => o.tijden), Object.keys(d().verborgen || {}).length, d().afspraakPlaats]);
+  if (a !== reisAfdruk) { reisAfdruk = a; reisStraks(); }
+});
+setInterval(() => reisStraks(1000), 10 * 60e3);
+reisStraks(15000);
 const takenGekoppeld = () => takenVerbindingen().length && Object.values(d().takenlijsten || {}).some(x => x.lijst);
 opslag.luister(() => {
   if (doeTakenSync.bezig || !takenGekoppeld()) return;
@@ -2861,7 +2881,7 @@ function nieuweAfspraak(start, eind = new Date(start.getTime() + 3600e3)) {
       <label class="schakel"><input type="checkbox" name="priveWerk" ${st.priveWerk ? "checked" : ""}> 🩺 Privé-afspraak onder werktijd (bv. huisarts, tandarts) — mag tijdens je werk, in je privé- én werkagenda</label>
       ${ri && (ri.heen || ri.weg) ? `<div class="paneel naReis">${beenTekst(ri.heen, "Heen")}${beenTekst(ri.weg, "Daarna")}
           ${vertrek ? `<div class="hint">Vertrek ± <b>${fmtTijd(vertrek.toISOString())}</b>${ri.heen.van ? " vanaf " + esc(ri.heen.van) : ""}.</div>` : ""}
-          <label class="schakel"><input type="checkbox" name="reisBlok" ${st.reisBlok ? "checked" : ""}> Reistijd ook als blok in de agenda('s) zetten</label></div>`
+          ${reisNaarAgendaAan() ? `<div class="hint">🚗 De reistijd komt vanzelf als „voorlopig” in je agenda.</div>` : `<label class="schakel"><input type="checkbox" name="reisBlok" ${st.reisBlok ? "checked" : ""}> Reistijd ook als blok in de agenda('s) zetten</label>`}</div>`
         : st.plaats.trim() && routeStand.bezig ? `<div class="hint">⏳ Reistijd berekenen…</div>` : ""}
       <div><div class="hint" style="margin-bottom:4px">In welke agenda('s)</div>
         ${ag.length ? `<div class="lijst naAgendas">${ag.map(a => { const aan = st.doelen.has(a.k); return `<div class="linkrij"><label class="schakel" style="flex:1"><input type="checkbox" data-nadoel="${esc(a.k)}" ${aan ? "checked" : ""}> ${esc(a.naam)}</label>
@@ -2883,7 +2903,7 @@ function nieuweAfspraak(start, eind = new Date(start.getTime() + 3600e3)) {
       if (st.priveWerk) {      // in alle hoofdagenda's (één per account); je eigen met titel, de rest als „Privé-afspraak"
         const perAccount = new Map(); for (const a of ag) if (!perAccount.has(a.account) || a.primair) perAccount.set(a.account, perAccount.get(a.account)?.primair ? perAccount.get(a.account) : a);
         for (const a of perAccount.values()) st.doelen.set(a.k, st.doelen.get(a.k) || (a.k === eig || st.doelen.size === 0 ? "echt" : "prive"));
-        st.reisBlok = true;
+        st.reisBlok = !reisNaarAgendaAan();
       }
     } else if (el.name === "reisBlok") st.reisBlok = el.checked;
     else if (el.dataset.nadoel) { el.checked ? st.doelen.set(el.dataset.nadoel, st.doelen.size ? "prive" : "echt") : st.doelen.delete(el.dataset.nadoel); if (!st.priveWerk && el.checked) st.doelen.set(el.dataset.nadoel, "echt"); }
@@ -3768,6 +3788,7 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
     else if (a === "agendaAfspraak") { const t = new Date(); t.setMinutes(0, 0, 0); t.setHours(t.getHours() + 1); nieuweAfspraak(t); }
     else if (a === "verborgenLijst") verborgenVenster();
     else if (a === "toonVerborgen") { voorkeur.zet("toonVerborgen", !voorkeur.lees("toonVerborgen", false)); render(); }
+    else if (a === "reisUitAgenda") { d().instellingen.reisNaarAgenda = false; bewaar(); haalReisUitAgendas().then(r => { toast(r.fouten.length ? r.fouten[0] : `${r.weg} reistijden uit je agenda gehaald (en het wegschrijven staat uit)`); render(); }); }
     else if (a === "routesWis") { wisRoutes(); toast("Reistijden worden opnieuw berekend"); render(); }
     else if (a === "locBij") { d().locaties.push({ id: uid(), naam: "Nieuwe locatie", icoon: "📍", reistijd: 15, adres: "" }); bewaar(); }
     else if (a === "locWeg") {
@@ -3968,6 +3989,7 @@ function hoofdWijzig(e) {
   if (e.target.dataset.route) {
     const k = e.target.dataset.route, inst = d().instellingen;
     if (k === "routes") inst.routes = e.target.checked;
+    else if (k === "reisNaarAgenda") { inst.reisNaarAgenda = e.target.checked; if (!e.target.checked) toast("Nieuwe reistijden komen niet meer in je agenda; wat er al staat, haal je weg met „Reistijd uit agenda halen”"); }
     else if (k === "vervoer") inst.vervoer = e.target.value;
     else if (k === "mapsSleutel") { const v = e.target.value.trim(); if (v && !/^[A-Za-z0-9_-]{20,80}$/.test(v)) { toast("Dat lijkt geen Google Maps-sleutel"); return; } inst.mapsSleutel = v; }
     bewaar(); render(); return;

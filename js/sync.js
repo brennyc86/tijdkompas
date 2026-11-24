@@ -1,7 +1,7 @@
 // Tijdkompas — afstemming met externe agenda's (ophalen + ingeplande blokken wegschrijven)
 import { opslag, bewaar, overzicht, locatie, sessie } from "./data.js";
 import { verbindingen as alleVerbindingen, heeft, VerlopenFout, agendaLijst, haalAfspraken, zetAfspraak, verwijderAfspraak, verplaatsAfspraak, wijzigAfspraak } from "./koppeling.js";
-import { omschrijving, leesIcs, familieHaak } from "./plan.js";
+import { omschrijving, leesIcs, familieHaak, dagIndeling } from "./plan.js";
 import { CONFIG } from "./config.js";
 
 // ---------- agenda's via een link (.ics), bv. een gepubliceerde Outlook-agenda: alleen lezen ----------
@@ -40,7 +40,7 @@ const agendaIdVan = (sleutel) => sleutel.slice(sleutel.indexOf("|") + 1);
 export async function verversAgendas() {
   const verlopen = [], fouten = [];
   const van = new Date(Date.now() - 864e5), tot = new Date(Date.now() + (d().instellingen.horizon + 7) * 864e5);
-  const eigenIds = new Set(Object.values(d().extern || {}).map(x => x.eventId));
+  const eigenIds = new Set([...Object.values(d().extern || {}), ...Object.values(d().reisExtern || {})].map(x => x.eventId));
   for (const v of verbindingen()) {
     try {
       const lijst = await agendaLijst(v);
@@ -181,7 +181,7 @@ export async function zetNaarAgendas({ alleen = null } = {}) {   // alleen: Set 
     try {
       const eventId = await zetAfspraak(v, agendaIdVan(bron), {
         titel: (b.soort === "reis" ? "🚗 " : "") + b.titel, omschrijving: omschrijving(b), start: b.start, eind: b.eind,
-        plaats: b.locatie && b.locatie !== "thuis" ? locatie(b.locatie)?.adres || locatie(b.locatie)?.naam : "", tkId: b.id }, x?.eventId);
+        plaats: b.locatie && b.locatie !== "thuis" ? locatie(b.locatie)?.adres || locatie(b.locatie)?.naam : "", tkId: b.id, voorlopig: b.soort === "reis" }, x?.eventId);
       d().extern[b.id] = { bron, eventId, item: b.item, start: b.start, eind: b.eind, th: vingerafdruk(b.titel), ...(b.vanFamilie ? { fam: true } : {}) };
       x?.eventId === eventId ? bij++ : nieuw++;
     } catch (e) { e instanceof VerlopenFout ? verlopen.set(v.id, v) : fouten.push(e.message); }
@@ -245,4 +245,82 @@ export async function wijzigAgendaAfspraak(ev, x) {
   const e = d().bezet.find(y => y.id === ev.id);
   if (e) { if (x.titel != null) e.titel = x.titel; if (x.plaats != null) e.plaats = x.plaats; if (x.start) e.start = x.start; if (x.eind) e.eind = x.eind; }
   bewaar();
+}
+
+// ---------- reistijd naar afspraken en werk als "voorlopig" in je agenda ----------
+// De reistijd die Tijdkompas uitrekent (zie plan.js reisVanDag) komt als voorlopige afspraak (gestreept) in je agenda:
+// in de agenda van de afspraak zelf als Tijdkompas daarin mag schrijven, anders in je hoofdagenda. Gemarkeerd als van
+// Tijdkompas, dus het telt bij het ophalen niet als afspraak. Verandert er iets, dan gaat de oude weg en komt er een nieuwe.
+export const reisNaarAgendaAan = () => d().instellingen?.reisNaarAgenda !== false;
+const reisSleutel = (r) => "r" + vingerafdruk([r.richting, +r.a, +r.b, r.van, r.naar, r.status].join("|"));
+function reisDoel(r) {
+  if (r.bron && schrijfbaar(r.bron) && verbindingVan(r.bron)) return r.bron;
+  const o = r.lijst ? overzicht(r.lijst) : null, k = o?.doelAgenda;
+  if (k && k !== "geen" && schrijfbaar(k) && verbindingVan(k)) return k;
+  const e = eigenAgenda() || Object.entries(d().agendas || {}).find(([key, a]) => a.schrijf && a.primair && verbindingVan(key))?.[0];
+  return e && verbindingVan(e) ? e : null;
+}
+function reisTitelAgenda(r) {
+  const naar = r.naar || "";
+  if (r.status === "rood") return `⛔ Reistijd past niet: naar ${naar}`;
+  if (r.status === "geel") return `⚠️ Krap: reistijd naar ${naar}`;
+  return r.richting === "terug" ? `🚗 Reistijd terug naar ${naar}` : `🚗 Reistijd naar ${naar}`;
+}
+let reisBezig = false;
+export async function zetReisNaarAgendas({ dagen = 14 } = {}) {
+  if (reisBezig || !reisNaarAgendaAan() || !verbindingen().length) return { nieuw: 0, weg: 0, fouten: [] };
+  reisBezig = true;
+  const nu = new Date(), fouten = [], verlopen = new Set();
+  let nieuw = 0, weg = 0;
+  try {
+    const ex = d().reisExtern ||= {};
+    // wat er moet staan
+    const wil = new Map();
+    for (let i = 0; i < Math.min(dagen, (d().instellingen.horizon || 14) + 1); i++) {
+      const dag = new Date(nu.getFullYear(), nu.getMonth(), nu.getDate() + i);
+      for (const r of dagIndeling(dag).reis || []) {
+        if (!(r.min > 0) || r.b <= nu) continue;
+        if (r.vanAdres && r.naarAdres && !r.route) continue;          // route wordt nog berekend: straks pas wegschrijven
+        const k = reisDoel(r); if (!k) continue;
+        wil.set(reisSleutel(r), { k, r });
+      }
+    }
+    // weg wat niet meer klopt (alleen toekomstige)
+    for (const [id, x] of Object.entries(ex)) {
+      if (wil.has(id) && wil.get(id).k === x.bron) continue;
+      if (new Date(x.eind) <= nu) { delete ex[id]; continue; }
+      const v = verbindingVan(x.bron); if (!v) { delete ex[id]; continue; }
+      if (verlopen.has(v.id)) continue;
+      try { await verwijderAfspraak(v, agendaIdVan(x.bron), x.eventId); delete ex[id]; weg++; }
+      catch (e) { e instanceof VerlopenFout ? verlopen.add(v.id) : fouten.push(e.message); }
+    }
+    // erbij wat er nog niet staat (en niet al door je andere inlog of een ander apparaat is gezet)
+    for (const [id, { k, r }] of wil) {
+      if (ex[id]) continue;
+      const v = verbindingVan(k); if (!v || verlopen.has(v.id)) continue;
+      const titel = reisTitelAgenda(r), start = r.a.toISOString(), eind = r.b.toISOString();
+      if (d().bezet.some(e => e.bron === k && e.eigen && e.start === start && e.eind === eind && /^(🚗|⛔|⚠️)/.test(e.titel || ""))) continue;
+      try {
+        const eventId = await zetAfspraak(v, agendaIdVan(k), { titel, start, eind, plaats: "", tkId: id, voorlopig: true,
+          omschrijving: `${Math.round(r.min)} min reizen${r.marge ? ` + ${r.marge} min marge` : ""}${r.van ? `, van ${r.van}` : ""}${r.naar ? ` naar ${r.naar}` : ""}.`
+            + (r.status === "rood" ? ` Past niet: maar ${Math.max(0, Math.round(r.beschikbaar))} min tussen de afspraken.` : r.status === "geel" ? ` Krap: ${Math.round(r.beschikbaar)} min ertussen.` : "")
+            + " Berekend door Tijdkompas." });
+        ex[id] = { bron: k, eventId, eind }; nieuw++;
+      } catch (e) { e instanceof VerlopenFout ? verlopen.add(v.id) : fouten.push(e.message); }
+    }
+    const eigen = new Set(Object.values(ex).map(x => x.eventId));
+    d().bezet.forEach(e => { if (eigen.has(e.extId)) e.eigen = true; });
+    bewaar();
+  } finally { reisBezig = false; }
+  return { nieuw, weg, fouten: [...new Set(fouten)] };
+}
+/** Alle reistijd-afspraken die Tijdkompas in je agenda zette weer weghalen (toekomstige) */
+export async function haalReisUitAgendas() {
+  const ex = d().reisExtern || {}, nu = new Date(); let weg = 0; const fouten = [];
+  for (const [id, x] of Object.entries(ex)) {
+    if (new Date(x.eind) <= nu) { delete ex[id]; continue; }
+    const v = verbindingVan(x.bron); if (!v) continue;
+    try { await verwijderAfspraak(v, agendaIdVan(x.bron), x.eventId); delete ex[id]; weg++; } catch (e) { fouten.push(e.message); }
+  }
+  bewaar(); return { weg, fouten };
 }

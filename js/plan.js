@@ -346,7 +346,7 @@ export function reisVanDag(tijdvakken, afspraken) {
     const adres = (herkend && locatie(herkend)?.adres) || (isFysiek(pl) ? String(pl).trim() : "");   // herkende locatie zonder adres: dan het adres uit de agenda
     if (!herkend && !adres) continue;
     const a = new Date(ev.start), b = new Date(ev.eind);
-    const p = { a, b, locatie: herkend || "", adres, naam: herkend ? naamVan(herkend) : adres, afspraak: ev.titel || "Afspraak" };
+    const p = { a, b, locatie: herkend || "", adres, naam: herkend ? naamVan(herkend) : adres, afspraak: ev.titel || "Afspraak", bron: ev.vanUid && ev.vanUid !== sessie.ik ? "" : ev.bron || "" };
     if (plekken.some(v => v.vast && zelfdePlek(v, p) && v.a <= a && v.b >= b)) continue;          // al ter plekke (vergadering op kantoor)
     // een afspraak elders midden in je werktijd: de werktijd in twee stukken (je gaat eerder weg en komt later terug)
     for (const v of plekken.filter(v => v.vast && v.a < b && v.b > a)) {
@@ -373,7 +373,7 @@ export function reisVanDag(tijdvakken, afspraken) {
     else {
       const van = hoe === "direct" ? prev : thuis, l = been(van, cur, cur.a);
       if (l && l.min > 0) {
-        const totaal = l.min + l.marge, x = { locatie: cur.locatie, lijst: cur.lijst, richting: hoe === "direct" ? "door" : "heen", afspraak: cur.afspraak, vanAfspraak: hoe === "direct" ? prev.afspraak : undefined,
+        const totaal = l.min + l.marge, x = { locatie: cur.locatie, lijst: cur.lijst, bron: cur.bron || "", richting: hoe === "direct" ? "door" : "heen", afspraak: cur.afspraak, vanAfspraak: hoe === "direct" ? prev.afspraak : undefined,
           van: van.naam, naar: cur.naam, vanAdres: van.adres, naarAdres: cur.adres, min: l.min, marge: l.marge, route: l.route, km: l.km, status: "ok" };
         if (hoe === "direct") {
           const gat = minuten(prev.b, cur.a);
@@ -390,7 +390,7 @@ export function reisVanDag(tijdvakken, afspraken) {
     }
     if (via[i + 1] === "thuis" || i === plekken.length - 1) {                         // daarna naar huis
       const l = been(cur, thuis, cur.b);
-      if (l && l.min > 0) reis.push({ a: cur.b, b: new Date(cur.b.getTime() + (l.min + l.marge) * MIN), locatie: cur.locatie, lijst: cur.lijst, richting: "terug",
+      if (l && l.min > 0) reis.push({ a: cur.b, b: new Date(cur.b.getTime() + (l.min + l.marge) * MIN), locatie: cur.locatie, lijst: cur.lijst, bron: cur.bron || "", richting: "terug",
         afspraak: cur.afspraak, vanAfspraak: cur.afspraak, van: cur.naam, naar: thuis.naam, vanAdres: cur.adres, naarAdres: thuis.adres, min: l.min, marge: l.marge, route: l.route, km: l.km, status: "ok" });
     }
   });
