@@ -259,6 +259,8 @@ Controleer daarna allebei door deze twee adressen in je browser te openen:
 | Doorgeefluik: https://tijdkompas-agenda.brennycc86.workers.dev/feed/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.ics | **Onbekende of ingetrokken link** | „Geen geldige agendalink” of „Niet toegestaan” |
 | Regels: https://firestore.googleapis.com/v1/projects/brennycc86-apps/databases/(default)/documents/feeds/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA | `"code": 404` (NOT_FOUND) | `"code": 403` (PERMISSION_DENIED) |
 
+Makkelijker: in Tijdkompas staat bij je link de knop **🔍 Link testen**. Die doet deze controles voor je en zegt welke stap nog ontbreekt.
+
 Pas als beide goed zijn, werkt de link. Links die je eerder maakte toen het nog niet werkte, kun je gewoon intrekken.
 
 1. Tijdkompas → **⚙️ Instellingen → Agenda's & accounts → 📡 Abonneer-link voor je werkagenda** → **＋ Link maken** (je moet ingelogd zijn).

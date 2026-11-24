@@ -1491,16 +1491,57 @@ function feedBlok() {
       <div class="hint">${n} ${n === 1 ? "blok" : "blokken"} (vanaf twee weken terug)${st.fout ? "" : st.bijgewerkt ? ` · ✓ link bijgewerkt ${esc(wanneer(st.bijgewerkt))}` : " · nog niet gevuld"}</div>
       ${st.fout ? `<div class="waarsch" style="margin:0"><b>Deze link werkt nog niet.</b> ${esc(st.fout)}</div>` : ""}
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="knop klein" data-actie="feedNieuw" title="Maak een nieuwe link; de oude werkt daarna niet meer">🔄 Nieuwe link</button>
+        <button type="button" class="knop klein" data-actie="feedTest" title="Kijk of Outlook deze link kan lezen">🔍 Link testen</button>
         <button type="button" class="knop klein gevaar" data-actie="feedIntrekken">Link intrekken</button></div>
+      ${st.test ? `<div class="${st.test.ok ? "hint" : "waarsch"}" style="margin:0">${st.test.html}</div>` : ""}
     </div>`;
   };
   return `<h3>📡 Abonneer-link voor je werkagenda</h3>
-  <p class="hint">Een link (.ics, alleen lezen) met je ingeplande blokken. Geef hem aan Copilot om de blokken in je werkagenda te zetten, of voeg hem in Outlook toe via <i>Agenda toevoegen → Abonneren vanaf het web</i>.
+  <p class="hint">Een link (.ics, alleen lezen) met je ingeplande blokken, zodat ze in je werkagenda staan. Zo zet je hem erin:</p>
+  <ol class="hint" style="margin:0 0 8px 18px;padding:0">
+    <li>Klik hieronder op <b>＋ Link maken</b> (of gebruik je bestaande link), kies de lijsten en klik op <b>📋 Kopiëren</b>.</li>
+    <li>Klik op <b>🔍 Link testen</b>: staat er ✓, dan kan Outlook hem lezen.</li>
+    <li>Outlook op het web (outlook.office.com): <b>Agenda</b> → <b>Agenda toevoegen</b> → <b>Abonneren vanaf het web</b> → plak de link → naam → <b>Importeren</b>.
+      Outlook voor Windows: <b>Agenda toevoegen</b> → <b>Van internet</b>. Outlook haalt hem daarna zelf een paar keer per dag op; Copilot is niet nodig.</li>
+  </ol>
+  <p class="hint">
     Alle blokken staan op <b>vrij</b>, zodat ze collega's niet blokkeren en Tijdkompas ze bij het ophalen niet als bezet ziet. De link wordt bijgewerkt zodra je iets wijzigt (op een apparaat waar je bent ingelogd).
     Wie de link heeft, kan hem lezen: deel hem alleen met je eigen agenda of Copilot. Uitgelekt? Maak een nieuwe link.
-    Werkt de link in de browser niet? Dan moeten de nieuwste beveiligingsregels in Firebase staan en het doorgeefluik bijgewerkt zijn (SETUP.md D4).</p>
+    Werkt de test niet? Dan zegt hij welke van de twee eenmalige stappen nog nodig is (SETUP.md D4).</p>
   ${!ingelogd() ? `<div class="hint">Log in om een link te maken: de link haalt je planning uit de Tijdkompas-cloud.</div>`
     : `${feeds.map(rij).join("")}<div style="margin-top:8px"><button type="button" class="knop" data-actie="feedBij">＋ Link maken</button></div>`}`;
+}
+/** Kijkt van buitenaf (zoals Outlook) of de abonneer-link werkt, en zegt welke eenmalige stap nog ontbreekt */
+async function testFeed(f) {
+  const REGELS = "https://console.firebase.google.com/project/brennycc86-apps/firestore/databases/-default-/rules";
+  const regelsStap = `<b>Stap 1 – Firebase-regels:</b> open <a href="${REGELS}" target="_blank" rel="noopener">de regels in Firebase</a>, selecteer alles en vervang het door de inhoud van
+    <a href="https://github.com/brennyc86/tijdkompas/blob/main/firestore.rules" target="_blank" rel="noopener">firestore.rules</a> → <b>Publish</b>.`;
+  const werkerStap = `<b>Stap 2 – doorgeefluik:</b> dash.cloudflare.com → <b>Workers &amp; Pages</b> → <b>tijdkompas-agenda</b> → <b>Edit code</b> → alles vervangen door
+    <a href="https://github.com/brennyc86/tijdkompas/blob/main/worker/agenda-doorgeef.js" target="_blank" rel="noopener">agenda-doorgeef.js</a> → <b>Deploy</b>.`;
+  // 1. Kan iemand zonder inlog (het doorgeefluik) het document lezen? Dat bepalen de Firebase-regels.
+  let regels = "?";
+  try {
+    const r = await fetch(`https://firestore.googleapis.com/v1/projects/brennycc86-apps/databases/(default)/documents/feeds/${encodeURIComponent(f.id)}?mask.fieldPaths=hash`, { cache: "no-store" });
+    regels = r.status === 403 ? "dicht" : r.ok ? "gevuld" : r.status === 404 ? "leeg" : "?";
+  } catch {}
+  // 2. Geeft het doorgeefluik de agenda door? (de oude code kent /feed/ niet en zegt "Geen geldige agendalink")
+  let werker = "?", aantal = 0;
+  try {
+    const r = await fetch(feedUrl(f.id), { cache: "no-store" }), t = await r.text();
+    if (/Geen geldige agendalink/i.test(t)) werker = "oud";
+    else if (r.ok && t.startsWith("BEGIN:VCALENDAR")) { werker = "ok"; aantal = (t.match(/BEGIN:VEVENT/g) || []).length; }
+    else if (r.status === 404 || r.headers.get("X-Tijdkompas-Feed")) werker = "nieuw";
+  } catch { werker = "onbereikbaar"; }
+  if (werker === "ok") return { ok: true, html: `✓ <b>De link werkt</b>: ${aantal} ${aantal === 1 ? "blok" : "blokken"}. Plak hem in Outlook (Agenda toevoegen → Abonneren vanaf het web).` };
+  const nodig = [];
+  if (regels === "dicht") nodig.push(regelsStap);
+  if (werker === "oud") nodig.push(werkerStap);
+  if (nodig.length) return { ok: false, html: `<b>De link werkt nog niet.</b> Nog te doen (eenmalig, ± 5 minuten):<br>${nodig.join("<br>")}<br>Klik daarna opnieuw op <b>🔍 Link testen</b>.` };
+  if (regels === "leeg" || werker === "nieuw") {
+    const fout = feedStand.get(f.id)?.fout;
+    return { ok: false, html: `<b>Het doorgeefluik en de regels staan goed, maar de link is nog niet gevuld.</b> ${fout ? "Firebase zei: " + esc(fout) + ". " : ""}Wijzig iets in je planning of klik op 🔄 Nieuwe link, en test opnieuw.` };
+  }
+  return { ok: false, html: `<b>Kon de link niet controleren</b> (geen verbinding met ${werker === "onbereikbaar" ? "het doorgeefluik" : "Firebase"}?). Open de link eens in je browser: zie je <i>BEGIN:VCALENDAR</i>, dan werkt hij. Zie je „Geen geldige agendalink”, doe dan:<br>${werkerStap}` };
 }
 const feedVan = (el) => (d().feeds || []).find(f => f.id === el.closest("[data-feed]")?.dataset.feed);
 async function feedActie(a, el) {
@@ -1514,6 +1555,14 @@ async function feedActie(a, el) {
     return;
   }
   const f = feedVan(el); if (!f) return;
+  if (a === "feedTest") {
+    const oud = feedStand.get(f.id) || {};
+    feedStand.set(f.id, { ...oud, test: { ok: true, html: "Bezig met testen…" } }); render();
+    await feedsBijwerken().catch(() => {});
+    const test = await testFeed(f);
+    feedStand.set(f.id, { ...(feedStand.get(f.id) || {}), test }); render();
+    return;
+  }
   if (a === "feedKopie") {
     const url = feedUrl(f.id);
     try { await navigator.clipboard.writeText(url); toast("Link gekopieerd"); }

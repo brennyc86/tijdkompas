@@ -10,7 +10,10 @@ const FIREBASE_PROJECT = "brennycc86-apps";
 const FEED = /^\/feed\/([A-Za-z0-9_-]{32,64})\.ics$/;
 
 async function geefFeed(req, sleutel) {
-  const kop = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" };
+  // Tijdkompas zelf mag de link ook lezen (knop "Link testen"); agenda-apps sturen geen Origin mee
+  const origin = req.headers.get("Origin") || "";
+  const kop = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "X-Tijdkompas-Feed": "1",
+                ...(HERKOMST.includes(origin) ? { "Access-Control-Allow-Origin": origin, "Access-Control-Expose-Headers": "X-Tijdkompas-Feed", "Vary": "Origin" } : {}) };
   if (req.method !== "GET" && req.method !== "HEAD") return new Response("Niet toegestaan", { status: 405, headers: kop });
   const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/feeds/${sleutel}`;
   let r;
