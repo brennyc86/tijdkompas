@@ -8,12 +8,12 @@ Gebruikers merken er niets van. Zij klikken alleen in de app op „Inloggen met 
 
 | Stap | Waarvoor | Status |
 |---|---|---|
-| **A** Firebase | inloggen met Google of met een link per e-mail (2b), online opslag, delen | ✅ gedaan — ⚠️ **plak de nieuwste `firestore.rules` opnieuw** (zie [Beveiligingsregels bijwerken](#beveiligingsregels-bijwerken); nieuw op 17-11-2026: abonneer-link voor je werkagenda, en gelinkte accounts zien elkaars planning ook onderling) |
+| **A** Firebase | inloggen met Google of met een link per e-mail (2b), online opslag, delen | ✅ gedaan (regels met abonneer-link geplakt op 24-11-2026) |
 | **B** Microsoft-omgeving + app | inloggen met Microsoft (B0: eenmalig een gratis eigen omgeving) | ✅ gedaan — maak het geheim (B2) opnieuw aan als het ooit in een chat of mail heeft gestaan |
 | **C-Google** | Google Agenda, Google Taken en Google Drive koppelen | Client ID ✅ ingevuld; controleer de rest van stap C-Google |
 | **C-Microsoft** | Outlook-agenda, Microsoft To Do (Outlook-taken) en OneDrive koppelen | ✅ client-ID ingevuld, redirect-URI (SPA) staat |
 | **E** Extra afschermen (aanbevolen) | API-sleutel beperken tot deze site; controleren wie bij het Firebase-project kan | zie [E. Extra afschermen](#e-extra-afschermen-aanbevolen-10-minuten) |
-| **D** Doorgeefluik (Cloudflare) | Outlook-agenda via een link lezen, én de **abonneer-link** waarmee je je blokken in je werkagenda krijgt (D4) | ⚠️ **plak de nieuwe code in het doorgeefluik** (D1 → Bijwerken; nieuw op 17-11-2026: `/feed/…`-route voor de abonneer-link). Laat het doorgeefluik staan als je de abonneer-link gebruikt |
+| **D** Doorgeefluik (Cloudflare) | Outlook-agenda via een link lezen, én de **abonneer-link** waarmee je je blokken in je werkagenda krijgt (D4) | ✅ gedaan (nieuwe code met `/feed/…` gedeployed op 24-11-2026). Laat het doorgeefluik staan als je de abonneer-link gebruikt |
 
 **Over de knoppen in deze handleiding:** de Firebase-console is altijd Engels. Google Cloud en Microsoft tonen soms Nederlands, afhankelijk van je instellingen.
 Daarom staat elke knop er zo: **English label** (Nederlandse vertaling). Kijk dus naar wat jouw scherm toont.
