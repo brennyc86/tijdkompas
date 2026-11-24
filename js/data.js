@@ -112,6 +112,7 @@ function normaliseer(d) {
   }
   n.afspraakPlaats = d.afspraakPlaats && typeof d.afspraakPlaats === "object" ? d.afspraakPlaats : {};
   n.tochTonen = d.tochTonen && typeof d.tochTonen === "object" ? d.tochTonen : {};
+  n.medisch = d.medisch && typeof d.medisch === "object" ? d.medisch : {};
   n.afspraakVerzoeken = Array.isArray(d.afspraakVerzoeken) ? d.afspraakVerzoeken : [];
   n.afspraakGedaan = d.afspraakGedaan && typeof d.afspraakGedaan === "object" ? d.afspraakGedaan : {};
   // boodschappenlijst (persoonlijk, met je andere apparaten gedeeld via je gebruikersdocument)

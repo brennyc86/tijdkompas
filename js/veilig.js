@@ -196,6 +196,7 @@ export function ontsmet(n) {
       min: Math.min(600, Math.round(Number(v.min))), km: Number.isFinite(Number(v.km)) && v.km != null ? Math.round(Number(v.km) * 10) / 10 : null,
       bron: ["google", "osm", "zelf"].includes(v.bron) ? v.bron : "", t: tekst(v.t, 10) }]));
   n.afspraakPlaats = Object.fromEntries(Object.entries(obj(n.afspraakPlaats)).filter(([k, v]) => k.length <= 600 && typeof v === "string").slice(-300).map(([k, v]) => [k, tekst(v, 300)]));
+  n.medisch = Object.fromEntries(Object.entries(obj(n.medisch)).filter(([k, v]) => k.length <= 600 && typeof v === "string").slice(-300).map(([k, v]) => [k, tekst(v, 40)]));
   n.tochTonen = Object.fromEntries(Object.entries(obj(n.tochTonen)).filter(([k, v]) => k.length <= 600 && typeof v === "string").slice(-300).map(([k, v]) => [k, tekst(v, 40)]));
   n.afspraakGedaan = Object.fromEntries(Object.entries(obj(n.afspraakGedaan)).filter(([k, v]) => veiligId(k) && v && typeof v === "object").slice(-300)
     .map(([k, v]) => [k, { ok: !!v.ok, t: tekst(v.t, 40), ...(v.fout ? { fout: tekst(v.fout, 200) } : {}) }]));

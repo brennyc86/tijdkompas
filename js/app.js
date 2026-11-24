@@ -753,7 +753,7 @@ function agenda() {
       const { k, kleur, ander } = afspraakStijl(ev);
       const t = Math.max(0, y(ev.start)), h = Math.max(16, Math.min(hoogte, y(ev.eind)) - t);
       return `<div class="wblok bezet${ander ? " ander" : ""}" data-ev="${esc(ev.id)}" data-evfam="${ev.vanFamilie ? 1 : ""}" style="--ak:${esc(kleur)};top:${t}px;height:${h - 2}px" title="${esc(ev.titel)} ${fmtTijd(ev.start)}–${fmtTijd(ev.eind)}${k ? " · " + esc(k.naam) : ""}${ev.plaats ? " · " + esc(ev.plaats) : ""}">
-        <b>${esc(ev.titel)}</b>${h > 30 ? `<span class="btijd">${fmtTijd(ev.start)}–${fmtTijd(ev.eind)}</span>` : ""}</div>`;
+        <b>${isMedisch(ev) ? "🩺 " : ""}${esc(ev.titel)}</b>${h > 30 ? `<span class="btijd">${fmtTijd(ev.start)}–${fmtTijd(ev.eind)}</span>` : ""}</div>`;
     }).join("");
     const spook = !voorkeur.lees("toonVerborgen", false) ? "" : [...d().bezet.filter(afspraakZichtbaar), ...fam.bezet].filter(inDag).filter(ev => !ev.eigen).map(ev => [ev, verborgenReden(ev)]).filter(([, r]) => r).map(([ev, r]) => {
       const t = Math.max(0, y(ev.start)), h = Math.max(16, Math.min(hoogte, y(ev.eind)) - t);
@@ -2942,6 +2942,7 @@ function nieuweAfspraak(start, eind = new Date(start.getTime() + 3600e3)) {
     const r = doelen.length || !doorgeven.length ? await maakAfspraak({ titel, start: t.a.toISOString(), eind: t.b.toISOString(), plaats, doelen, extra, omschrijving: oms }) : { fouten: [] };
     for (const x of doorgeven) { const { uid, k } = famDeel(x.k); verzoekMaak(uid, k, { titel: x.titel, plaats: x.titel === titel ? plaats : "", start: t.a.toISOString(), eind: t.b.toISOString(), extra, omschrijving: oms }); }
     // privé onder werktijd: geen botsing met je werk melden (voor elke titel waaronder hij in een agenda staat)
+    if (st.priveWerk) { const m = { ...(d().medisch || {}) }; for (const ev of r.gemaakt || []) if (!/^🚗/.test(ev.titel || "")) m[afspraakSleutel(ev)] = vandaagStr(); d().medisch = m; }
     if (st.priveWerk) for (const o of vasteLijsten()) {
       const g = { ...(o.genegeerd || {}) };
       for (const tt of new Set([titel, "Privé-afspraak", ...extra.map(x => x.titel)])) for (const x of [{ start: t.a.toISOString(), titel: tt }, ...extra.map(x => ({ start: x.start, titel: tt }))])
@@ -3041,6 +3042,29 @@ async function bewaarAfspraak(ev) {
     bewaar(); dlg2.close(); render();
   } catch (err) { toast("Aanpassen lukte niet: " + err.message); }
 }
+// ---------- medische afspraak (huisarts, tandarts…): mag onder werktijd ----------
+const isMedisch = (ev) => !!d().medisch?.[afspraakSleutel(ev)];
+/** Markeren als medisch: geen botsing met je werk (voor elke lijst met vaste tijden). Daarna eventueel ook in je werkagenda. */
+function zetMedisch(ev, aan = true) {
+  const titel = ev.titel || "Afspraak", sl = afspraakSleutel(ev), m = { ...(d().medisch || {}) };
+  if (aan) m[sl] = vandaagStr(); else delete m[sl];
+  d().medisch = m;
+  for (const o of vasteLijsten()) {
+    const g = { ...(o.genegeerd || {}) }, k = `${o.id}|${ev.start}|${vingerafdruk(titel)}`;
+    if (aan) g[k] = vandaagStr(); else delete g[k];
+    o.genegeerd = g;
+  }
+  bewaar();
+  if (!aan) { toast(`„${titel}” is geen medische afspraak meer`); return; }
+  // een agenda bij je werk waar hij nog niet in staat: aanbieden om hem daar als "Privé-afspraak" te zetten
+  const werkAg = alleDoelAgendas().find(a => a.k !== ev.bron && (Object.entries(d().agendas || {}).some(([k, x]) => k === a.k && x.lijst && vasteLijsten().some(o => o.id === x.lijst)) || vasteLijsten().some(o => o.doelAgenda === a.k)));
+  toast(`🩺 „${titel}” is een medische afspraak: mag onder werktijd, geen botsing met je werk`,
+    werkAg ? { label: "Ook in werkagenda", f: () => {
+      const x = { titel: "Privé-afspraak", plaats: "", start: ev.start, eind: ev.eind };
+      if (werkAg.fam) { const { uid, k } = famDeel(werkAg.k); verzoekMaak(uid, k, { ...x, extra: [] }); bewaar(); toast("Je andere inlog zet hem in de werkagenda zodra Tijdkompas daar open is"); }
+      else maakAfspraak({ ...x, doelen: [{ k: werkAg.k, titel: x.titel }] }).then(r => { toast(r.fouten.length ? "⚠️ " + r.fouten[0] : `In ${agendaNaam(werkAg.k) || "je werkagenda"} gezet als „Privé-afspraak”`); render(); });
+    } } : undefined);
+}
 /** Een afspraak naar een andere agenda: nieuw maken in de gekozen agenda, de oude weghalen (zelf, of via je andere inlog) */
 async function verplaatsNaarAgenda(ev, naar) {
   const x = { titel: ev.titel || "Afspraak", plaats: ev.plaats || "", start: ev.start, eind: ev.eind };
@@ -3082,6 +3106,7 @@ function afspraakVenster(ev) {
         <label class="schakel" style="margin:-2px 0 4px 10px"><input type="checkbox" id="arolAlles"> Werk/privé en herinnering: voor alle „${esc(titel)}” uit deze agenda</label>
         ${isHerinnering(ev) ? `<button type="button" class="keuzeknop" data-akeuze="geenherinnering"><b>↩ Geen herinnering meer</b><small>Telt weer als bezet.</small></button>`
           : `<button type="button" class="keuzeknop" data-akeuze="herinnering"><b>🔔 Is een herinnering</b><small>Blijft als belletje staan, maar telt niet als bezet (er mag doorheen gepland worden).</small></button>`}
+        <button type="button" class="keuzeknop" data-akeuze="medisch" aria-pressed="${isMedisch(ev)}"><b>${isMedisch(ev) ? "🩺 Medische afspraak ✓ — klik om terug te zetten" : "🩺 Medische afspraak (huisarts, tandarts…)"}</b><small>Privé, maar mag onder werktijd: geen botsing met je werk en niets in te halen. De reistijd vanaf kantoor (en terug) telt gewoon mee.</small></button>
         <button type="button" class="keuzeknop" data-akeuze="verberg"><b>🙈 Deze keer niet meetellen</b><small>Alleen deze afspraak; hij verdwijnt hier en er mag doorheen gepland worden. Terughalen kan met „🙈 weggedrukt” boven de agenda.</small></button>
         ${(() => { const opties = alleDoelAgendas().filter(a => a.k !== ev.bron && a.k !== `fam|${ev.vanUid}|${ev.bron}`); return opties.length ? `<div class="keuzeknop" style="cursor:default"><b>📅 In een andere agenda zetten</b><small>Verkeerde agenda gekozen? Verplaats hem (titel, tijd en locatie gaan mee; ${ev.vanUid ? "de oude haalt je andere inlog weg" : kanVerwijderen(ev) ? "de oude gaat weg" : "de oude kan Tijdkompas niet weghalen"}).</small>
           <div class="rij" style="margin-top:6px"><select id="anaar" style="flex:1">${opties.map(a => `<option value="${esc(a.k)}">${esc(a.naam)}</option>`).join("")}</select><button type="button" class="knop klein prim" data-akeuze="verplaats">Verplaatsen</button></div></div>` : ""; })()}
@@ -3099,6 +3124,7 @@ function afspraakVenster(ev) {
       bewaar(); dlg2.close(); render(); toast(`„${titel}” is weer zichtbaar`); return;
     }
     const k = e.target.closest("[data-akeuze]")?.dataset.akeuze; if (!k) return;
+    if (k === "medisch") { zetMedisch(ev, !isMedisch(ev)); dlg2.close(); render(); return; }
     if (k === "wis") {
       if (!confirm(`„${titel}” verwijderen${ev.bron === "tk" ? "" : " uit " + (agendaNaam(ev.bron) || "je agenda")}?`)) return;
       dlg2.close();
@@ -3245,7 +3271,8 @@ function botsingVenster(c) {
       <h2 style="margin:0">${esc(titel)}</h2>
       <div class="planstand">${DAGLANG[a.getDay()]} ${a.getDate()} ${MAAND[a.getMonth()]} · ${ea}–${eb} · ${prive ? `${fmtDuur(c.min)} binnen je vaste tijden van ${esc(o.icoon)} ${esc(o.naam)} (${esc(tijdenTekst(dagTijden(o, c.ds), null) || "—")})` : `${fmtDuur(c.min)} buiten je vaste tijden van ${esc(o.icoon)} ${esc(o.naam)}`}</div>
       <div class="keuzes">
-        ${prive ? `<button type="button" class="keuzeknop" data-keuze="inkorten"><b>⏱ Werktijd die dag inkorten</b><small>Je neemt die ${fmtDuur(c.min)} extra vrij.</small></button>
+        ${prive ? `<button type="button" class="keuzeknop" data-keuze="medisch"><b>🩺 Medische afspraak (huisarts, tandarts…) — mag onder werktijd</b><small>Niets in te halen of in te korten; de reistijd vanaf kantoor en terug telt gewoon mee.</small></button>
+        <button type="button" class="keuzeknop" data-keuze="inkorten"><b>⏱ Werktijd die dag inkorten</b><small>Je neemt die ${fmtDuur(c.min)} extra vrij.</small></button>
         <button type="button" class="keuzeknop" data-keuze="inhalen"><b>🔁 Inkorten en inhalen op een ander moment</b><small>Kies hieronder wanneer je de ${fmtDuur(c.min)} inhaalt.</small></button>
         <button type="button" class="keuzeknop" data-keuze="ruilen"><b>🔀 De hele dag ruilen</b><small>Die dag vrij, en op een andere dag (hieronder) de werktijden van die dag.</small></button>`
         : `<button type="button" class="keuzeknop" data-keuze="compenseren"><b>⏱ Elders minder werken</b><small>De ${fmtDuur(c.min)} gaan op een ander moment (hieronder) van je werktijd af.</small></button>
@@ -3271,6 +3298,7 @@ function botsingVenster(c) {
     const k = e.target.closest("button"); if (!k) return;
     if (k.dataset.actie === "bdagvrij") { const i = $("[name=bdag]", dlg2); i.value = dagVrij; i.setAttribute("value", dagVrij); oLees(); return; }
     const keuze = k.dataset.keuze; if (!keuze) return;
+    if (keuze === "medisch") { dlg2.close(); zetMedisch(c.ev, true); render(); return; }
     const v = (n) => $(`[name=${n}]`, dlg2)?.value || "";
     const dag2 = v("bdag"), van2 = v("bvan"), tot2 = v("btot");
     const nodigAnder = ["inhalen", "ruilen", "compenseren", "dagvrij"].includes(keuze);
