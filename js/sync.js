@@ -2,6 +2,7 @@
 import { opslag, bewaar, overzicht, locatie, sessie } from "./data.js";
 import { verbindingen as alleVerbindingen, heeft, VerlopenFout, agendaLijst, haalAfspraken, zetAfspraak, verwijderAfspraak, verplaatsAfspraak, wijzigAfspraak } from "./koppeling.js";
 import { omschrijving, leesIcs, familieHaak, dagIndeling } from "./plan.js";
+import { routeUitleg } from "./route.js";
 import { CONFIG } from "./config.js";
 
 // ---------- agenda's via een link (.ics), bv. een gepubliceerde Outlook-agenda: alleen lezen ----------
@@ -267,11 +268,15 @@ function reisTitelAgenda(r) {
   return r.richting === "terug" ? `🚗 Reistijd terug naar ${naar}` : `🚗 Reistijd naar ${naar}`;
 }
 let reisBezig = false;
-export async function zetReisNaarAgendas({ dagen = 14 } = {}) {
-  if (reisBezig || !reisNaarAgendaAan() || !verbindingen().length) return { nieuw: 0, weg: 0, fouten: [] };
+/** Uitkomst van de laatste keer wegschrijven (om te laten zien wat er gebeurde) */
+export const reisStand = (() => { try { return JSON.parse(localStorage.getItem("tk_reisStand") || "null") || {}; } catch { return {}; } })();
+export async function zetReisNaarAgendas({ dagen = 14, poging = 0 } = {}) {
+  if (reisBezig) return { nieuw: 0, weg: 0, fouten: [], bezig: true };
+  if (!reisNaarAgendaAan()) return { nieuw: 0, weg: 0, fouten: [], reden: "uit" };
+  if (!verbindingen().length) return { nieuw: 0, weg: 0, fouten: [], reden: "geen agenda gekoppeld" };
   reisBezig = true;
   const nu = new Date(), fouten = [], verlopen = new Set();
-  let nieuw = 0, weg = 0;
+  let nieuw = 0, weg = 0, totaal = 0, wacht = 0, zonderDoel = 0, staat = 0;
   try {
     const ex = d().reisExtern ||= {};
     // wat er moet staan
@@ -280,8 +285,10 @@ export async function zetReisNaarAgendas({ dagen = 14 } = {}) {
       const dag = new Date(nu.getFullYear(), nu.getMonth(), nu.getDate() + i);
       for (const r of dagIndeling(dag).reis || []) {
         if (!(r.min > 0) || r.b <= nu) continue;
-        if (r.vanAdres && r.naarAdres && !r.route) continue;          // route wordt nog berekend: straks pas wegschrijven
-        const k = reisDoel(r); if (!k) continue;
+        totaal++;
+        // route wordt nog berekend: straks pas wegschrijven (niet gevonden? dan met de vaste reistijd van de locatie)
+        if (r.vanAdres && r.naarAdres && !r.route && routeUitleg(r.vanAdres, r.naarAdres) === "bezig") { wacht++; continue; }
+        const k = reisDoel(r); if (!k) { zonderDoel++; continue; }
         wil.set(reisSleutel(r), { k, r });
       }
     }
@@ -296,23 +303,31 @@ export async function zetReisNaarAgendas({ dagen = 14 } = {}) {
     }
     // erbij wat er nog niet staat (en niet al door je andere inlog of een ander apparaat is gezet)
     for (const [id, { k, r }] of wil) {
-      if (ex[id]) continue;
+      if (ex[id]) { staat++; continue; }
       const v = verbindingVan(k); if (!v || verlopen.has(v.id)) continue;
       const titel = reisTitelAgenda(r), start = r.a.toISOString(), eind = r.b.toISOString();
       if (d().bezet.some(e => e.bron === k && e.eigen && e.start === start && e.eind === eind && /^(🚗|⛔|⚠️)/.test(e.titel || ""))) continue;
       try {
-        const eventId = await zetAfspraak(v, agendaIdVan(k), { titel, start, eind, plaats: "", tkId: id, voorlopig: true,
+        const eventId = await zetAfspraak(v, agendaIdVan(k), { titel, start, eind, plaats: "", tkId: id, voorlopig: true, misschien: !reisStand.geenMisschien,
           omschrijving: `${Math.round(r.min)} min reizen${r.marge ? ` + ${r.marge} min marge` : ""}${r.van ? `, van ${r.van}` : ""}${r.naar ? ` naar ${r.naar}` : ""}.`
             + (r.status === "rood" ? ` Past niet: maar ${Math.max(0, Math.round(r.beschikbaar))} min tussen de afspraken.` : r.status === "geel" ? ` Krap: ${Math.round(r.beschikbaar)} min ertussen.` : "")
             + " Berekend door Tijdkompas." });
-        ex[id] = { bron: k, eventId, eind }; nieuw++;
-      } catch (e) { e instanceof VerlopenFout ? verlopen.add(v.id) : fouten.push(e.message); }
+        ex[id] = { bron: k, eventId, eind }; nieuw++; staat++;
+      } catch (e) {
+        if (e instanceof VerlopenFout) { verlopen.add(v.id); continue; }
+        // Google weigert "jezelf als deelnemer"? Dan voortaan zonder (alleen voorlopig + grijs)
+        if (!reisStand.geenMisschien && e.status === 400 && v.soort === "google") { reisStand.geenMisschien = true; reisBezig = false; return zetReisNaarAgendas({ dagen, poging: poging + 1 }); }
+        fouten.push(e.message);
+      }
     }
     const eigen = new Set(Object.values(ex).map(x => x.eventId));
     d().bezet.forEach(e => { if (eigen.has(e.extId)) e.eigen = true; });
+    if (verlopen.size) fouten.push("Je agenda-koppeling is verlopen: log opnieuw in (Instellingen → Agenda's & accounts)");
+    Object.assign(reisStand, { t: new Date().toISOString(), totaal, staat, nieuw, weg, wacht, zonderDoel, fout: [...new Set(fouten)][0] || "" });
+    try { localStorage.setItem("tk_reisStand", JSON.stringify(reisStand)); } catch {}
     bewaar();
   } finally { reisBezig = false; }
-  return { nieuw, weg, fouten: [...new Set(fouten)] };
+  return { nieuw, weg, fouten: [...new Set(fouten)], totaal, staat, wacht, zonderDoel };
 }
 /** Alle reistijd-afspraken die Tijdkompas in je agenda zette weer weghalen (toekomstige) */
 export async function haalReisUitAgendas() {

@@ -7,7 +7,7 @@ import { familieHaak, planAutomatisch, werkGeplandBij, doelDatum, harde, priorit
   AFWIJKING, maakRuimte, magWijkenVoor, wijkbaar, plekGebonden, plaatsMetWijken, telt, isHerinnering, buitenBeschikbaarheid, regelVoor, rolKeuze, afspraakSleutel, standaardTijden, afwijkingOp, afwijkingDatums, zetAfwijking, dagTijden, tijdenZonder, tijdenMet, effLijst, rolBotsingen, planStatus, grootsteGat, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, plaatsVanaf, vrijkomend, vrijeTijd, trekAllesNaarVoren, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland, reisRond, plaatsVan, herkenLocatie } from "./plan.js";
 import { ids, verbindingen as alleVerbindingen, heeft, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, zonderDoel, koppelHaak, neemGedeeldeOver } from "./koppeling.js";
 import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroniseerAlles, naamVan, lijstWeg } from "./schijf.js";
-import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD, eigenAgenda, viaEigenaar, vingerafdruk, kanVerplaatsen, verplaatsAgendaAfspraak, schrijfAgendas, maakAfspraak, verwijderAgendaAfspraak, kanVerwijderen, wijzigAgendaAfspraak, zetReisNaarAgendas, reisNaarAgendaAan, haalReisUitAgendas } from "./sync.js";
+import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD, eigenAgenda, viaEigenaar, vingerafdruk, kanVerplaatsen, verplaatsAgendaAfspraak, schrijfAgendas, maakAfspraak, verwijderAgendaAfspraak, kanVerwijderen, wijzigAgendaAfspraak, zetReisNaarAgendas, reisNaarAgendaAan, haalReisUitAgendas, reisStand } from "./sync.js";
 import { syncTaken, takenVerbindingen, koppelTakenlijst, takenlijstVan, takenVerbindingVan } from "./takensync.js";
 import { kiesEmoji, voorstellen } from "./emoji.js";
 import { boodschappenWeergave, initBoodschappen, focusInvoer, winkelVelden, winkelOpen, boodschappenVandaag } from "./boodschappen.js";
@@ -795,11 +795,13 @@ function agenda() {
       ${gekoppeld ? "" : `<a class="knop" href="#instellingen" data-tab="koppelingen">🔗 Google/Outlook koppelen</a>`}
       <details class="meer"><summary class="knop">⋯</summary><div class="menu">
         <button class="knop" data-actie="naarVoren" ${toekomst.length ? "" : "disabled"} title="Al het ingeplande werk in je vaste werktijden schuift (in dezelfde volgorde) naar de eerste lege werktijd, bijv. na een afgezegde afspraak">⏪ Werk naar voren halen</button>
+        ${gekoppeld && reisNaarAgendaAan() ? `<button class="knop" data-actie="reisNuAgenda" title="De reistijden van de komende 2 weken als voorlopige afspraak in je agenda zetten">🚗 Reistijd in agenda zetten</button>` : ""}
         <button class="knop" data-actie="importIcs">📥 .ics importeren</button>
         <button class="knop" data-actie="exportIcs" ${toekomst.length ? "" : "disabled"}>📤 .ics downloaden</button>
         <button class="knop gevaar" data-actie="wisPlanning" ${toekomst.length ? "" : "disabled"}>Planning wissen</button>
       </div></details>
     </div></div>
+  ${gekoppeld && reisNaarAgendaAan() && reisStand.fout ? `<div class="waarsch">🚗 <b>Reistijd naar je agenda lukte niet:</b> ${esc(reisStand.fout)} <button type="button" class="knop klein" data-actie="reisNuAgenda">Opnieuw proberen</button></div>` : ""}
   ${herplanBlok()}
   ${botsingBlok()}
   ${buitenBlok()}
@@ -1331,7 +1333,8 @@ function routeInstellingen() {
     ${(() => { const l = reistijdenLijst(); return l.length ? `<details class="rtlijst" style="margin-top:8px"><summary>📒 Bewaarde reistijden (${l.length}) — eens berekend, niet opnieuw; zelf aan te passen</summary>
       <div class="lijst">${l.map(x => `<div class="linkrij"><span>${VERVOER[x.vervoer]?.icoon || "🚗"}</span><span class="rtadres">${esc(x.van)} <b>→</b> ${esc(x.naar)}<br><small class="hint">${x.km ? String(x.km).replace(".", ",") + " km · " : ""}${x.bron === "zelf" ? "zelf ingevuld" : x.bron === "google" ? "Google Maps" : "OpenStreetMap"}${x.t ? " · " + esc(x.t) : ""} · geldt ook de andere kant op</small></span>
         <label class="rtmin"><input type="number" min="1" max="600" value="${x.min}" data-rtmin="${esc(x.k)}" aria-label="Minuten"> min</label><button type="button" class="x" data-rtweg="${esc(x.k)}" title="Vergeten (wordt opnieuw berekend)">✕</button></div>`).join("")}</div></details>` : ""; })()}
-    ${Object.keys(d().reisExtern || {}).length ? `<div style="margin-top:6px">${Object.keys(d().reisExtern).length} reistijden staan als „voorlopig” in je agenda. <button type="button" class="knop klein" data-actie="reisUitAgenda">Reistijd uit agenda halen</button></div>` : ""}</div></div>`;
+    ${reisNaarAgendaAan() ? `<div style="margin-top:6px">🚗 ${Object.keys(d().reisExtern || {}).length} reistijden staan als „voorlopig” in je agenda${reisStand.t ? ` · laatst bijgewerkt ${new Date(reisStand.t).toLocaleString("nl-NL", { weekday: "short", hour: "2-digit", minute: "2-digit" })}` : " · nog niet bijgewerkt op dit apparaat"}${reisStand.wacht ? ` · ${reisStand.wacht} wachten op de route` : ""}${reisStand.zonderDoel ? ` · ${reisStand.zonderDoel} zonder agenda` : ""}${reisStand.fout ? ` · <b style="color:var(--q-doen)">⚠️ ${esc(reisStand.fout)}</b>` : ""}
+      <button type="button" class="knop klein prim" data-actie="reisNuAgenda">Nu in agenda zetten</button>${Object.keys(d().reisExtern || {}).length ? ` <button type="button" class="knop klein" data-actie="reisUitAgenda">Reistijd uit agenda halen</button>` : ""}</div>` : ""}</div></div>`;
 }
 function instLocaties() {
   const inst = d().instellingen;
@@ -1867,8 +1870,19 @@ function reisStraks(ms = 20000) {
   if (!reisNaarAgendaAan() || !verbindingen().length) return;
   reisTimer = setTimeout(async () => {
     if (document.visibilityState === "hidden") { reisStraks(60000); return; }
-    try { const r = await zetReisNaarAgendas(); if (r.fouten.length) console.warn("Reistijd naar agenda:", r.fouten[0]); else if (r.nieuw || r.weg) render(); } catch (e) { console.warn(e); }
+    try { const r = await zetReisNaarAgendas(); meldReis(r, true); if (r.wacht) reisStraks(30000); } catch (e) { console.warn(e); }
   }, ms);
+}
+let laatsteReisFout = "";
+/** Uitkomst van reistijd-wegschrijven laten zien (stil: alleen bij een nieuwe fout of als er iets veranderde) */
+function meldReis(r, stil = false) {
+  if (r.bezig) { if (!stil) toast("Bezig met reistijden wegschrijven…"); return; }
+  if (r.reden) { if (!stil) toast(r.reden === "uit" ? "Reistijd in je agenda staat uit (Instellingen → Locaties)" : "Koppel eerst je Google- of Outlook-agenda (Instellingen → Agenda's & accounts)"); return; }
+  const f = r.fouten?.[0] || "";
+  if (f && (f !== laatsteReisFout || !stil)) toast("⚠️ Reistijd naar je agenda lukte niet: " + f);
+  laatsteReisFout = f;
+  if (!stil && !f) toast(`🚗 Reistijd in je agenda: ${r.staat || 0} van ${r.totaal || 0} staan erin${r.nieuw ? ` (${r.nieuw} nieuw)` : ""}${r.weg ? `, ${r.weg} verouderde weggehaald` : ""}${r.wacht ? ` · ${r.wacht} wachten nog op de routeberekening` : ""}${r.zonderDoel ? ` · ${r.zonderDoel} zonder agenda om in te schrijven` : ""}${!r.totaal ? " — er is (de komende 2 weken) geen reistijd te zetten: staan je thuis- en werkadres en de afspraaklocaties goed?" : ""}`);
+  if (r.nieuw || r.weg) render();
 }
 let reisAfdruk = "";
 opslag.luister(() => {     // afspraken, werktijden, locaties of instellingen veranderd: reistijd in de agenda bijwerken
@@ -3791,6 +3805,7 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
     else if (a === "agendaAfspraak") { const t = new Date(); t.setMinutes(0, 0, 0); t.setHours(t.getHours() + 1); nieuweAfspraak(t); }
     else if (a === "verborgenLijst") verborgenVenster();
     else if (a === "toonVerborgen") { voorkeur.zet("toonVerborgen", !voorkeur.lees("toonVerborgen", false)); render(); }
+    else if (a === "reisNuAgenda") { toast("Reistijden naar je agenda…"); zetReisNaarAgendas().then(r => { meldReis(r); render(); }).catch(e => toast("⚠️ " + e.message)); }
     else if (a === "reisUitAgenda") { d().instellingen.reisNaarAgenda = false; bewaar(); haalReisUitAgendas().then(r => { toast(r.fouten.length ? r.fouten[0] : `${r.weg} reistijden uit je agenda gehaald (en het wegschrijven staat uit)`); render(); }); }
     else if (a === "routesWis") { wisRoutes(); toast("Reistijden worden opnieuw berekend"); render(); }
     else if (a === "locBij") { d().locaties.push({ id: uid(), naam: "Nieuwe locatie", icoon: "📍", reistijd: 15, adres: "" }); bewaar(); }

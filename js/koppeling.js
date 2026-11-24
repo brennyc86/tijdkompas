@@ -310,7 +310,7 @@ export async function zetAfspraak(v, agendaId, ev, bestaandId) {
       // voorlopig: Google toont een eigen afspraak niet gestreept, wel als jij zelf "misschien" hebt gezegd — dus jezelf als
       // deelnemer met "misschien" (alleen in je hoofdagenda, zonder uitnodiging), plus een eigen kleur (grafiet)
       ...(ev.voorlopig ? { status: "tentative", transparency: "opaque", colorId: "8", guestsCanSeeOtherGuests: false,
-        ...(agendaId === v.email || agendaId === "primary" ? { attendees: [{ email: v.email, responseStatus: "tentative", self: true }] } : {}) } : {}) });
+        ...(ev.misschien && (agendaId === v.email || agendaId === "primary") ? { attendees: [{ email: v.email, responseStatus: "tentative" }] } : {}) } : {}) });
     if (bestaandId) {
       const r = await api(v, `${G}/calendars/${enc(agendaId)}/events/${enc(bestaandId)}`, { method: "PATCH", body, weg: true });
       if (r) return r.id;
