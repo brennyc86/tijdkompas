@@ -7,6 +7,7 @@
 //              Staat de lijst (of taak) op een locatie met reistijd, dan krijgt elke sessie reis heen + terug;
 //              taken op dezelfde locatie worden achter elkaar gezet zodat je maar één keer reist.
 import { veiligeAfwijkingen, veiligGenegeerd } from "./veilig.js";
+import { reistijd, marge, isFysiek, zelfdeAdres } from "./route.js";
 import { opslag, kwadrant, kalibratie, project, overzicht, zelfInTePlannen, locatie, effectieveLocatie, uid, linkInfo, isMijn, taak, sessie, blokTitel } from "./data.js";
 
 // Agenda en planning van gelinkte accounts (privé ↔ werk): je bent één mens, dus daar plannen we omheen.
@@ -297,6 +298,81 @@ export function rolBotsingen({ dagen = 28 } = {}) {
 }
 export const afwezigOp = (ds) => opslag.d.afwezig?.[ds] || null;
 
+// ---------- reistijd over de dag ----------
+// Alle plekken van een dag (vaste tijden op een locatie, cursus/elders, afspraken met een adres) op volgorde. Twee plekken
+// vlak na elkaar: je reist direct van de een naar de ander (kantoor → afspraak); anders vanaf huis en weer terug.
+// Met adressen rekent route.js de echte reistijd uit, en komt er marge bij (10%, minstens 15 min); anders de vaste reistijd
+// van de locatie. Een directe reis die niet past is "rood", een die alleen zonder marge past "geel".
+const THUIS = () => ({ locatie: "thuis", adres: locatie("thuis")?.adres || "", naam: locatie("thuis")?.naam || "Thuis" });
+function been(van, naar, rond) {
+  const r = van.adres && naar.adres ? reistijd(van.adres, naar.adres, rond) : null;
+  if (r) return { min: r.min, marge: r.min ? marge(r.min) : 0, route: true, km: r.km };
+  const vast = naar.locatie === "thuis" ? reisVan(van.locatie) : van.locatie === "thuis" ? reisVan(naar.locatie) : reisVan(naar.locatie) || reisVan(van.locatie);
+  return vast ? { min: vast, marge: 0, route: false, km: null } : null;
+}
+const zelfdePlek = (x, y) => (!!x.locatie && x.locatie === y.locatie) || zelfdeAdres(x.adres, y.adres);
+export function reisVanDag(tijdvakken, afspraken) {
+  const thuis = THUIS(), plekken = [];
+  const naamVan = (l, alt = "") => locatie(l)?.naam || alt;
+  for (const v of tijdvakken) if (v.locatie && v.locatie !== "thuis")
+    plekken.push({ a: v.a, b: v.b, locatie: v.locatie, lijst: v.lijst, adres: locatie(v.locatie)?.adres || "", naam: naamVan(v.locatie), vast: true });
+  for (const ev of afspraken) {
+    const herkend = ev.loc ?? herkenLocatie(ev.plaats);
+    if (ev.loc === "" || herkend === "thuis") continue;
+    const adres = herkend ? locatie(herkend)?.adres || "" : isFysiek(ev.plaats) ? String(ev.plaats).trim() : "";
+    if (!herkend && !adres) continue;
+    const a = new Date(ev.start), b = new Date(ev.eind);
+    const p = { a, b, locatie: herkend || "", adres, naam: herkend ? naamVan(herkend) : adres, afspraak: ev.titel || "Afspraak" };
+    if (plekken.some(v => v.vast && zelfdePlek(v, p) && v.a <= a && v.b >= b)) continue;          // al ter plekke (vergadering op kantoor)
+    // een afspraak elders midden in je werktijd: de werktijd in twee stukken (je gaat eerder weg en komt later terug)
+    for (const v of plekken.filter(v => v.vast && v.a < b && v.b > a)) {
+      plekken.splice(plekken.indexOf(v), 1);
+      if (v.a < a) plekken.push({ ...v, b: a, flexEind: true });          // je gaat eerder weg
+      if (v.b > b) plekken.push({ ...v, a: b, flexBegin: true });         // en komt later terug
+    }
+    plekken.push(p);
+  }
+  plekken.sort((x, y) => x.a - y.a || x.b - y.b);
+  const reis = [], terPlekke = [];
+  // eerst per plek: kom je direct van de vorige, blijf je ter plekke, of ga je tussendoor naar huis?
+  const via = plekken.map((cur, i) => {
+    const prev = plekken[i - 1]; if (!prev) return "thuis";
+    const gat = minuten(prev.b, cur.a);
+    if (zelfdePlek(prev, cur)) { const t = been(cur, thuis, cur.a); return gat < 2 * ((t?.min || 0) + (t?.marge || 0)) + 60 ? "blijf" : "thuis"; }
+    const h = been(prev, thuis, prev.b), t = been(thuis, cur, cur.a);
+    const omThuis = h && t ? h.min + h.marge + t.min + t.marge + 30 : 120;
+    return gat <= omThuis ? "direct" : "thuis";
+  });
+  plekken.forEach((cur, i) => {
+    const prev = plekken[i - 1], hoe = via[i];
+    if (hoe === "blijf") terPlekke.push({ a: prev.b, b: cur.a, locatie: cur.locatie, lijst: cur.lijst, naam: cur.naam });
+    else {
+      const van = hoe === "direct" ? prev : thuis, l = been(van, cur, cur.a);
+      if (l && l.min > 0) {
+        const totaal = l.min + l.marge, x = { locatie: cur.locatie, lijst: cur.lijst, richting: hoe === "direct" ? "door" : "heen", afspraak: cur.afspraak,
+          van: van.naam, naar: cur.naam, min: l.min, marge: l.marge, route: l.route, km: l.km, status: "ok" };
+        if (hoe === "direct") {
+          const gat = minuten(prev.b, cur.a);
+          x.beschikbaar = gat;
+          if (prev.flexEind || cur.flexBegin) x.flex = true;                          // eerder weg van / later terug op je werk
+          else x.status = gat < l.min ? "rood" : gat < totaal ? "geel" : "ok";
+        }
+        // de band: reistijd + marge vóór aankomst; past het niet, dan het hele (te korte) gat tussen de twee afspraken
+        let a = new Date(cur.a - totaal * MIN), b = cur.a;
+        if (x.status !== "ok") a = new Date(Math.min(prev.b, cur.a - 10 * MIN));
+        if (cur.flexBegin) { a = prev.b; b = new Date(prev.b.getTime() + totaal * MIN); }   // terug naar je werk: je komt later aan
+        reis.push({ a, b, ...x });
+      }
+    }
+    if (via[i + 1] === "thuis" || i === plekken.length - 1) {                         // daarna naar huis
+      const l = been(cur, thuis, cur.b);
+      if (l && l.min > 0) reis.push({ a: cur.b, b: new Date(cur.b.getTime() + (l.min + l.marge) * MIN), locatie: cur.locatie, lijst: cur.lijst, richting: "terug",
+        afspraak: cur.afspraak, van: cur.naam, naar: thuis.naam, min: l.min, marge: l.marge, route: l.route, km: l.km, status: "ok" });
+    }
+  });
+  return { reis, terPlekke };
+}
+
 /**
  * Indeling van één dag: vaste tijdvakken (alle "vast"-lijsten), reistijd daaromheen,
  * pauzes ter plekke, en de vrije vensters die overblijven voor "vrij"-lijsten.
@@ -326,25 +402,7 @@ export function dagIndeling(dag) {
   }
   vast.sort((x, y) => x.a - y.a);
 
-  // reistijd rond vaste tijden én rond cursus/elders
-  const metReis = [...vast, ...elders].sort((x, y) => x.a - y.a);
-  const reis = [], terPlekke = [];
-  metReis.forEach((v, i) => {
-    const r = reisVan(v.locatie); if (!r) return;
-    // korte pauze tussen twee tijdvakken op dezelfde plek: je blijft ter plekke, geen reis
-    const kort = (x, y) => x && y && x.locatie === y.locatie && minuten(x.b, y.a) >= 0 && minuten(x.b, y.a) < 2 * r + 60;
-    if (!kort(metReis[i - 1], v)) reis.push({ a: new Date(v.a - r * MIN), b: v.a, locatie: v.locatie, lijst: v.lijst, richting: "heen" });
-    if (kort(v, metReis[i + 1])) terPlekke.push({ a: v.b, b: metReis[i + 1].a, locatie: v.locatie, lijst: v.lijst });
-    else reis.push({ a: v.b, b: new Date(v.b.getTime() + r * MIN), locatie: v.locatie, lijst: v.lijst, richting: "terug" });
-  });
-  // Afspraken (soort bezet) op een bekende locatie met reistijd: reis eromheen
-  for (const ev of d.bezet.filter(ev => eventSoort(ev) === "bezet" && !ev.eigen && opDezeDag(ev))) {
-    const loc = ev.loc ?? herkenLocatie(ev.plaats), r = reisVan(loc);
-    if (!r) continue;
-    if (metReis.some(v => v.locatie === loc && v.a <= new Date(ev.start) && v.b >= new Date(ev.eind))) continue; // al ter plekke
-    reis.push({ a: new Date(new Date(ev.start) - r * MIN), b: new Date(ev.start), locatie: loc, richting: "heen", afspraak: ev.titel });
-    reis.push({ a: new Date(ev.eind), b: new Date(new Date(ev.eind).getTime() + r * MIN), locatie: loc, richting: "terug", afspraak: ev.titel });
-  }
+  const { reis, terPlekke } = reisVanDag([...vast, ...elders], d.bezet.filter(ev => eventSoort(ev) === "bezet" && !ev.eigen && opDezeDag(ev)));
 
   const beschikbaar = (d.beschikbaar || []).filter(t => (t.dagen || []).includes(dag.getDay()) && geldig(t)).map(t => [opDag(dag, t.van), opDag(dag, t.tot)]);
   const vrij = aftrekken(beschikbaar, [...vast, ...elders, ...reis, ...terPlekke].map(x => [x.a, x.b]));

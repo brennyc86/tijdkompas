@@ -12,6 +12,7 @@ import { syncTaken, takenVerbindingen, koppelTakenlijst, takenlijstVan, takenVer
 import { kiesEmoji, voorstellen } from "./emoji.js";
 import { boodschappenWeergave, initBoodschappen, focusInvoer, winkelVelden, winkelOpen, boodschappenVandaag } from "./boodschappen.js";
 import { veiligeUrl, veiligeFoto } from "./veilig.js";
+import { VERVOER, vervoer, bron as routeBron, routeStand, mapsSleutel, routesAan, opRoute, wisRoutes } from "./route.js";
 import { familieBezetRuw, familieRegels, familieLijstInst, familieVoorMij, emailVan, feedsLater, feedsBijwerken, feedStand, feedUrl, feedWeg, nieuweFeedSleutel, feedBlokken, cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda, gelinkteInfo, stuurInlogLink,
          koppel as koppelStaat, vraagKoppelcode, gebruikKoppelcode, beantwoordKoppel, stopKoppelcode, stuurBevestiging, controleerBevestiging } from "./cloud.js";
 familieHaak.agenda = familieAgenda;
@@ -737,8 +738,9 @@ function agenda() {
       return band(v.a, v.b, "eldersband", "", `${v.reden || "Cursus / elders"}${l ? " · " + l.naam : ""} (${o?.naam || ""}) — hier wordt niets ingepland`, `<span class="vlabel">🎓 ${esc(v.reden || "")}</span>`); }).join("")
       + (I.weg ? `<div class="wegband" title="Hele dag weg${esc(I.weg.reden ? " — " + I.weg.reden : "")}: hier wordt niets ingepland"><span>✈️ ${esc(I.weg.reden || "Weg")}</span></div>` : "");
     const reis = [...I.reis, ...I.terPlekke.map(x => ({ ...x, terPlekke: true }))].map(r =>
-      band(r.a, r.b, r.terPlekke ? "reisband terplekke" : "reisband", "", r.terPlekke ? `Pauze ter plekke (${locatie(r.locatie)?.naam})` : `Reistijd ${r.richting} ${locatie(r.locatie)?.naam || ""}${r.afspraak ? " — " + r.afspraak : ""}`,
-        r.terPlekke ? "" : `<span>🚗</span>`)).join("");
+      band(r.a, r.b, r.terPlekke ? "reisband terplekke" : `reisband${r.status && r.status !== "ok" ? " " + r.status : ""}${r.route ? " route" : ""}`, "",
+        r.terPlekke ? `Pauze ter plekke (${r.naam || locatie(r.locatie)?.naam || ""})` : reisTitel(r),
+        r.terPlekke ? "" : `<span>${r.status === "rood" ? "⛔" : r.status === "geel" ? "⚠️" : VERVOER[vervoer()].icoon}</span>${y(r.b) - y(r.a) >= 30 && r.min ? `<small>${Math.round(r.min)}′${r.marge ? `+${r.marge}` : ""}</small>` : ""}`)).join("");
     const fam = famAgenda();
     const famBlokken = fam.planning.filter(b => b.soort !== "reis").filter(inDag).map(b => {
       const t = Math.max(0, y(b.start)), h = Math.max(14, Math.min(hoogte, y(b.eind)) - t);
@@ -806,7 +808,7 @@ function agenda() {
     return open.length ? `<details class="nietgepland" open><summary><h3>○ Nog in te plannen ${n === 7 ? "deze week" : "deze dagen"} <span class="tel">${open.length}</span></h3></summary>
       <p class="hint">Doen-taken die nog niet zijn ingepland, taken die hier al deels gepland staan, en andere taken als er ${n === 7 ? "deze week" : "deze dagen"} een echt vrij gat voor is (minstens een uur, of lang genoeg voor de geschatte tijd). Klik op „Nog niet ingepland” voor voorstellen.</p>
       <div class="lijst">${open.slice(0, 30).map(([t]) => t.type === "taak" ? itemRij(t) : projectRijPlan(t)).join("")}${open.length > 30 ? `<div class="hint">+ ${open.length - 30} meer — zie Taken → „Ingepland of niet”</div>` : ""}</div></details>` : ""; })()}
-  <div class="legenda"><span><i class="lg venster"></i> vaste tijden van een lijst</span><span><i class="lg reisband"></i> reistijd</span><span><i class="lg beschikb"></i> beschikbaar (vrije tijd)</span><span><i class="lg eldersband"></i> cursus / elders</span>
+  <div class="legenda"><span><i class="lg venster"></i> vaste tijden van een lijst</span><span><i class="lg reisband"></i> reistijd (+ marge)</span><span><i class="lg lgrood"></i> reis past niet</span><span><i class="lg lggeel"></i> krap: opschieten</span><span><i class="lg beschikb"></i> beschikbaar (vrije tijd)</span><span><i class="lg eldersband"></i> cursus / elders</span>
     <span><i class="lg bezet"></i> afspraak uit je agenda</span>${(sessie.familie || []).length > 1 ? `<span><i class="lg famblok"></i> licht: je andere inlogs ${sessie.familie.filter(u => u !== sessie.ik).map(u =>
       `<button type="button" class="faminlog" data-actie="famToggle" data-w="${esc(u)}" aria-pressed="${!famUit().includes(u)}" title="Agenda en planning van deze inlog tonen of verbergen (de werktijden blijven altijd zichtbaar)">${famUit().includes(u) ? "🙈" : "👁"} ${esc(emailVan(u) || "gelinkt account")}</button>`).join(" ")}</span>` : ""}<span>📌 vastgezet · ✓ staat in je agenda</span>
     ${d().bezet.some(b => !verbindingVanBron(b.bron)) ? `<span>${d().bezet.filter(b => !verbindingVanBron(b.bron)).length} afspraken uit .ics · <a href="#" data-actie="wisBezet">wissen</a></span>` : ""}</div>
@@ -1299,6 +1301,22 @@ function instLijsten() {
   <div class="rij"><button class="knop" data-actie="ovBij">＋ Lijst of map</button></div>`;
 }
 
+function routeInstellingen() {
+  const inst = d().instellingen, br = routeBron(), thuisAdres = locatie("thuis")?.adres;
+  return `<h3>Reistijd naar afspraken</h3>
+  <p class="hint">Heeft een afspraak in je agenda een locatie, dan rekent Tijdkompas de reistijd erheen uit, en zet die met marge (10%, minstens 15 minuten) in je agenda.
+    Twee afspraken (of je werk en een afspraak) vlak na elkaar: dan de reis van de een naar de ander — <b style="color:var(--rood,#d9534f)">rood</b> = past niet, <b style="color:#d9a400">geel</b> = past alleen zonder marge.
+    Na je laatste afspraak reken je naar huis.</p>
+  ${thuisAdres ? "" : `<div class="hint" style="color:var(--q-doen,#d9534f)">📍 Vul hierboven bij <b>Thuis</b> je adres in: zonder startpunt kan alleen de reis tússen afspraken berekend worden. Doe dat ook bij Kantoor.</div>`}
+  <div class="paneel"><div class="rij">
+    <label class="schakel"><input type="checkbox" data-route="routes" ${inst.routes !== false ? "checked" : ""}> Reistijd berekenen</label>
+    <label class="veld">Hoe reis je?<select data-route="vervoer">${Object.entries(VERVOER).map(([k, v]) => `<option value="${k}" ${vervoer() === k ? "selected" : ""}>${v.icoon} ${v.naam}</option>`).join("")}</select></label>
+    <label class="veld" style="flex:2;min-width:240px">Google Maps-sleutel (Routes API)<input type="text" data-route="mapsSleutel" value="${esc(inst.mapsSleutel || "")}" placeholder="${mapsSleutel() ? "ingebouwde sleutel" : "AIza… (optioneel)"}" autocomplete="off" spellcheck="false"></label>
+  </div>
+  <div class="hint" style="margin-top:6px">${!routesAan() ? "Staat uit." : br === "google" ? "✓ Rekent met Google Maps, met verkeer in de spits." : br === "osm" ? "Rekent nu met OpenStreetMap (gratis, zonder file-informatie). Met een Google Maps-sleutel rekent hij met het echte verkeer." : "Openbaar vervoer kan alleen met een Google Maps-sleutel."}
+    ${routeStand.bezig ? ` · ⏳ nog ${routeStand.bezig} route${routeStand.bezig === 1 ? "" : "s"} berekenen…` : ""}${routeStand.fout ? ` · ⚠️ ${esc(routeStand.fout)}` : ""}
+    · Adressen gaan naar ${br === "google" ? "Google" : "OpenStreetMap"}; de uitkomsten blijven op dit apparaat. <button type="button" class="knop klein" data-actie="routesWis">Opnieuw berekenen</button></div></div>`;
+}
 function instLocaties() {
   const inst = d().instellingen;
   return `<h3 style="margin-top:0">Locaties</h3>
@@ -1313,6 +1331,7 @@ function instLocaties() {
     ${l.id === "thuis" ? "" : winkelVelden(l)}
   </div>`).join("")}</div>
   <button class="knop" data-actie="locBij" style="margin-top:8px">＋ Locatie</button>
+  ${routeInstellingen()}
 
   <h3>Beschikbaarheid</h3>
   <p class="hint">Wanneer ben je op z'n vroegst en laatst beschikbaar? Lijsten in de vrije tijd worden alleen hierbinnen ingepland — na aftrek van werk, reistijd en afspraken.</p>
@@ -2962,6 +2981,18 @@ function dagTikInvullen(min, vanNaam, totNaam, kijkObj) {
   kijkObj.van = hhmm(begin); kijkObj.tot = hhmm(begin + duur);
   for (const [n, w] of [[vanNaam, kijkObj.van], [totNaam, kijkObj.tot]]) { const i = $(`[name=${n}]`, dlg2); if (i) { i.value = w; i.setAttribute("value", w); } }
 }
+/** Uitleg bij een reisband: van waar naar waar, hoe lang, marge, en of het past */
+function reisTitel(r) {
+  const naar = r.naar || locatie(r.locatie)?.naam || "", van = r.van || "";
+  let t = `${VERVOER[vervoer()].icoon} ${r.richting === "terug" ? "Terug" : "Reis"}${van ? " van " + van : ""}${naar ? " naar " + naar : ""}${r.afspraak && r.richting !== "terug" ? " (" + r.afspraak + ")" : ""}: ${Math.round(r.min || minutenTussen({ start: r.a, eind: r.b }))} min`;
+  if (r.km) t += ` · ${String(r.km).replace(".", ",")} km`;
+  if (r.marge) t += ` + ${r.marge} min marge`;
+  t += r.route ? (routeBron() === "google" ? " (Google Maps)" : " (OpenStreetMap, zonder verkeer)") : " (vaste reistijd van de locatie)";
+  if (r.status === "rood") t += ` — ⛔ PAST NIET: maar ${Math.max(0, Math.round(r.beschikbaar))} min tussen de twee afspraken`;
+  else if (r.status === "geel") t += ` — ⚠️ krap: ${Math.round(r.beschikbaar)} min ertussen, past alleen zonder marge — opschieten`;
+  else if (r.flex) t += " — eerder weg / later terug op je werk";
+  return t;
+}
 function dagBeeld(kijk, it, schuifMee, { zonderEv = null, label = null, wijkt: wijktFn = null } = {}) {
   if (!kijk?.dag || !/^\d{4}-\d{2}-\d{2}$/.test(kijk.dag)) return "";
   const dag = new Date(kijk.dag + "T00:00"), eindDag = new Date(dag.getTime() + 864e5), I = dagIndeling(dag), nu = new Date();
@@ -2983,7 +3014,7 @@ function dagBeeld(kijk, it, schuifMee, { zonderEv = null, label = null, wijkt: w
     ${Array.from({ length: tot - van + 1 }, (_, i) => `<div class="dbuur" style="top:${i * H}px">${String(van + i).padStart(2, "0")}:00</div>`).join("")}
     ${I.beschikbaar.map(([a, b]) => band(a, b, "dbbeschikb", "", "Beschikbaar")).join("")}
     ${I.vast.map(v => band(v.a, v.b, "dbvenster", `<span>${esc(overzicht(v.lijst)?.icoon || "")}</span>`, `${overzicht(v.lijst)?.naam || ""} (vaste tijden)`)).join("")}
-    ${I.reis.map(r => band(r.a, r.b, "dbreis", "🚗", "Reistijd")).join("")}
+    ${I.reis.map(r => band(r.a, r.b, `dbreis${r.status && r.status !== "ok" ? " " + r.status : ""}`, r.status === "rood" ? "⛔" : r.status === "geel" ? "⚠️" : VERVOER[vervoer()].icoon, reisTitel(r))).join("")}
     ${famB.map(b => band(b.start, b.eind, "dbblok dbfam", kort(b.titel), `${b.titel} · ${b.vanFamilie || "andere inlog"}`)).join("")}
     ${afspr.map(ev => isHerinnering(ev) ? band(ev.start, new Date(new Date(ev.start).getTime() + 15 * 60000), "dbblok dbherinn", "🔔 " + kort(ev.titel), ev.titel + " (herinnering)")
       : band(ev.start, ev.eind, "dbblok dbafspraak", "📅 " + kort(ev.titel), `${ev.titel} ${fmtTijd(ev.start)}–${fmtTijd(ev.eind)}`)).join("")}
@@ -3441,6 +3472,7 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
       if (w === "vast" && !o.tijden?.length) o.tijden = [{ dagen: [1, 2, 3, 4, 5], van: "09:00", tot: "17:00", locatie: o.locatie || "" }];
       bewaar();
     }
+    else if (a === "routesWis") { wisRoutes(); toast("Reistijden worden opnieuw berekend"); render(); }
     else if (a === "locBij") { d().locaties.push({ id: uid(), naam: "Nieuwe locatie", icoon: "📍", reistijd: 15, adres: "" }); bewaar(); }
     else if (a === "locWeg") {
       const id = el.closest("[data-loc]").dataset.loc, l = locatie(id);
@@ -3631,6 +3663,13 @@ function hoofdWijzig(e) {
     o[veld] = waarde;
     bewaar(); return;
   }
+  if (e.target.dataset.route) {
+    const k = e.target.dataset.route, inst = d().instellingen;
+    if (k === "routes") inst.routes = e.target.checked;
+    else if (k === "vervoer") inst.vervoer = e.target.value;
+    else if (k === "mapsSleutel") { const v = e.target.value.trim(); if (v && !/^[A-Za-z0-9_-]{20,80}$/.test(v)) { toast("Dat lijkt geen Google Maps-sleutel"); return; } inst.mapsSleutel = v; }
+    bewaar(); render(); return;
+  }
   if (e.target.name === "klaarModus") { d().instellingen.klaarModus = e.target.value; bewaar(); return; }
   if (e.target.name === "doenModus") { d().instellingen.doenModus = e.target.value; bewaar(); return; }
   if (e.target.name === "agendaDoel" || e.target.name === "vasteAgenda") {
@@ -3657,6 +3696,11 @@ main.addEventListener("input", (e) => {
 });
 
 initBoodschappen({ main, toast, render, planTaak, agendaBij });
+// nieuwe reistijden binnen: opnieuw tekenen, maar niet terwijl je in een venster of veld bezig bent
+let routeTimer = null;
+const naRoute = () => { clearTimeout(routeTimer); const el = document.activeElement;
+  if (document.querySelector("dialog[open]") || (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) { routeTimer = setTimeout(naRoute, 3000); return; } render(); };
+opRoute(naRoute);
 $("#nieuwKnop").addEventListener("click", () => { if (huidige() === "boodschappen") { focusInvoer(); return; } if (!eersteLijst()) openEditor(null, huidige() === "projecten" ? { type: "project" } : {}); });
 // Nog geen lijsten? Eerst er een maken (geeft true als dat venster nu opent)
 function eersteLijst() {

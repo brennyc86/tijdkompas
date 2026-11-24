@@ -150,6 +150,9 @@ export function ontsmet(n) {
     if (!["vragen", "weg", "schuif"].includes(n.instellingen.doenModus)) n.instellingen.doenModus = "vragen";
     if (!["vragen", "voren", "vorenUitloop"].includes(n.instellingen.klaarModus)) n.instellingen.klaarModus = "vragen";
     if (typeof n.instellingen.vasteAgenda !== "string") n.instellingen.vasteAgenda = "";
+    if (!["auto", "fiets", "ov", "lopen"].includes(n.instellingen.vervoer)) delete n.instellingen.vervoer;
+    if (typeof n.instellingen.mapsSleutel !== "string" || !/^[A-Za-z0-9_-]{0,80}$/.test(n.instellingen.mapsSleutel)) delete n.instellingen.mapsSleutel;
+    if (n.instellingen.routes != null) n.instellingen.routes = n.instellingen.routes !== false;
   }
   // afwijkingen per datum (vakantie, cursus, geruilde dag…): alleen geldige datums, soorten en tijden; oud spul (> 1 jaar) valt weg
   const datum = (k) => /^\d{4}-\d{2}-\d{2}$/.test(k), grens = new Date(Date.now() - 366 * 864e5).toISOString().slice(0, 10);

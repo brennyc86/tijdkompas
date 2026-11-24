@@ -336,3 +336,15 @@ Een gepubliceerde agenda (stap D) kan iedereen lezen die de geheime link heeft. 
 - Afspraaktitels uit je agenda staan in je eigen gebruikersdocument, zodat je gelinkte accounts ze ook zien.
 - Koppel een werk-takenlijst niet aan een lijst die je met mensen buiten je werk deelt: die zien dan ook die taken.
 - Check bij twijfel het beleid van je werkgever over agenda's en taken in externe apps.
+
+## E. Reistijden met Google Maps (optioneel)
+
+Zonder sleutel rekent Tijdkompas reistijden naar afspraken uit met OpenStreetMap (gratis, zonder verkeer en zonder ov).
+Voor reistijden mét verkeer (en openbaar vervoer):
+
+1. Google Cloud-console → hetzelfde project als Firebase (`brennycc86-apps`) → *API's en services* → *Bibliotheek* → **Routes API** inschakelen
+   (vraagt om een factureringsaccount; er is een maandelijks gratis tegoed, en Tijdkompas vraagt elke route maar één keer per maand op).
+2. *Inloggegevens* → *Inloggegevens maken* → *API-sleutel*.
+3. Sleutel beperken: *Applicatiebeperkingen* → **Websites** → `https://brennyc86.github.io/*`; *API-beperkingen* → alleen **Routes API**.
+   Zet onder *Quota's* eventueel een dagelijkse limiet.
+4. Zet de sleutel in `js/config.js` bij `mapsSleutel` (dan werkt het voor iedereen), of per persoon in de app: Instellingen → Locaties → *Reistijd naar afspraken*.

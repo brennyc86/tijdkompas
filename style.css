@@ -796,3 +796,13 @@ a.koersitem{text-decoration:none;color:inherit}
 .bsster{font-size:12px}
 .bsfavknop.aan,.bsknoppen .x.aan{color:var(--accent)}
 .voorstel .vwijkt{color:var(--q-doen,var(--accent));white-space:normal;max-width:180px}
+/* reistijd naar afspraken: rood = past niet, geel = past alleen zonder marge */
+.reisband small{margin-left:3px;font-size:9.5px;opacity:.85}
+.reisband.rood,.reisband.geel{z-index:4;left:auto;width:30px;border-radius:5px;justify-content:center;padding:0;font-size:11px}
+.reisband.rood{background:repeating-linear-gradient(45deg,color-mix(in srgb,#e0453a 70%,transparent) 0 4px,color-mix(in srgb,#e0453a 30%,transparent) 4px 9px);box-shadow:0 0 0 2px #e0453a}
+.reisband.geel{background:repeating-linear-gradient(45deg,color-mix(in srgb,#e8b400 65%,transparent) 0 4px,color-mix(in srgb,#e8b400 25%,transparent) 4px 9px);box-shadow:0 0 0 2px #e8b400}
+.reisband.rood small,.reisband.geel small{display:none}
+.dbreis.rood{background:color-mix(in srgb,#e0453a 45%,transparent)!important}
+.dbreis.geel{background:color-mix(in srgb,#e8b400 45%,transparent)!important}
+.legenda .lg.lgrood{background:#e0453a}
+.legenda .lg.lggeel{background:#e8b400}
