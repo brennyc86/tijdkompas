@@ -4,15 +4,16 @@ import { opslag, bewaar, KWADRANTEN, kwadrant, overzicht, project, taak, takenVa
          map, submappen, lijstenIn, lijstenOnder, mappenOnder, mapPad, boom, lijstVolgorde, idsVan,
          afspraak, koersVan, binnenDoel, koersScore, koersSuggesties, koppelKoers, mijnId, isIk, personen, naamVanPersoon, isMijn, isTeam, wie, wachtNogOp, wachtenOp, maaktKring, anderen as andereLeden } from "./data.js";
 import { familieHaak, planAutomatisch, werkGeplandBij, doelDatum, harde, prioriteit, googleLink, outlookLink, maakIcs, leesIcs, dagStr, dagIndeling, eventSoort, SOORTEN,
-  AFWIJKING, maakRuimte, magWijkenVoor, wijkbaar, plekGebonden, plaatsMetWijken, telt, isHerinnering, buitenBeschikbaarheid, regelVoor, rolKeuze, afspraakSleutel, standaardTijden, afwijkingOp, afwijkingDatums, zetAfwijking, dagTijden, tijdenZonder, tijdenMet, effLijst, rolBotsingen, planStatus, grootsteGat, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, plaatsVanaf, vrijkomend, vrijeTijd, trekAllesNaarVoren, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland } from "./plan.js";
+  AFWIJKING, maakRuimte, magWijkenVoor, wijkbaar, plekGebonden, plaatsMetWijken, telt, isHerinnering, buitenBeschikbaarheid, regelVoor, rolKeuze, afspraakSleutel, standaardTijden, afwijkingOp, afwijkingDatums, zetAfwijking, dagTijden, tijdenZonder, tijdenMet, effLijst, rolBotsingen, planStatus, grootsteGat, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, plaatsVanaf, vrijkomend, vrijeTijd, trekAllesNaarVoren, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland, reisRond } from "./plan.js";
 import { ids, verbindingen as alleVerbindingen, heeft, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, zonderDoel, koppelHaak, neemGedeeldeOver } from "./koppeling.js";
 import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroniseerAlles, naamVan, lijstWeg } from "./schijf.js";
-import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD, eigenAgenda, viaEigenaar, vingerafdruk, kanVerplaatsen, verplaatsAgendaAfspraak } from "./sync.js";
+import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD, eigenAgenda, viaEigenaar, vingerafdruk, kanVerplaatsen, verplaatsAgendaAfspraak, schrijfAgendas, maakAfspraak, verwijderAgendaAfspraak, kanVerwijderen } from "./sync.js";
 import { syncTaken, takenVerbindingen, koppelTakenlijst, takenlijstVan, takenVerbindingVan } from "./takensync.js";
 import { kiesEmoji, voorstellen } from "./emoji.js";
 import { boodschappenWeergave, initBoodschappen, focusInvoer, winkelVelden, winkelOpen, boodschappenVandaag } from "./boodschappen.js";
 import { veiligeUrl, veiligeFoto } from "./veilig.js";
 import { VERVOER, vervoer, bron as routeBron, routeStand, mapsSleutel, routesAan, opRoute, wisRoutes } from "./route.js";
+import { familieSchrijfAgendas, verzoekenVoorMij, verzoekGedaan } from "./cloud.js";
 import { familieBezetRuw, familieRegels, familieLijstInst, familieVoorMij, emailVan, feedsLater, feedsBijwerken, feedStand, feedUrl, feedWeg, nieuweFeedSleutel, feedBlokken, cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda, gelinkteInfo, stuurInlogLink,
          koppel as koppelStaat, vraagKoppelcode, gebruikKoppelcode, beantwoordKoppel, stopKoppelcode, stuurBevestiging, controleerBevestiging } from "./cloud.js";
 familieHaak.agenda = familieAgenda;
@@ -766,7 +767,7 @@ function agenda() {
         <b>${b.soort === "reis" ? "🚗 " : ""}${esc(b.titel)}</b>${h > 30 ? `<span class="btijd">${fmtTijd(b.start)}–${fmtTijd(b.eind)}${inAgenda ? " ✓" : ""}</span>` : ""}</div>`;
     }).join("");
     const nulijn = ds === dagStr(nu) && nu.getHours() >= UUR_VAN && nu.getHours() < UUR_TOT ? `<div class="nulijn" style="top:${y(nu)}px"></div>` : "";
-    return `<div class="wdag ${ds === dagStr(nu) ? "vandaag" : ""}" style="height:${hoogte}px;--uurH:${UUR_H}px">${beschikb}${vast}${elders}${reis}${herinn}${afspraken}${famBlokken}${blokken}${nulijn}</div>`;
+    return `<div class="wdag ${ds === dagStr(nu) ? "vandaag" : ""}" data-dag="${ds}" style="height:${hoogte}px;--uurH:${UUR_H}px" title="Klik op een lege plek voor een nieuwe afspraak">${beschikb}${vast}${elders}${reis}${herinn}${afspraken}${famBlokken}${blokken}${nulijn}</div>`;
   }).join("");
 
   const toekomst = d().planning.filter(b => new Date(b.eind) > nu && act.includes(b.overzicht));
@@ -778,7 +779,9 @@ function agenda() {
     <span class="sub">${titel}</span>
     <div class="rechts">
       <button class="knop prim" data-actie="plan" title="Automatisch inplannen">⚡ <span><span class="breed">Automatisch i</span><span class="smal">I</span>nplannen</span></button>
+      <button class="knop" data-actie="agendaAfspraak" title="Een afspraak in je agenda zetten (ook in Google/Outlook)">＋ Afspraak</button>
       <button class="knop" data-actie="werkweek" data-w="${dagStr(dagen[0])}" title="Vakantie, cursus, geruilde dag of dagdeel vrij voor deze week">🗓️ Week aanpassen</button>
+      ${Object.keys(d().verborgen || {}).length ? `<button class="knop" data-actie="verborgenLijst" title="Afspraken die je hebt weggedrukt (niet meetellen) terughalen">🙈 ${Object.keys(d().verborgen).length} weggedrukt</button>` : ""}
       ${gekoppeld ? `<button class="knop" data-actie="ophalen" title="${d().agendaSync ? "Laatst opgehaald " + new Date(d().agendaSync).toLocaleString("nl-NL", { weekday: "short", hour: "2-digit", minute: "2-digit" }) : ""}">🔄 Agenda's ophalen</button>` : ""}
       ${gekoppeld && metDoel ? `<button class="knop" data-actie="naarAgenda" ${toekomst.length || Object.keys(d().extern || {}).length ? "" : "disabled"}>📤 In mijn agenda zetten</button>` : ""}
       ${gekoppeld ? "" : `<a class="knop" href="#instellingen" data-tab="koppelingen">🔗 Google/Outlook koppelen</a>`}
@@ -2733,6 +2736,175 @@ function afspraakRegel(ev, soort, lijst, alles = false) {
     d().afspraakRegels = (d().afspraakRegels || []).filter(r => !(r.bron === ev.bron && r.soort === "werkdag" && r.titel.trim().toLowerCase() === t));
   }
 }
+/** Weggedrukte afspraken (niet meetellen) terughalen, één voor één of allemaal */
+// ---------- agenda's om in te schrijven: hier gekoppeld, of van je andere inlog (via een verzoek) ----------
+function alleDoelAgendas() {
+  const hier = schrijfAgendas(), al = new Set(hier.map(a => a.k));
+  const daar = familieSchrijfAgendas().filter(a => !al.has(a.k)).map(a => ({ k: `fam|${a.uid}|${a.k}`, naam: `${a.naam} — via je inlog ${a.email || "(gelinkt)"}`, primair: a.primair, account: a.account, fam: true }));
+  return [...hier, ...daar];
+}
+const famDeel = (key) => { const i = key.indexOf("|", 4); return { uid: key.slice(4, i), k: key.slice(i + 1) }; };
+function verzoekMaak(uid, k, x) {
+  d().afspraakVerzoeken = [...(d().afspraakVerzoeken || []), { id: "v" + Math.random().toString(36).slice(2, 12), voor: uid, soort: "maak", k, ...x, gemaakt: new Date().toISOString() }];
+}
+function verzoekWis(uid, k, extId, titel) {
+  d().afspraakVerzoeken = [...(d().afspraakVerzoeken || []), { id: "v" + Math.random().toString(36).slice(2, 12), voor: uid, soort: "wis", k, extId, titel, gemaakt: new Date().toISOString() }];
+}
+// Verzoeken van je andere inlog uitvoeren (in een agenda die hier gekoppeld is), en je eigen afgehandelde verzoeken opruimen
+let verzoekBezig = false;
+async function verwerkVerzoeken() {
+  if (verzoekBezig || !ingelogd()) return;
+  const mijn = d().afspraakVerzoeken || [], over = mijn.filter(v => !verzoekGedaan(v.id) && Date.now() - Date.parse(v.gemaakt || 0) < 30 * 864e5);
+  if (over.length !== mijn.length) { d().afspraakVerzoeken = over; bewaar(); }
+  const hier = new Set(schrijfAgendas().map(a => a.k)), lijst = verzoekenVoorMij().filter(v => hier.has(v.k));
+  if (!lijst.length) return;
+  verzoekBezig = true;
+  try {
+    for (const v of lijst) {
+      let ok = true, fout = "";
+      try {
+        if (v.soort === "wis") { const ev = d().bezet.find(e => e.bron === v.k && e.extId === v.extId) || { bron: v.k, extId: v.extId, id: v.k + "#" + v.extId }; await verwijderAgendaAfspraak(ev); }
+        else { const r = await maakAfspraak({ titel: v.titel, start: v.start, eind: v.eind, plaats: v.plaats, omschrijving: v.omschrijving, doelen: [{ k: v.k, titel: v.titel }], extra: v.extra || [] }); if (r.fouten.length) { ok = false; fout = r.fouten[0]; } }
+      } catch (e) { ok = false; fout = e.message; }
+      d().afspraakGedaan = { ...(d().afspraakGedaan || {}), [v.id]: { ok, t: new Date().toISOString(), ...(fout ? { fout } : {}) } };
+      toast(ok ? `${v.soort === "wis" ? "🗑" : "📅"} „${v.titel}” ${v.soort === "wis" ? "uit" : "in"} ${agendaNaam(v.k) || "je agenda"} (op verzoek van je andere inlog)` : `⚠️ „${v.titel}” van je andere inlog lukte niet: ${fout}`);
+    }
+    bewaar(); render();
+  } finally { verzoekBezig = false; }
+}
+setInterval(() => verwerkVerzoeken().catch(() => {}), 20000);
+setTimeout(() => verwerkVerzoeken().catch(() => {}), 4000);
+
+function verborgenVenster() {
+  const v = d().verborgen || {}, ks = Object.keys(v);
+  const evs = d().bezet.filter(ev => v[afspraakSleutel(ev)]).sort((a, b) => a.start.localeCompare(b.start));
+  const bekend = new Set(evs.map(afspraakSleutel)), los = ks.filter(k => !bekend.has(k));
+  dlg2.innerHTML = `<form method="dialog"><div class="dkop"><span class="soort">🙈 Weggedrukte afspraken</span><button type="button" class="sluit" data-sluit aria-label="Sluiten">×</button></div>
+    <div class="dlijf">
+      ${evs.length ? `<div class="lijst">${evs.map(ev => { const a = new Date(ev.start); return `<div class="linkrij"><span>📅</span><span><b>${esc(ev.titel || "Afspraak")}</b><br><small class="hint">${DAGLANG[a.getDay()]} ${a.getDate()} ${MAAND[a.getMonth()]} · ${fmtTijd(ev.start)}–${fmtTijd(ev.eind)}${ev.plaats ? " · " + esc(ev.plaats) : ""}</small></span>
+        <button type="button" class="knop klein" data-vterug="${esc(afspraakSleutel(ev))}">↩ Terughalen</button></div>`; }).join("")}</div>` : `<div class="leeg" style="padding:12px">Geen weggedrukte afspraken in de agenda die nu is opgehaald.</div>`}
+      ${los.length ? `<p class="hint">Plus ${los.length} van afspraken die niet (meer) in je opgehaalde agenda staan (voorbij, of verplaatst).</p>` : ""}
+    </div>
+    <div class="dvoet"><button type="button" class="knop" data-sluit>Sluiten</button><div class="rechts">${ks.length ? `<button type="button" class="knop prim" data-vterug="*">↩ Alles terughalen</button>` : ""}</div></div></form>`;
+  dlg2.onclick = (e) => {
+    const k = e.target.closest("[data-vterug]")?.dataset.vterug; if (!k) return;
+    const n = { ...(d().verborgen || {}) };
+    if (k === "*") { for (const x of Object.keys(n)) delete n[x]; } else delete n[k];
+    d().verborgen = n; bewaar(); toast(k === "*" ? "Alles telt weer mee" : "Afspraak teruggehaald");
+    if (Object.keys(n).length && k !== "*") verborgenVenster(); else dlg2.close();
+  };
+  dlg2.onchange = null; dlg2.onclose = () => { dlg2.onclick = null; dlg2.onclose = null; };
+  if (!dlg2.open) dlg2.showModal();
+}
+
+/**
+ * Nieuwe afspraak, zoals in een gewone agenda: komt in je Google/Outlook-agenda('s), of alleen in Tijdkompas.
+ * Privé tijdens werktijd (huisarts, tandarts…): in je privé- én je werkagenda (daar desgewenst als „Privé-afspraak"),
+ * telt niet als botsing met je werk, en de reistijd (vanaf kantoor en terug) kan er als blok bij.
+ */
+function nieuweAfspraak(start, eind = new Date(start.getTime() + 3600e3)) {
+  const ag = alleDoelAgendas(), eig = eigenAgenda();
+  const st = { titel: "", datum: dagStr(start), van: fmtTijd(start.toISOString()), tot: fmtTijd(eind.toISOString()), plaats: "", priveWerk: false, reisBlok: false,
+    doelen: new Map(ag.filter(a => a.k === eig || (!eig && a === ag[0])).map(a => [a.k, "echt"])) };
+  let timer = null, bezig = false;
+  const tijden = () => { const a = new Date(st.datum + "T" + st.van), b = new Date(st.datum + "T" + st.tot); return isNaN(a) || isNaN(b) || b <= a ? null : { a, b }; };
+  const plaatsVoorAgenda = () => { const l = d().locaties.find(x => x.naam.toLowerCase() === st.plaats.trim().toLowerCase()); return l ? (l.adres || l.naam) : st.plaats.trim(); };
+  const reisInfo = () => {
+    const t = tijden(); if (!t || !st.plaats.trim()) return null;
+    return reisRond({ id: "__nieuw", titel: st.titel || "Afspraak", plaats: st.plaats.trim(), start: t.a.toISOString(), eind: t.b.toISOString(), bron: "tk" });
+  };
+  const beenTekst = (r, wat) => !r ? "" : `<div class="linkrij"><span>${r.status === "rood" ? "⛔" : r.status === "geel" ? "⚠️" : VERVOER[vervoer()].icoon}</span><span>${wat}: <b>${Math.round(r.min)} min</b>${r.marge ? ` + ${r.marge} marge` : ""}
+      <span class="hint">· ${esc(r.van || "")} → ${esc(r.naar || "")}${r.status === "rood" ? ` — past niet (${Math.max(0, Math.round(r.beschikbaar))} min ertussen)` : r.status === "geel" ? " — krap, alleen zonder marge" : ""}${r.route ? "" : " (vaste reistijd)"}</span></span></div>`;
+  const teken = () => {
+    const t = tijden(), ri = reisInfo();
+    const vertrek = ri?.heen && t ? new Date(t.a - (ri.heen.min + ri.heen.marge) * 6e4) : null;
+    dlg2.innerHTML = `<form method="dialog" class="nieuweafspraak"><div class="dkop"><span class="soort">📅 Nieuwe afspraak</span><button type="button" class="sluit" data-sluit aria-label="Sluiten">×</button></div>
+    <div class="dlijf">
+      <input type="text" name="titel" value="${esc(st.titel)}" placeholder="Titel, bv. Huisarts" maxlength="200" style="font-size:17px;font-weight:600" autocomplete="off">
+      <div class="rij" style="align-items:end">
+        <label class="veld">Datum<input type="date" name="datum" value="${esc(st.datum)}"></label>
+        <label class="veld">Van<input type="time" name="van" value="${esc(st.van)}" step="300"></label>
+        <label class="veld">Tot<input type="time" name="tot" value="${esc(st.tot)}" step="300"></label>
+      </div>
+      ${t ? "" : `<div class="hint" style="color:var(--q-doen)">De eindtijd moet na de begintijd liggen.</div>`}
+      <label class="veld">Locatie<input type="text" name="plaats" value="${esc(st.plaats)}" list="naLocaties" placeholder="adres, of een van je locaties (leeg of online = geen reistijd)" autocomplete="off"></label>
+      <datalist id="naLocaties">${d().locaties.filter(l => l.id !== "thuis").map(l => `<option value="${esc(l.naam)}">`).join("")}</datalist>
+      <label class="schakel"><input type="checkbox" name="priveWerk" ${st.priveWerk ? "checked" : ""}> 🩺 Privé-afspraak onder werktijd (bv. huisarts, tandarts) — mag tijdens je werk, in je privé- én werkagenda</label>
+      ${ri && (ri.heen || ri.weg) ? `<div class="paneel naReis">${beenTekst(ri.heen, "Heen")}${beenTekst(ri.weg, "Daarna")}
+          ${vertrek ? `<div class="hint">Vertrek ± <b>${fmtTijd(vertrek.toISOString())}</b>${ri.heen.van ? " vanaf " + esc(ri.heen.van) : ""}.</div>` : ""}
+          <label class="schakel"><input type="checkbox" name="reisBlok" ${st.reisBlok ? "checked" : ""}> Reistijd ook als blok in de agenda('s) zetten</label></div>`
+        : st.plaats.trim() && routeStand.bezig ? `<div class="hint">⏳ Reistijd berekenen…</div>` : ""}
+      <div><div class="hint" style="margin-bottom:4px">In welke agenda('s)</div>
+        ${ag.length ? `<div class="lijst naAgendas">${ag.map(a => { const aan = st.doelen.has(a.k); return `<div class="linkrij"><label class="schakel" style="flex:1"><input type="checkbox" data-nadoel="${esc(a.k)}" ${aan ? "checked" : ""}> ${esc(a.naam)}</label>
+            ${aan ? `<select data-natitel="${esc(a.k)}" title="Wat er in deze agenda als titel staat"><option value="echt" ${st.doelen.get(a.k) === "echt" ? "selected" : ""}>met titel</option><option value="prive" ${st.doelen.get(a.k) === "prive" ? "selected" : ""}>als „Privé-afspraak”</option></select>` : ""}</div>`; }).join("")}</div>
+          ${st.doelen.size ? "" : `<div class="hint">Geen agenda gekozen: de afspraak staat alleen in Tijdkompas.</div>`}`
+        : `<div class="hint">Er is (op dit apparaat) geen Google- of Outlook-agenda gekoppeld waarin Tijdkompas mag schrijven: de afspraak komt alleen in Tijdkompas. <a href="#instellingen" data-tab="koppelingen">Koppelen</a></div>`}
+      </div>
+    </div>
+    <div class="dvoet"><button type="button" class="knop" data-sluit>Annuleren</button><div class="rechts"><button type="button" class="knop prim" data-na="opslaan" ${t && !bezig ? "" : "disabled"}>${bezig ? "Bezig…" : "Opslaan"}</button></div></div></form>`;
+  };
+  const lees = () => { for (const n of ["titel", "datum", "van", "tot", "plaats"]) { const el = dlg2.querySelector(`[name=${n}]`); if (el) st[n] = el.value; } };
+  const herteken = () => { const f = document.activeElement, naam = f?.name, pos = f?.selectionStart; teken(); if (naam) { const el = dlg2.querySelector(`[name=${naam}]`); el?.focus(); try { if (pos != null) el.setSelectionRange(pos, pos); } catch {} } };
+  dlg2.oninput = (e) => { if (e.target.name === "titel") { st.titel = e.target.value; return; } if (["plaats"].includes(e.target.name)) { lees(); clearTimeout(timer); timer = setTimeout(herteken, 700); } };
+  dlg2.onchange = (e) => {
+    lees();
+    const el = e.target;
+    if (el.name === "priveWerk") {
+      st.priveWerk = el.checked;
+      if (st.priveWerk) {      // in alle hoofdagenda's (één per account); je eigen met titel, de rest als „Privé-afspraak"
+        const perAccount = new Map(); for (const a of ag) if (!perAccount.has(a.account) || a.primair) perAccount.set(a.account, perAccount.get(a.account)?.primair ? perAccount.get(a.account) : a);
+        for (const a of perAccount.values()) st.doelen.set(a.k, st.doelen.get(a.k) || (a.k === eig || st.doelen.size === 0 ? "echt" : "prive"));
+        st.reisBlok = true;
+      }
+    } else if (el.name === "reisBlok") st.reisBlok = el.checked;
+    else if (el.dataset.nadoel) { el.checked ? st.doelen.set(el.dataset.nadoel, st.doelen.size ? "prive" : "echt") : st.doelen.delete(el.dataset.nadoel); if (!st.priveWerk && el.checked) st.doelen.set(el.dataset.nadoel, "echt"); }
+    else if (el.dataset.natitel) st.doelen.set(el.dataset.natitel, el.value);
+    herteken();
+  };
+  dlg2.onclick = async (e) => {
+    if (e.target.closest("[data-tab]")) { dlg2.close(); return; }
+    if (e.target.closest("[data-na]")?.dataset.na !== "opslaan") return;
+    lees(); const t = tijden(); if (!t || bezig) return;
+    const titel = st.titel.trim() || "Afspraak", plaats = plaatsVoorAgenda(), ri = st.reisBlok ? reisInfo() : null;
+    const extra = [];
+    if (ri?.heen) extra.push({ titel: `🚗 Reistijd naar ${st.priveWerk ? "afspraak" : titel}`, start: new Date(t.a - (ri.heen.min + ri.heen.marge) * 6e4).toISOString(), eind: t.a.toISOString() });
+    if (ri?.weg) extra.push({ titel: `🚗 Reistijd terug${ri.weg.naar ? " naar " + ri.weg.naar : ""}`, start: t.b.toISOString(), eind: new Date(t.b.getTime() + (ri.weg.min + ri.weg.marge) * 6e4).toISOString() });
+    const alle = [...st.doelen].map(([k, w]) => ({ k, titel: w === "prive" ? "Privé-afspraak" : titel }));
+    const doelen = alle.filter(x => !x.k.startsWith("fam|")), doorgeven = alle.filter(x => x.k.startsWith("fam|"));
+    bezig = true; teken();
+    const oms = st.priveWerk ? "Privé-afspraak onder werktijd (via Tijdkompas)" : "";
+    const r = doelen.length || !doorgeven.length ? await maakAfspraak({ titel, start: t.a.toISOString(), eind: t.b.toISOString(), plaats, doelen, extra, omschrijving: oms }) : { fouten: [] };
+    for (const x of doorgeven) { const { uid, k } = famDeel(x.k); verzoekMaak(uid, k, { titel: x.titel, plaats: x.titel === titel ? plaats : "", start: t.a.toISOString(), eind: t.b.toISOString(), extra, omschrijving: oms }); }
+    // privé onder werktijd: geen botsing met je werk melden (voor elke titel waaronder hij in een agenda staat)
+    if (st.priveWerk) for (const o of vasteLijsten()) {
+      const g = { ...(o.genegeerd || {}) };
+      for (const tt of new Set([titel, "Privé-afspraak", ...extra.map(x => x.titel)])) for (const x of [{ start: t.a.toISOString(), titel: tt }, ...extra.map(x => ({ start: x.start, titel: tt }))])
+        g[`${o.id}|${x.start}|${vingerafdruk(x.titel)}`] = vandaagStr();
+      o.genegeerd = g;
+    }
+    bewaar(); bezig = false; dlg2.close(); render();
+    toast(r.fouten.length ? `⚠️ ${r.fouten[0]}` : `„${titel}” staat ${doelen.length ? "in " + (doelen.length === 1 ? "je agenda" : doelen.length + " agenda's") : doorgeven.length ? "klaar" : "in Tijdkompas"}${extra.length ? " (met reistijd)" : ""}${doorgeven.length ? ` — ${doorgeven.length === 1 ? "komt" : "komen"} in de agenda van je andere inlog zodra Tijdkompas daar open is` : ""}`);
+  };
+  // reistijden komen binnen terwijl het venster open is: even bijwerken
+  const peil = setInterval(() => { if (!dlg2.open) { clearInterval(peil); return; } if (st.plaats.trim() && !bezig && !dlg2.contains(document.activeElement)) herteken(); }, 2000);
+  dlg2.onclose = () => { clearInterval(peil); clearTimeout(timer); dlg2.onclick = null; dlg2.onclose = null; dlg2.oninput = null; dlg2.onchange = null; };
+  teken();
+  if (!dlg2.open) dlg2.showModal();
+  setTimeout(() => dlg2.querySelector("[name=titel]")?.focus(), 30);
+}
+/** Een afspraak naar een andere agenda: nieuw maken in de gekozen agenda, de oude weghalen (zelf, of via je andere inlog) */
+async function verplaatsNaarAgenda(ev, naar) {
+  const x = { titel: ev.titel || "Afspraak", plaats: ev.plaats || "", start: ev.start, eind: ev.eind };
+  let waar;
+  if (naar.startsWith("fam|")) { const { uid, k } = famDeel(naar); verzoekMaak(uid, k, { ...x, extra: [] }); waar = "de agenda van je andere inlog (zodra Tijdkompas daar open is)"; }
+  else { const r = await maakAfspraak({ ...x, doelen: [{ k: naar, titel: x.titel }] }); if (r.fouten.length) throw new Error(r.fouten[0]); waar = agendaNaam(naar) || "de andere agenda"; }
+  let oud = "";
+  if (ev.vanUid && ev.vanUid !== sessie.ik) { verzoekWis(ev.vanUid, ev.bron, ev.extId, x.titel); oud = " De oude haalt je andere inlog weg."; }
+  else if (kanVerwijderen(ev)) await verwijderAgendaAfspraak(ev);
+  else oud = " De oude kon Tijdkompas niet weghalen: doe dat in die agenda zelf.";
+  bewaar();
+  return `„${x.titel}” staat nu in ${waar}.${oud}`;
+}
 function afspraakVenster(ev) {
   const a = new Date(ev.start), titel = ev.titel || "Afspraak", r = regelVoor(ev);
   const vast = vasteLijsten();
@@ -2754,13 +2926,34 @@ function afspraakVenster(ev) {
         <label class="schakel" style="margin:-2px 0 4px 10px"><input type="checkbox" id="arolAlles"> Werk/privé en herinnering: voor alle „${esc(titel)}” uit deze agenda</label>
         ${isHerinnering(ev) ? `<button type="button" class="keuzeknop" data-akeuze="geenherinnering"><b>↩ Geen herinnering meer</b><small>Telt weer als bezet.</small></button>`
           : `<button type="button" class="keuzeknop" data-akeuze="herinnering"><b>🔔 Is een herinnering</b><small>Blijft als belletje staan, maar telt niet als bezet (er mag doorheen gepland worden).</small></button>`}
-        <button type="button" class="keuzeknop" data-akeuze="verberg"><b>🙈 Deze keer niet meetellen</b><small>Alleen deze afspraak; hij verdwijnt hier en er mag doorheen gepland worden.</small></button>
+        <button type="button" class="keuzeknop" data-akeuze="verberg"><b>🙈 Deze keer niet meetellen</b><small>Alleen deze afspraak; hij verdwijnt hier en er mag doorheen gepland worden. Terughalen kan met „🙈 weggedrukt” boven de agenda.</small></button>
+        ${(() => { const opties = alleDoelAgendas().filter(a => a.k !== ev.bron && a.k !== `fam|${ev.vanUid}|${ev.bron}`); return opties.length ? `<div class="keuzeknop" style="cursor:default"><b>📅 In een andere agenda zetten</b><small>Verkeerde agenda gekozen? Verplaats hem (titel, tijd en locatie gaan mee; ${ev.vanUid ? "de oude haalt je andere inlog weg" : kanVerwijderen(ev) ? "de oude gaat weg" : "de oude kan Tijdkompas niet weghalen"}).</small>
+          <div class="rij" style="margin-top:6px"><select id="anaar" style="flex:1">${opties.map(a => `<option value="${esc(a.k)}">${esc(a.naam)}</option>`).join("")}</select><button type="button" class="knop klein prim" data-akeuze="verplaats">Verplaatsen</button></div></div>` : ""; })()}
+        ${kanVerwijderen(ev) || (ev.vanUid && ev.extId && ev.vanUid !== sessie.ik) ? `<button type="button" class="keuzeknop" data-akeuze="wis"><b>🗑 Afspraak verwijderen</b><small>${ev.bron === "tk" ? "Staat alleen in Tijdkompas." : ev.vanUid && ev.vanUid !== sessie.ik ? "Je andere inlog haalt hem uit die agenda zodra Tijdkompas daar open is." : "Ook uit " + esc(agendaNaam(ev.bron) || "je agenda") + "."}</small></button>` : ""}
         ${r ? `<button type="button" class="keuzeknop" data-akeuze="altijd"><b>↩ Weer altijd meetellen</b><small>De regel voor „${esc(r.titel)}” vervalt.</small></button>` : ""}
       </div>
       <p class="hint" style="margin:0">In je ${esc(ev.vanFamilie ? "andere inlog" : "agenda")} zelf verandert niets. Terugdraaien kan bij Instellingen → Agenda's &amp; accounts.</p>
     </div></form>`;
   dlg2.onclick = (e) => {
     const k = e.target.closest("[data-akeuze]")?.dataset.akeuze; if (!k) return;
+    if (k === "wis") {
+      if (!confirm(`„${titel}” verwijderen${ev.bron === "tk" ? "" : " uit " + (agendaNaam(ev.bron) || "je agenda")}?`)) return;
+      dlg2.close();
+      if (ev.vanUid && ev.vanUid !== sessie.ik) { verzoekWis(ev.vanUid, ev.bron, ev.extId, titel); bewaar(); toast(`„${titel}” wordt door je andere inlog verwijderd`); return; }
+      verwijderAgendaAfspraak(ev).then(() => { toast(`„${titel}” verwijderd`); render(); }).catch(err => toast("Verwijderen lukte niet: " + err.message));
+      return;
+    }
+    if (k === "verplaats") {
+      const naar = $("#anaar", dlg2)?.value; if (!naar) return;
+      dlg2.close();
+      verplaatsNaarAgenda(ev, naar).then(m => { toast(m); render(); }).catch(err => toast("Verplaatsen lukte niet: " + err.message));
+      return;
+    }
+    if (k === "verberg") {
+      const sl = afspraakSleutel(ev); afspraakRegel(ev, k); bewaar(); dlg2.close();
+      toast(`„${titel}” telt niet meer mee`, { label: "Ongedaan maken", f: () => { const v = { ...(d().verborgen || {}) }; delete v[sl]; d().verborgen = v; bewaar(); } });
+      return;
+    }
     if (k === "altijd" && r && !(d().afspraakRegels || []).some(x => x.bron === r.bron && x.titel === r.titel)) { toast("Deze regel is gezet in je andere inlog; haal hem daar weg"); return; }
     const lijst = $("[name=alijst]", dlg2)?.value || standaardLijst;
     afspraakRegel(ev, k, lijst, !!$("#arolAlles", dlg2)?.checked); bewaar(); dlg2.close();
@@ -3472,6 +3665,8 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
       if (w === "vast" && !o.tijden?.length) o.tijden = [{ dagen: [1, 2, 3, 4, 5], van: "09:00", tot: "17:00", locatie: o.locatie || "" }];
       bewaar();
     }
+    else if (a === "agendaAfspraak") { const t = new Date(); t.setMinutes(0, 0, 0); t.setHours(t.getHours() + 1); nieuweAfspraak(t); }
+    else if (a === "verborgenLijst") verborgenVenster();
     else if (a === "routesWis") { wisRoutes(); toast("Reistijden worden opnieuw berekend"); render(); }
     else if (a === "locBij") { d().locaties.push({ id: uid(), naam: "Nieuwe locatie", icoon: "📍", reistijd: 15, adres: "" }); bewaar(); }
     else if (a === "locWeg") {
@@ -3572,6 +3767,12 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
   if (evk) { const ev = (evk.dataset.evfam ? familieAgenda().bezet : d().bezet).find(x => x.id === evk.dataset.ev); if (ev) afspraakVenster(ev); return; }
   const blok = e.target.closest("[data-blok]");
   if (blok) { openBlok(blok.dataset.blok); return; }
+  const kol = e.target.closest(".wdag[data-dag]");
+  if (kol && !e.target.closest("button, a, .wblok")) {
+    const r = kol.getBoundingClientRect(), min = Math.max(0, Math.round(((e.clientY - r.top) / UUR_H * 60) / 15) * 15) + UUR_VAN * 60;
+    const start = new Date(kol.dataset.dag + "T00:00"); start.setMinutes(Math.min(min, 23 * 60));
+    nieuweAfspraak(start); return;
+  }
   const rij = e.target.closest("[data-id]");
   if (rij) { const it = rij.dataset.type === "project" ? project(rij.dataset.id) : taak(rij.dataset.id); if (it) openEditor(it); }
 }

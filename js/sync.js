@@ -192,3 +192,48 @@ export async function zetNaarAgendas({ alleen = null } = {}) {   // alleen: Set 
   bewaar();
   return { nieuw, bij, weg, verlopen: [...verlopen.values()], fouten: [...new Set(fouten)] };
 }
+
+// ---------- zelf een afspraak maken (in een of meer agenda's, of alleen in Tijdkompas) ----------
+/** Agenda's waar je in kunt schrijven en die hier gekoppeld zijn: [{k, naam, primair, account, soort}] */
+export function schrijfAgendas() {
+  return Object.entries(d().agendas || {}).filter(([k, a]) => a.schrijf && verbindingVan(k))
+    .map(([k, a]) => ({ k, naam: agendaNaam(k) || a.naam, primair: !!a.primair, account: a.account || "", soort: a.accountSoort }))
+    .sort((x, y) => (y.primair - x.primair) || x.naam.localeCompare(y.naam));
+}
+/**
+ * Een afspraak maken. doelen: [{k, titel}] (titel per agenda, bv. "Privé-afspraak" in je werkagenda); leeg = alleen in Tijdkompas.
+ * extra: losse blokken die erbij horen (reistijd), met dezelfde doelen. Komt meteen in je agenda hier; bij ophalen
+ * blijft het dezelfde afspraak (id = agenda#extId).
+ * @returns {{gemaakt:object[], fouten:string[]}}
+ */
+export async function maakAfspraak({ titel, start, eind, plaats = "", omschrijving: oms = "", doelen = [], extra = [] }) {
+  const gemaakt = [], fouten = [];
+  const stukken = [{ titel, start, eind, plaats, hoofd: true }, ...extra];
+  if (!doelen.length) {
+    for (const s of stukken) { const ev = { id: "tk#" + Math.random().toString(36).slice(2, 12), bron: "tk", titel: s.titel, plaats: s.plaats || "", start: s.start, eind: s.eind, gemaaktHier: true };
+      d().bezet.push(ev); gemaakt.push(ev); }
+    bewaar(); return { gemaakt, fouten };
+  }
+  for (const doel of doelen) {
+    const v = verbindingVan(doel.k); if (!v) { fouten.push(`${agendaNaam(doel.k) || "agenda"}: niet gekoppeld op dit apparaat`); continue; }
+    for (const s of stukken) {
+      const t = s.hoofd ? (doel.titel || titel) : s.titel;
+      try {
+        const extId = await zetAfspraak(v, agendaIdVan(doel.k), { titel: t, omschrijving: s.hoofd ? oms : "", start: s.start, eind: s.eind, plaats: s.hoofd && doel.titel === titel ? plaats : "", tkId: "" });
+        const ev = { id: doel.k + "#" + extId, extId, bron: doel.k, titel: t, plaats: s.hoofd && doel.titel === titel ? plaats : "", start: s.start, eind: s.eind, gemaaktHier: true };
+        d().bezet.push(ev); gemaakt.push(ev);
+      } catch (e) { fouten.push(`${agendaNaam(doel.k)}: ${e instanceof VerlopenFout ? "log opnieuw in" : e.message}`); break; }
+    }
+  }
+  bewaar();
+  return { gemaakt, fouten };
+}
+/** Een afspraak weghalen: uit Google/Outlook (als dat mag) en hier */
+export async function verwijderAgendaAfspraak(ev) {
+  if (ev.bron !== "tk") {
+    const v = verbindingVan(ev.bron); if (!v || !ev.extId) throw new Error("Deze agenda kan Tijdkompas niet aanpassen");
+    await verwijderAfspraak(v, agendaIdVan(ev.bron), ev.extId);
+  }
+  d().bezet = d().bezet.filter(e => e.id !== ev.id); bewaar();
+}
+export const kanVerwijderen = (ev) => ev?.bron === "tk" || kanVerplaatsen(ev);

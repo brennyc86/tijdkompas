@@ -311,6 +311,18 @@ function been(van, naar, rond) {
   return vast ? { min: vast, marge: 0, route: false, km: null } : null;
 }
 const zelfdePlek = (x, y) => (!!x.locatie && x.locatie === y.locatie) || zelfdeAdres(x.adres, y.adres);
+/**
+ * Reistijd rond een (nieuwe) afspraak, zoals de dag er dan uitziet: { heen, weg } (elk {min, marge, van, naar, status…} of null).
+ * Voor het venster "Nieuwe afspraak": laat zien waar je vandaan komt (huis, kantoor, vorige afspraak) en of het past.
+ */
+export function reisRond(ev) {
+  const a = new Date(ev.start), dag = new Date(a.getFullYear(), a.getMonth(), a.getDate()), eind = new Date(dag.getTime() + 864e5);
+  const I = dagIndeling(dag), T = "\u0001nieuw";
+  const evs = opslag.d.bezet.filter(e => e.id !== ev.id && eventSoort(e) === "bezet" && !e.eigen && new Date(e.start) < eind && new Date(e.eind) > dag);
+  const { reis } = reisVanDag([...I.vast, ...I.elders], [...evs, { ...ev, id: "__nieuw", titel: T }]);
+  const heen = reis.find(r => r.afspraak === T && r.richting !== "terug") || null, weg = reis.find(r => r.vanAfspraak === T) || null;
+  return { heen, weg };
+}
 export function reisVanDag(tijdvakken, afspraken) {
   const thuis = THUIS(), plekken = [];
   const naamVan = (l, alt = "") => locatie(l)?.naam || alt;
@@ -349,7 +361,7 @@ export function reisVanDag(tijdvakken, afspraken) {
     else {
       const van = hoe === "direct" ? prev : thuis, l = been(van, cur, cur.a);
       if (l && l.min > 0) {
-        const totaal = l.min + l.marge, x = { locatie: cur.locatie, lijst: cur.lijst, richting: hoe === "direct" ? "door" : "heen", afspraak: cur.afspraak,
+        const totaal = l.min + l.marge, x = { locatie: cur.locatie, lijst: cur.lijst, richting: hoe === "direct" ? "door" : "heen", afspraak: cur.afspraak, vanAfspraak: hoe === "direct" ? prev.afspraak : undefined,
           van: van.naam, naar: cur.naam, min: l.min, marge: l.marge, route: l.route, km: l.km, status: "ok" };
         if (hoe === "direct") {
           const gat = minuten(prev.b, cur.a);
@@ -367,7 +379,7 @@ export function reisVanDag(tijdvakken, afspraken) {
     if (via[i + 1] === "thuis" || i === plekken.length - 1) {                         // daarna naar huis
       const l = been(cur, thuis, cur.b);
       if (l && l.min > 0) reis.push({ a: cur.b, b: new Date(cur.b.getTime() + (l.min + l.marge) * MIN), locatie: cur.locatie, lijst: cur.lijst, richting: "terug",
-        afspraak: cur.afspraak, van: cur.naam, naar: thuis.naam, min: l.min, marge: l.marge, route: l.route, km: l.km, status: "ok" });
+        afspraak: cur.afspraak, vanAfspraak: cur.afspraak, van: cur.naam, naar: thuis.naam, min: l.min, marge: l.marge, route: l.route, km: l.km, status: "ok" });
     }
   });
   return { reis, terPlekke };

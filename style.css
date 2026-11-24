@@ -806,3 +806,11 @@ a.koersitem{text-decoration:none;color:inherit}
 .dbreis.geel{background:color-mix(in srgb,#e8b400 45%,transparent)!important}
 .legenda .lg.lgrood{background:#e0453a}
 .legenda .lg.lggeel{background:#e8b400}
+/* nieuwe afspraak */
+.nieuweafspraak .dlijf{display:flex;flex-direction:column;gap:10px}
+.naReis{display:flex;flex-direction:column;gap:4px;padding:8px 10px}
+.naAgendas .linkrij{gap:8px}
+.naAgendas select{max-width:170px;font-size:12.5px}
+.wdag{cursor:cell}
+.naAgendas .schakel{justify-content:flex-start;text-align:left;display:flex;align-items:center;gap:8px}
+.naAgendas .schakel input{flex:none}

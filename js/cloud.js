@@ -388,6 +388,28 @@ export function familieVoorMij() {
   const andere = cloud.familie.filter(u => u !== sessie.ik);
   return { blokken, klaar: cloudGeladen() && !cloud.familieFout.size && andere.every(u => familieDocs.has(u)) };
 }
+// ---------- afspraken in de agenda van je andere inlog (werk ↔ privé) ----------
+// Die agenda is hier vaak niet gekoppeld. Dan zet dit account een verzoek in zijn eigen document (afspraakVerzoeken); het andere
+// account ziet dat, maakt (of verwijdert) de afspraak in zijn agenda en meldt het in afspraakGedaan. Daarna ruimt dit account op.
+/** Agenda's van je gelinkte inlogs waarin dat account mag schrijven: [{uid, email, k, naam, primair, account}] */
+export function familieSchrijfAgendas() {
+  const uit = [];
+  for (const [u, x] of familieDocs) for (const [k, a] of Object.entries(x.agendas || {})) if (a?.schrijf && !a.link)
+    uit.push({ uid: u, email: emailVan(u), k, naam: `${a.accountSoort === "ms" ? "Outlook" : "Google"} · ${a.account || ""} · ${a.naam || ""}`, primair: !!a.primair, account: String(a.account || "") });
+  return uit.sort((x, y) => (y.primair - x.primair) || x.naam.localeCompare(y.naam));
+}
+/** Verzoeken van je andere inlogs die voor dit account zijn en nog niet gedaan */
+export function verzoekenVoorMij() {
+  const gedaan = opslag.d.afspraakGedaan || {}, uit = [];
+  for (const [u, x] of familieDocs) for (const v of Array.isArray(x.afspraakVerzoeken) ? x.afspraakVerzoeken : [])
+    if (v && v.voor === sessie.ik && typeof v.id === "string" && !gedaan[v.id]) uit.push({ ...v, van: u });
+  return uit;
+}
+/** Is een verzoek van mij door het andere account afgehandeld? → {ok, fout?} of null */
+export function verzoekGedaan(id) {
+  for (const [, x] of familieDocs) { const g = x.afspraakGedaan?.[id]; if (g) return g; }
+  return null;
+}
 /** Afspraken van je gelinkte accounts zoals ze binnenkomen (zonder regels), met van welk account en of het via een link is */
 export function familieBezetRuw() {
   const uit = [];
@@ -524,7 +546,7 @@ function bouw() {
   const items = ids.flatMap(id => (itemDocs.get(id) || []).map(x => ({ ...x, overzicht: id })));
   const titels = leesTitels();
   const d = aanvullen({
-    locaties: u.locaties, beschikbaar: u.beschikbaar, afwezig: u.afwezig || {}, afspraakRegels: u.afspraakRegels || [], verborgen: u.verborgen || {}, rolKeuzes: u.rolKeuzes || {}, herinneringen: u.herinneringen || {}, buitenOk: u.buitenOk || {}, feeds: u.feeds || [], boodschappen: u.boodschappen || null, instellingen: u.instellingen, agendas: u.agendas || {}, extern: u.extern || {},
+    locaties: u.locaties, beschikbaar: u.beschikbaar, afwezig: u.afwezig || {}, afspraakRegels: u.afspraakRegels || [], verborgen: u.verborgen || {}, rolKeuzes: u.rolKeuzes || {}, herinneringen: u.herinneringen || {}, buitenOk: u.buitenOk || {}, feeds: u.feeds || [], boodschappen: u.boodschappen || null, afspraakVerzoeken: u.afspraakVerzoeken || [], afspraakGedaan: u.afspraakGedaan || {}, instellingen: u.instellingen, agendas: u.agendas || {}, extern: u.extern || {},
     planning: u.planning || [], agendaSync: u.agendaSync, gewijzigd: u.gewijzigd, takenlijsten: u.takenlijsten || {}, takenSync: u.takenSync || "", koppelingen: u.koppelingen, agendaLinks: u.agendaLinks || [],
     bezet: (u.bezet || []).map(e => ({ ...e, titel: titels.bezet?.[e.id]?.titel || e.titel || "Bezet", plaats: titels.bezet?.[e.id]?.plaats || e.plaats || "" })),
     overzichten: ids.map(id => {
@@ -580,7 +602,7 @@ function naarDocs(d) {
   const schijfLijst = new Set(d.overzichten.filter(o => o.opslag).map(o => o.id));
   onthoudTitels(d);
   docs.set("gebruikers/" + ik, schoon({
-    locaties: d.locaties, beschikbaar: d.beschikbaar, afwezig: d.afwezig || {}, afspraakRegels: d.afspraakRegels || [], verborgen: d.verborgen || {}, rolKeuzes: d.rolKeuzes || {}, herinneringen: d.herinneringen || {}, buitenOk: d.buitenOk || {}, feeds: d.feeds || [], boodschappen: d.boodschappen || null, instellingen: d.instellingen, agendas: d.agendas || {},
+    locaties: d.locaties, beschikbaar: d.beschikbaar, afwezig: d.afwezig || {}, afspraakRegels: d.afspraakRegels || [], verborgen: d.verborgen || {}, rolKeuzes: d.rolKeuzes || {}, herinneringen: d.herinneringen || {}, buitenOk: d.buitenOk || {}, feeds: d.feeds || [], boodschappen: d.boodschappen || null, afspraakVerzoeken: d.afspraakVerzoeken || [], afspraakGedaan: d.afspraakGedaan || {}, instellingen: d.instellingen, agendas: d.agendas || {},
     extern: Object.fromEntries(Object.entries(d.extern || {}).map(([k, x]) => { const { titel, ...r } = x; return [k, titel !== undefined && !r.th ? { ...r, th: vingerafdruk(titel) } : r]; })),
     planning: (d.planning || []).map(b => schijfLijst.has(b.overzicht) && b.soort !== "reis" ? { ...b, titel: "" } : b),
     // afspraken mét titel: zo ziet elke inlog en elk apparaat van dit Tijdkompas dezelfde agenda

@@ -110,6 +110,8 @@ function normaliseer(d) {
     delete t.toegewezen;
     if (!Array.isArray(t.wachtOp)) t.wachtOp = [];
   }
+  n.afspraakVerzoeken = Array.isArray(d.afspraakVerzoeken) ? d.afspraakVerzoeken : [];
+  n.afspraakGedaan = d.afspraakGedaan && typeof d.afspraakGedaan === "object" ? d.afspraakGedaan : {};
   // boodschappenlijst (persoonlijk, met je andere apparaten gedeeld via je gebruikersdocument)
   const bs = d.boodschappen && typeof d.boodschappen === "object" ? d.boodschappen : {};
   n.boodschappen = { items: Array.isArray(bs.items) ? bs.items : [], geleerd: bs.geleerd || {}, historie: bs.historie || {}, ketens: Array.isArray(bs.ketens) ? bs.ketens : [], voorkeur: bs.voorkeur || {}, favorieten: Array.isArray(bs.favorieten) ? bs.favorieten : [] };

@@ -89,6 +89,9 @@ const vijand = {
   planning: [{ id: "b1", item: "t1", overzicht: "goed", titel: "Blok " + P, start: new Date(Date.now() + 9000e3).toISOString(), eind: new Date(Date.now() + 12600e3).toISOString() }],
   agendaLinks: [{ id: "l1", naam: P, url: "https://outlook.live.com/x.ics", kleur: P }],
   afwezig: { [dagNa(3)]: { reden: P }, [P]: { reden: P } },
+  afspraakVerzoeken: [{ id: "v1", voor: "uidB", soort: "maak", k: "google:x|cal", titel: P, plaats: P, start: new Date().toISOString(), eind: new Date(Date.now() + 36e5).toISOString(), extra: [{ titel: P, start: P, eind: P }] },
+    { id: "v2", voor: P, soort: "maak", k: "x" }, { id: "v3", voor: "uidB", soort: P, k: "google:a|b" }],
+  afspraakGedaan: { v9: { ok: true, t: P, fout: P }, [P]: { ok: 1 } },
   boodschappen: {
     items: [{ id: "b1", tekst: "melk " + P, aantal: P, soort: P, keten: P, notitie: P, door: P, gemaakt: P },
             { id: "b2", tekst: "halfvolle melk", aantal: 2, keten: "testmarkt" }, { id: "b3", tekst: P, klaar: true, klaarOp: P },
@@ -194,6 +197,12 @@ function allesTekenen(ronde) {
     try { k.dispatchEvent(new window.Event("click", { bubbles: true })); } catch {}
   }
   controleer(`${ronde}/chips`);
+  for (const sel of ["[data-actie=agendaAfspraak]", "[data-actie=verborgenLijst]"]) {
+    globalThis.location.hash = "#agenda"; bewaar();
+    const k = main.querySelector(sel);
+    if (k) { try { k.dispatchEvent(new window.Event("click", { bubbles: true })); } catch (e) { fout(`${ronde}/${sel}: ${e.message}`); } controleer(`${ronde}/${sel}`); document.querySelector("dialog[open]")?.close?.(); }
+    else if (sel.includes("nieuwe")) fout(`${ronde}: knop ${sel} ontbreekt`);
+  }
   const inst = document.querySelector("#ovChips [data-inst]");
   try { inst?.dispatchEvent(new window.Event("click", { bubbles: true })); } catch (e) { fout(`${ronde}/inst-venster: ${e.message}`); }
   controleer(`${ronde}/inst-venster`);
@@ -222,6 +231,7 @@ if (B.items.some(i => i.id.includes('"'))) fout("boodschap met onveilige id niet
 if (B.items.some(i => i.soort === P || i.keten === P)) fout("boodschap: onveilige soort/keten niet weggefilterd");
 const W = D.locaties.find(l => l.id === "winkel1");
 if (!W || W.ketens.includes(P) || W.soorten.includes(P) || W.sluit === P || typeof W.omweg !== "number") fout("winkel-locatie niet ontsmet");
+if (D.afspraakVerzoeken.length !== 1 || D.afspraakVerzoeken[0].extra.length || Object.keys(D.afspraakGedaan).length !== 1) fout("afspraakverzoeken niet ontsmet");
 if (B.favorieten.some(f => f.id.includes('"') || f.bron)) fout("favorieten niet ontsmet");
 if (B.ketens.includes(P) || Object.values(B.geleerd).includes(P) || Object.keys(B.voorkeur).includes(P)) fout("boodschappen: onveilige instellingen niet weggefilterd");
 globalThis.location.hash = "#boodschappen"; bewaar();          // de pagina vraagt de prijzen op
