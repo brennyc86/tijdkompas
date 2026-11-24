@@ -7,7 +7,7 @@
 //              Staat de lijst (of taak) op een locatie met reistijd, dan krijgt elke sessie reis heen + terug;
 //              taken op dezelfde locatie worden achter elkaar gezet zodat je maar één keer reist.
 import { veiligeAfwijkingen, veiligGenegeerd } from "./veilig.js";
-import { reistijd, marge, isFysiek, zelfdeAdres } from "./route.js";
+import { reistijd, marge, isFysiek, zelfdeAdres, isKamer } from "./route.js";
 import { opslag, kwadrant, kalibratie, project, overzicht, zelfInTePlannen, locatie, effectieveLocatie, uid, linkInfo, isMijn, taak, sessie, blokTitel } from "./data.js";
 
 // Agenda en planning van gelinkte accounts (privé ↔ werk): je bent één mens, dus daar plannen we omheen.
@@ -306,10 +306,12 @@ export const afwezigOp = (ds) => opslag.d.afwezig?.[ds] || null;
 const THUIS = () => ({ locatie: "thuis", adres: locatie("thuis")?.adres || "", naam: locatie("thuis")?.naam || "Thuis" });
 function been(van, naar, rond) {
   const r = van.adres && naar.adres ? reistijd(van.adres, naar.adres, rond) : null;
+  if (r && r.min > MAX_REIS && r.bron !== "zelf") return null;    // meer dan 4 uur: adres vrijwel zeker verkeerd gevonden (zie afspraakvenster)
   if (r) return { min: r.min, marge: r.min ? marge(r.min) : 0, route: true, km: r.km };
   const vast = naar.locatie === "thuis" ? reisVan(van.locatie) : van.locatie === "thuis" ? reisVan(naar.locatie) : reisVan(naar.locatie) || reisVan(van.locatie);
   return vast ? { min: vast, marge: 0, route: false, km: null } : null;
 }
+export const MAX_REIS = 240;
 const zelfdePlek = (x, y) => (!!x.locatie && x.locatie === y.locatie) || zelfdeAdres(x.adres, y.adres);
 /**
  * Reistijd rond een (nieuwe) afspraak, zoals de dag er dan uitziet: { heen, weg } (elk {min, marge, van, naar, status…} of null).
@@ -342,11 +344,19 @@ export function reisVanDag(tijdvakken, afspraken) {
     plekken.push({ a: v.a, b: v.b, locatie: v.locatie, lijst: v.lijst, adres: locatie(v.locatie)?.adres || "", naam: naamVan(v.locatie), vast: true });
   for (const ev of afspraken) {
     // ev.loc: herkende locatie zoals meegestuurd via de cloud; leeg betekent "geen eigen locatie herkend", niet "geen plaats"
-    const pl = plaatsVan(ev), herkend = ev.loc || herkenLocatie(pl);
+    const pl = plaatsVan(ev), a = new Date(ev.start), b = new Date(ev.eind);
+    let herkend = ev.loc || herkenLocatie(pl);
+    // een kamer of zaal ("B2.14", "Vergaderzaal Noord"): tijdens werktijd of uit je werkagenda = op kantoor; anders te vaag
+    if (!herkend && isKamer(pl)) {
+      const werk = plekken.find(v => v.vast && v.a < b && v.b > a) || tijdvakken.find(v => v.locatie && v.a < b && v.b > a);
+      const lijst = opslag.d.agendas?.[ev.bron]?.lijst, o = lijst ? overzicht(lijst) : null;
+      herkend = werk?.locatie || (o && effLijst(o)?.modus === "vast" ? o.locatie || "" : "");
+      if (!herkend) continue;
+    }
     if (herkend === "thuis") continue;
-    const adres = (herkend && locatie(herkend)?.adres) || (isFysiek(pl) ? String(pl).trim() : "");   // herkende locatie zonder adres: dan het adres uit de agenda
+    const adres = (herkend && locatie(herkend)?.adres) || (isFysiek(pl) && !isKamer(pl) ? String(pl).trim() : "");   // herkende locatie zonder adres: dan het adres uit de agenda
     if (!herkend && !adres) continue;
-    const a = new Date(ev.start), b = new Date(ev.eind);
+    if (!herkend && thuis.adres) { const vanHuis = reistijd(thuis.adres, adres); if (vanHuis && vanHuis.min > MAX_REIS && vanHuis.bron !== "zelf") continue; }   // adres vrijwel zeker verkeerd gevonden
     const p = { a, b, locatie: herkend || "", adres, naam: herkend ? naamVan(herkend) : adres, afspraak: ev.titel || "Afspraak", bron: ev.vanUid && ev.vanUid !== sessie.ik ? "" : ev.bron || "" };
     if (plekken.some(v => v.vast && zelfdePlek(v, p) && v.a <= a && v.b >= b)) continue;          // al ter plekke (vergadering op kantoor)
     // een afspraak elders midden in je werktijd: de werktijd in twee stukken (je gaat eerder weg en komt later terug)

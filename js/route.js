@@ -59,6 +59,19 @@ export function isFysiek(plaats) {
   if (t.length < 3 || t.length > 200) return false;
   return !/(https?:\/\/|www\.|teams|zoom|meet\.google|google meet|webex|skype|whereby|jitsi|online|virtueel|virtual|telefo|bellen|n\.v\.t|nvt|^-+$)/i.test(t);
 }
+/**
+ * Lijkt deze locatie op een kamer of zaal (in een gebouw) en niet op een adres? Bv. "B2.14", "Kamer 3.12", "Vergaderzaal Noord",
+ * "Boardroom", "3e verdieping". Een adres (postcode, of straatnaam met huisnummer) is het nooit.
+ */
+export function isKamer(plaats) {
+  const t = String(plaats || "").trim(); if (!t) return false;
+  if (/\b\d{4}\s?[a-z]{2}\b/i.test(t)) return false;                                              // postcode
+  if (/(straat|weg|laan|plein|singel|gracht|kade|dijk|dreef|hof|steeg|pad|markt|park|boulevard|allee|baan|rade|veld|wal)\s*\d+/i.test(t)) return false;   // straat + huisnummer
+  if (t.split(",").length >= 3) return false;                                                     // "naam, straat, plaats"
+  if (/\b(kamer|zaal|ruimte|room|lokaal|verdieping|etage|floor|vleugel|spreekkamer|vergader\w*|meeting|boardroom|kantine|aula|lab|werkplek|flexplek|stiltecentrum|teamruimte|cel|unit|toren|hal)\b/i.test(t)) return true;
+  if (/^[a-z]{0,3}[ .-]?\d{1,2}[.\-]\d{1,3}[a-z]?$/i.test(t) || /^[a-z]{1,3}[ .-]?\d{1,4}[a-z]?$/i.test(t)) return true;   // B2.14, 3.12, K12, C-201
+  return false;
+}
 const norm = (a) => String(a || "").toLowerCase().replace(/\s+/g, " ").replace(/[,;]\s*(nederland|netherlands|nl)$/, "").trim();
 // voor vergelijken: zonder leestekens en spaties ("Klantlaan 2, 8601 AB Sneek" = "klantlaan 2 8601ab sneek")
 const kaal = (a) => norm(a).replace(/[^a-z0-9\u00c0-\u017f]+/g, "");

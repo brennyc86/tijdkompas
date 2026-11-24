@@ -13,7 +13,7 @@ import { kiesEmoji, voorstellen } from "./emoji.js";
 import { boodschappenWeergave, initBoodschappen, focusInvoer, winkelVelden, winkelOpen, boodschappenVandaag } from "./boodschappen.js";
 import { veiligeUrl, veiligeFoto } from "./veilig.js";
 import { initAdresZoeker } from "./adres.js";
-import { VERVOER, vervoer, bron as routeBron, routeStand, mapsSleutel, routesAan, opRoute, wisRoutes, isFysiek, routeUitleg, reistijdenLijst, reistijdWeg, reistijdZelf } from "./route.js";
+import { VERVOER, vervoer, bron as routeBron, routeStand, mapsSleutel, routesAan, opRoute, wisRoutes, isFysiek, routeUitleg, reistijdenLijst, reistijdWeg, reistijdZelf, isKamer, reistijd as routeReistijd } from "./route.js";
 import { familieSchrijfAgendas, verzoekenVoorMij, verzoekGedaan } from "./cloud.js";
 import { familieBezetRuw, familieRegels, familieLijstInst, familieVoorMij, emailVan, feedsLater, feedsBijwerken, feedStand, feedUrl, feedWeg, nieuweFeedSleutel, feedBlokken, cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda, gelinkteInfo, stuurInlogLink,
          koppel as koppelStaat, vraagKoppelcode, gebruikKoppelcode, beantwoordKoppel, stopKoppelcode, stuurBevestiging, controleerBevestiging } from "./cloud.js";
@@ -2964,7 +2964,10 @@ function reisUitleg(ev) {
   const pl = String(plaatsVan(ev) || "").trim(), herk = herkenLocatie(pl), thuis = locatie("thuis");
   const regel = (t) => `<div class="hint areis">${t}</div>`;
   if (!pl) return regel("🚗 Geen locatie bij deze afspraak, dus geen reistijd. Vul hieronder een adres in als je ergens heen moet.");
+  if (!herk && isKamer(pl)) return regel(`📍 „${esc(pl)}” lijkt een kamer of zaal: tijdens werktijd of in je werkagenda geldt dat als op kantoor, dus geen reistijd. Is het toch ergens anders? Vul dan met ✏️ Wijzigen het adres in.`);
   if (!herk && !isFysiek(pl)) return regel(`🚗 „${esc(pl)}” ziet eruit als online (Teams, Zoom, een link): geen reistijd.`);
+  { const ruw = thuis?.adres ? routeReistijd(thuis.adres, pl) : null;
+    if (ruw && ruw.min > 240 && ruw.bron !== "zelf") return regel(`⚠️ De kaart vond voor „${esc(pl)}” een reistijd van ${Math.round(ruw.min / 60)} uur vanaf huis. Dat klopt vast niet, dus Tijdkompas negeert hem. Maak de locatie preciezer met ✏️ Wijzigen, of pas de reistijd aan bij Instellingen → Locaties → Bewaarde reistijden.`); }
   if (herk === "thuis") return regel("🏠 Thuis: geen reistijd.");
   if (!routesAan()) return regel("🚗 Reistijd berekenen staat uit (Instellingen → Locaties).");
   const r = reisRond(ev), deel = (x, wat) => {
