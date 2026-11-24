@@ -24,6 +24,13 @@ function bewaarCache() {
     try { localStorage.setItem(SLEUTEL_ROUTES, JSON.stringify(routes)); localStorage.setItem(SLEUTEL_GEO, JSON.stringify(geo)); } catch {}
   }, 500);
 }
+/** Een adres met bekende coördinaten (gekozen in de adreszoeker): hoeft niet meer opgezocht te worden */
+export function zetPlek(adres, lat, lon) {
+  if (!adres || !isFinite(lat) || !isFinite(lon)) return;
+  geo[norm(adres)] = { lat: +lat, lon: +lon, t: Date.now() };
+  for (const k of Object.keys(routes)) if (routes[k].mis && k.includes(norm(adres))) delete routes[k];   // eerder niet gevonden: opnieuw
+  bewaarCache();
+}
 export function wisRoutes() { routes = {}; geo = {}; try { localStorage.removeItem(SLEUTEL_ROUTES); localStorage.removeItem(SLEUTEL_GEO); } catch {} }
 
 let luisteraar = () => {};

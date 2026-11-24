@@ -821,3 +821,10 @@ a.koersitem{text-decoration:none;color:inherit}
 .akop{display:flex;align-items:center;gap:10px;justify-content:space-between}
 .averborgen{border-color:var(--q-doen,#e0453a)}
 .wblok.verborgen{opacity:.6;border-style:dashed;border-color:var(--meta);background:var(--kaart);z-index:3}
+/* adreszoeker */
+.adreslijst{position:fixed;z-index:1000;background:var(--kaart);border:1px solid var(--accent);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.35);overflow:hidden;max-height:320px;overflow-y:auto}
+.adresoptie{display:flex;gap:8px;align-items:center;padding:9px 12px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--rand)}
+.adresoptie:hover,.adresoptie.actief{background:color-mix(in srgb,var(--accent) 18%,var(--kaart))}
+.adresbron{font-size:10.5px;color:var(--zacht);padding:4px 12px;text-align:right}
+.locrij .adresveld{min-width:0}
+@media (max-width:640px){ .locrij .adresveld{grid-column:1 / -1} }

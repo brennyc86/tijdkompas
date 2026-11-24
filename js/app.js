@@ -12,6 +12,7 @@ import { syncTaken, takenVerbindingen, koppelTakenlijst, takenlijstVan, takenVer
 import { kiesEmoji, voorstellen } from "./emoji.js";
 import { boodschappenWeergave, initBoodschappen, focusInvoer, winkelVelden, winkelOpen, boodschappenVandaag } from "./boodschappen.js";
 import { veiligeUrl, veiligeFoto } from "./veilig.js";
+import { initAdresZoeker } from "./adres.js";
 import { VERVOER, vervoer, bron as routeBron, routeStand, mapsSleutel, routesAan, opRoute, wisRoutes, isFysiek, routeUitleg } from "./route.js";
 import { familieSchrijfAgendas, verzoekenVoorMij, verzoekGedaan } from "./cloud.js";
 import { familieBezetRuw, familieRegels, familieLijstInst, familieVoorMij, emailVan, feedsLater, feedsBijwerken, feedStand, feedUrl, feedWeg, nieuweFeedSleutel, feedBlokken, cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda, gelinkteInfo, stuurInlogLink,
@@ -1336,7 +1337,7 @@ function instLocaties() {
     <button type="button" class="emojiknop" data-emoji="locatie" aria-label="Icoon kiezen" title="Icoon kiezen">${esc(l.icoon)}</button>
     <input type="text" value="${esc(l.naam)}" data-locveld="naam" aria-label="Naam">
     <label class="veld klein">${l.id === "thuis" ? "Startpunt" : "Reistijd (min)"}${l.id === "thuis" ? `<input type="text" value="—" disabled>` : `<input type="number" min="0" step="5" value="${l.reistijd || 0}" data-locveld="reistijd">`}</label>
-    <input type="text" value="${esc(l.adres || "")}" data-locveld="adres" placeholder="adres of plaatsnaam (optioneel)" aria-label="Adres">
+    <input type="text" class="adresveld" value="${esc(l.adres || "")}" data-locveld="adres" data-adreszoek placeholder="${l.id === "thuis" ? "🔍 Je adres: typ je postcode of straat" : "🔍 Adres: typ postcode, straat of plaats"}" aria-label="Adres" autocomplete="off">
     ${l.id === "thuis" ? "<span></span>" : `<button type="button" class="x" data-actie="locWeg" title="Verwijderen">✕</button>`}
     ${l.id === "thuis" ? "" : winkelVelden(l)}
   </div>`).join("")}</div>
@@ -2855,7 +2856,7 @@ function nieuweAfspraak(start, eind = new Date(start.getTime() + 3600e3)) {
         <label class="veld">Tot<input type="time" name="tot" value="${esc(st.tot)}" step="300"></label>
       </div>
       ${t ? "" : `<div class="hint" style="color:var(--q-doen)">De eindtijd moet na de begintijd liggen.</div>`}
-      <label class="veld">Locatie<input type="text" name="plaats" value="${esc(st.plaats)}" list="naLocaties" placeholder="adres, of een van je locaties (leeg of online = geen reistijd)" autocomplete="off"></label>
+      <label class="veld">Locatie<input type="text" name="plaats" data-adreszoek value="${esc(st.plaats)}" list="naLocaties" placeholder="adres, of een van je locaties (leeg of online = geen reistijd)" autocomplete="off"></label>
       <datalist id="naLocaties">${d().locaties.filter(l => l.id !== "thuis").map(l => `<option value="${esc(l.naam)}">`).join("")}</datalist>
       <label class="schakel"><input type="checkbox" name="priveWerk" ${st.priveWerk ? "checked" : ""}> 🩺 Privé-afspraak onder werktijd (bv. huisarts, tandarts) — mag tijdens je werk, in je privé- én werkagenda</label>
       ${ri && (ri.heen || ri.weg) ? `<div class="paneel naReis">${beenTekst(ri.heen, "Heen")}${beenTekst(ri.weg, "Daarna")}
@@ -2873,7 +2874,7 @@ function nieuweAfspraak(start, eind = new Date(start.getTime() + 3600e3)) {
   };
   const lees = () => { for (const n of ["titel", "datum", "van", "tot", "plaats"]) { const el = dlg2.querySelector(`[name=${n}]`); if (el) st[n] = el.value; } };
   const herteken = () => { const f = document.activeElement, naam = f?.name, pos = f?.selectionStart; teken(); if (naam) { const el = dlg2.querySelector(`[name=${naam}]`); el?.focus(); try { if (pos != null) el.setSelectionRange(pos, pos); } catch {} } };
-  dlg2.oninput = (e) => { if (e.target.name === "titel") { st.titel = e.target.value; return; } if (["plaats"].includes(e.target.name)) { lees(); clearTimeout(timer); timer = setTimeout(herteken, 700); } };
+  dlg2.oninput = (e) => { if (e.target.name === "titel") { st.titel = e.target.value; return; } if (e.target.name === "plaats") lees(); };   // opnieuw tekenen pas bij "change" (keuze uit de adreszoeker of het veld verlaten)
   dlg2.onchange = (e) => {
     lees();
     const el = e.target;
@@ -2951,7 +2952,7 @@ function afspraakBewerk(ev) {
         <label class="veld">Van<input type="time" name="avan" value="${fmtTijd(ev.start)}" step="300" ${kan ? "" : "disabled"}></label>
         <label class="veld">Tot<input type="time" name="atot" value="${fmtTijd(ev.eind)}" step="300" ${kan ? "" : "disabled"}></label>
       </div>
-      <label class="veld">Locatie<input type="text" name="aplaats" value="${esc(plaatsVan(ev))}" list="aLocaties" placeholder="adres, of een van je locaties" autocomplete="off"></label>
+      <label class="veld">Locatie<input type="text" name="aplaats" data-adreszoek value="${esc(plaatsVan(ev))}" list="aLocaties" placeholder="adres, of een van je locaties" autocomplete="off"></label>
       <datalist id="aLocaties">${d().locaties.filter(l => l.id !== "thuis").map(l => `<option value="${esc(l.naam)}">`).join("")}</datalist>
       <div class="hint">${eigen ? `Wordt aangepast in ${esc(agendaNaam(ev.bron) || "je agenda")}.` : fam ? "Je andere inlog past hem aan in die agenda zodra Tijdkompas daar open is; de locatie telt hier meteen voor de reistijd."
         : lokaal ? "Staat alleen in Tijdkompas." : "Deze agenda kan Tijdkompas niet aanpassen (alleen lezen): de locatie geldt alleen hier, voor de reistijd."}${ov ? " · locatie is hier aangepast" : ""}</div>
@@ -3997,6 +3998,7 @@ main.addEventListener("input", (e) => {
 });
 
 initBoodschappen({ main, toast, render, planTaak, agendaBij });
+initAdresZoeker();
 // nieuwe reistijden binnen: opnieuw tekenen, maar niet terwijl je in een venster of veld bezig bent
 let routeTimer = null;
 const naRoute = () => { clearTimeout(routeTimer); const el = document.activeElement;
