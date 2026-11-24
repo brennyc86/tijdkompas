@@ -253,8 +253,8 @@ export async function wijzigAgendaAfspraak(ev, x) {
 // in de agenda van de afspraak zelf als Tijdkompas daarin mag schrijven, anders in je hoofdagenda. Gemarkeerd als van
 // Tijdkompas, dus het telt bij het ophalen niet als afspraak. Verandert er iets, dan gaat de oude weg en komt er een nieuwe.
 export const reisNaarAgendaAan = () => d().instellingen?.reisNaarAgenda !== false;
-const reisSleutel = (r) => "r" + vingerafdruk([r.richting, +r.a, +r.b, r.van, r.naar, r.status].join("|"));
-function reisDoel(r) {
+export const reisSleutel = (r) => "r" + vingerafdruk([r.richting, +r.a, +r.b, r.van, r.naar, r.status].join("|"));
+export function reisDoel(r) {
   if (r.bron && schrijfbaar(r.bron) && verbindingVan(r.bron)) return r.bron;
   const o = r.lijst ? overzicht(r.lijst) : null, k = o?.doelAgenda;
   if (k && k !== "geen" && schrijfbaar(k) && verbindingVan(k)) return k;

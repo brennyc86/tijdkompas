@@ -7,7 +7,7 @@ import { familieHaak, planAutomatisch, werkGeplandBij, doelDatum, harde, priorit
   AFWIJKING, maakRuimte, magWijkenVoor, wijkbaar, plekGebonden, plaatsMetWijken, telt, isHerinnering, buitenBeschikbaarheid, regelVoor, rolKeuze, afspraakSleutel, standaardTijden, afwijkingOp, afwijkingDatums, zetAfwijking, dagTijden, tijdenZonder, tijdenMet, effLijst, rolBotsingen, planStatus, grootsteGat, voorstellen as planVoorstellen, botsingen, raster, metVoorrang, plaatsVanaf, vrijkomend, vrijeTijd, trekAllesNaarVoren, nogNodig, plaatsBlok, haalBlokWeg, plekVan, doorGelinktIngepland, reisRond, plaatsVan, herkenLocatie } from "./plan.js";
 import { ids, verbindingen as alleVerbindingen, heeft, isVerlopen, voorbereiden, koppelGoogle, koppelMs, vernieuw, ontkoppel, zonderDoel, koppelHaak, neemGedeeldeOver } from "./koppeling.js";
 import { schijf, opSchijf, startSchijf, schijfVerbindingen, verplaats, synchroniseerAlles, naamVan, lijstWeg } from "./schijf.js";
-import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD, eigenAgenda, viaEigenaar, vingerafdruk, kanVerplaatsen, verplaatsAgendaAfspraak, schrijfAgendas, maakAfspraak, verwijderAgendaAfspraak, kanVerwijderen, wijzigAgendaAfspraak, zetReisNaarAgendas, reisNaarAgendaAan, haalReisUitAgendas, reisStand } from "./sync.js";
+import { verversAgendas, zetNaarAgendas, verversLinks, linkBron, doelAgendaVan, standaardAgenda, agendaNaam, AGENDA_STANDAARD, eigenAgenda, viaEigenaar, vingerafdruk, kanVerplaatsen, verplaatsAgendaAfspraak, schrijfAgendas, maakAfspraak, verwijderAgendaAfspraak, kanVerwijderen, wijzigAgendaAfspraak, zetReisNaarAgendas, reisNaarAgendaAan, haalReisUitAgendas, reisStand, reisSleutel, reisDoel } from "./sync.js";
 import { syncTaken, takenVerbindingen, koppelTakenlijst, takenlijstVan, takenVerbindingVan } from "./takensync.js";
 import { kiesEmoji, voorstellen } from "./emoji.js";
 import { boodschappenWeergave, initBoodschappen, focusInvoer, winkelVelden, winkelOpen, boodschappenVandaag } from "./boodschappen.js";
@@ -2974,7 +2974,30 @@ function reisUitleg(ev) {
   };
   const geenThuis = !thuis?.adres ? `<div class="hint">📍 Je thuisadres ontbreekt (Instellingen → Locaties → Thuis): zonder startpunt geen reistijd van of naar huis.</div>` : "";
   if (!r.heen && !r.weg) return `<div class="paneel areis">${geenThuis || `<div class="hint">🚗 ${routeStand.bezig ? "⏳ Reistijd wordt berekend…" : "Geen reistijd gevonden voor dit adres."}</div>`}</div>`;
-  return `<div class="paneel areis">${deel(r.heen, "Heen")}${deel(r.weg, "Daarna")}${geenThuis}</div>`;
+  return `<div class="paneel areis">${deel(r.heen, "Heen")}${deel(r.weg, "Daarna")}${geenThuis}${reisInAgenda(ev)}</div>`;
+}
+/** Staat de reistijd van deze afspraak als blok in Tijdkompas en als voorlopige afspraak in Google/Outlook? Zo niet: waarom niet */
+function reisInAgenda(ev) {
+  const a = new Date(ev.start), I = dagIndeling(new Date(a.getFullYear(), a.getMonth(), a.getDate()));
+  const titel = ev.titel || "Afspraak", legs = I.reis.filter(r => r.afspraak === titel || r.vanAfspraak === titel);
+  const regel = (ok, t) => `<div class="hint">${ok ? "✓" : "✗"} ${t}</div>`;
+  if (!legs.length) {
+    const soort = ev.vanUid ? ev.soortF : eventSoort(ev);
+    const waarom = ev.eigen ? "deze afspraak is door Tijdkompas zelf gemaakt" : verborgenReden(ev) ? `de afspraak is verborgen (${verborgenReden(ev)})`
+      : isHerinnering(ev) ? "de afspraak staat als herinnering (telt niet als bezet)"
+      : soort && soort !== "bezet" ? `afspraken uit deze agenda tellen niet als bezet (instelling: „${soort}”, te wijzigen bij Instellingen → Agenda's & accounts)` : "onbekend";
+    return regel(false, `Niet in je agenda als blok: ${esc(waarom)}.`);
+  }
+  if (!reisNaarAgendaAan()) return regel(true, "Staat als blok in Tijdkompas.") + regel(false, "Reistijd in je Google/Outlook-agenda staat uit (vinkje bij Instellingen → Locaties).");
+  if (!verbindingen().length) return regel(true, "Staat als blok in Tijdkompas.") + regel(false, "Geen Google- of Outlook-agenda gekoppeld op dit apparaat.");
+  const ex = d().reisExtern || {}, uit = legs.map(r => {
+    const k = reisSleutel(r), doel = reisDoel(r), w = r.vanAfspraak === titel ? "daarna" : "heen";
+    if (ex[k]) return regel(true, `Reistijd ${w} staat als „voorlopig” in ${esc(agendaNaam(ex[k].bron) || "je agenda")}.`);
+    if (r.vanAdres && r.naarAdres && !r.route && routeUitleg(r.vanAdres, r.naarAdres) === "bezig") return regel(false, `Reistijd ${w}: wacht nog op de routeberekening.`);
+    if (!doel) return regel(false, `Reistijd ${w}: geen agenda waarin Tijdkompas mag schrijven (de agenda van deze afspraak niet, en geen hoofdagenda gevonden).`);
+    return regel(false, `Reistijd ${w}: nog niet in ${esc(agendaNaam(doel) || "je agenda")} gezet${reisStand.fout ? ` — laatste fout: ${esc(reisStand.fout)}` : ""}.`);
+  });
+  return regel(true, "Staat als blok in Tijdkompas.") + uit.join("") + (uit.some(x => x.includes("✗")) ? `<div><button type="button" class="knop klein prim" data-actie="reisNuAgenda">Nu in agenda zetten</button></div>` : "");
 }
 /** Velden om titel, tijd en locatie aan te passen — in Google/Outlook zelf, via je andere inlog, of (alleen locatie) in Tijdkompas */
 function afspraakBewerk(ev) {
