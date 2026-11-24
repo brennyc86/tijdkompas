@@ -191,6 +191,10 @@ export function ontsmet(n) {
     .slice(-500).map(([k, v]) => [k, { rol: v.rol, lijst: v.lijst }]));
   n.boodschappen = veiligeBoodschappen(n.boodschappen);
   n.afspraakVerzoeken = veiligeVerzoeken(n.afspraakVerzoeken);
+  n.reistijden = Object.fromEntries(Object.entries(obj(n.reistijden)).filter(([k, v]) => k.length <= 700 && v && typeof v === "object" && Number(v.min) > 0).slice(-600)
+    .map(([k, v]) => [k, { van: tekst(v.van, 300), naar: tekst(v.naar, 300), vervoer: ["auto", "fiets", "ov", "lopen"].includes(v.vervoer) ? v.vervoer : "auto",
+      min: Math.min(600, Math.round(Number(v.min))), km: Number.isFinite(Number(v.km)) && v.km != null ? Math.round(Number(v.km) * 10) / 10 : null,
+      bron: ["google", "osm", "zelf"].includes(v.bron) ? v.bron : "", t: tekst(v.t, 10) }]));
   n.afspraakPlaats = Object.fromEntries(Object.entries(obj(n.afspraakPlaats)).filter(([k, v]) => k.length <= 600 && typeof v === "string").slice(-300).map(([k, v]) => [k, tekst(v, 300)]));
   n.tochTonen = Object.fromEntries(Object.entries(obj(n.tochTonen)).filter(([k, v]) => k.length <= 600 && typeof v === "string").slice(-300).map(([k, v]) => [k, tekst(v, 40)]));
   n.afspraakGedaan = Object.fromEntries(Object.entries(obj(n.afspraakGedaan)).filter(([k, v]) => veiligId(k) && v && typeof v === "object").slice(-300)

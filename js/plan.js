@@ -362,7 +362,7 @@ export function reisVanDag(tijdvakken, afspraken) {
   const via = plekken.map((cur, i) => {
     const prev = plekken[i - 1]; if (!prev) return "thuis";
     const gat = minuten(prev.b, cur.a);
-    if (zelfdePlek(prev, cur)) { const t = been(cur, thuis, cur.a); return gat < 2 * ((t?.min || 0) + (t?.marge || 0)) + 60 ? "blijf" : "thuis"; }
+    if (zelfdePlek(prev, cur)) return "blijf";                // zelfde plek: geen reistijd, ook niet met ruimte ertussen
     const h = been(prev, thuis, prev.b), t = been(thuis, cur, cur.a);
     const omThuis = h && t ? h.min + h.marge + t.min + t.marge + 30 : 120;
     return gat <= omThuis ? "direct" : "thuis";

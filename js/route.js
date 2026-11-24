@@ -1,13 +1,13 @@
 // Tijdkompas — echte reistijden tussen adressen (afspraken met een locatie, kantoor, thuis)
 //
-// Met een Google Maps-sleutel (Routes API, instelling of CONFIG.mapsSleutel): Google, met verkeer in de spits.
-// Zonder sleutel: OpenStreetMap (Nominatim om het adres te vinden, OSRM van openstreetmap.de voor de route) — gratis,
-// zonder verkeersinformatie en zonder openbaar vervoer. Elke route wordt een maand bewaard (alleen op dit apparaat),
-// zodat er per adrespaar maar één keer gevraagd wordt. Synchroon op te vragen (dagIndeling is synchroon): onbekend =
+// Met een Google Maps-sleutel (Routes API, instelling of CONFIG.mapsSleutel): Google. Zonder sleutel: OpenStreetMap
+// (Nominatim om het adres te vinden, OSRM van openstreetmap.de voor de route) — gratis, zonder openbaar vervoer.
+// Spits telt niet apart: daar is de marge om de reistijd voor (10%, minstens 15 min). Eén reistijd per adrespaar dus,
+// bewaard in je Tijdkompas (d.reistijden, ook op je andere apparaten): eens berekend = klaar, en zelf aan te passen. Synchroon op te vragen (dagIndeling is synchroon): onbekend =
 // null terug, de route wordt op de achtergrond gehaald en daarna wordt alles opnieuw getekend.
 
 import { CONFIG } from "./config.js";
-import { opslag } from "./data.js";
+import { opslag, bewaar } from "./data.js";
 
 const SLEUTEL_ROUTES = "tk_routes_v1", SLEUTEL_GEO = "tk_geo_v1", HOUDBAAR = 30 * 864e5, MISLUKT_OPNIEUW = 6 * 36e5;
 export const VERVOER = { auto: { naam: "Auto", icoon: "🚗", g: "DRIVE", osm: "routed-car" }, fiets: { naam: "Fiets", icoon: "🚲", g: "BICYCLE", osm: "routed-bike" },
@@ -28,10 +28,15 @@ function bewaarCache() {
 export function zetPlek(adres, lat, lon) {
   if (!adres || !isFinite(lat) || !isFinite(lon)) return;
   geo[norm(adres)] = { lat: +lat, lon: +lon, t: Date.now() };
-  for (const k of Object.keys(routes)) if (routes[k].mis && k.includes(norm(adres))) delete routes[k];   // eerder niet gevonden: opnieuw
+  for (const k of Object.keys(routes)) if (routes[k].mis && k.includes(kaal(adres))) delete routes[k];   // eerder niet gevonden: opnieuw
   bewaarCache();
 }
-export function wisRoutes() { routes = {}; geo = {}; try { localStorage.removeItem(SLEUTEL_ROUTES); localStorage.removeItem(SLEUTEL_GEO); } catch {} }
+/** Opnieuw berekenen: berekende (niet zelf ingevulde) reistijden en de adrescache weg */
+export function wisRoutes() {
+  routes = {}; geo = {}; try { localStorage.removeItem(SLEUTEL_ROUTES); localStorage.removeItem(SLEUTEL_GEO); } catch {}
+  for (const [k, x] of Object.entries(rt())) if (x.bron !== "zelf") delete rt()[k];
+  bewaar();
+}
 
 let luisteraar = () => {};
 export const opRoute = (f) => { luisteraar = f; };
@@ -55,10 +60,28 @@ export function isFysiek(plaats) {
   return !/(https?:\/\/|www\.|teams|zoom|meet\.google|google meet|webex|skype|whereby|jitsi|online|virtueel|virtual|telefo|bellen|n\.v\.t|nvt|^-+$)/i.test(t);
 }
 const norm = (a) => String(a || "").toLowerCase().replace(/\s+/g, " ").replace(/[,;]\s*(nederland|netherlands|nl)$/, "").trim();
-export const zelfdeAdres = (a, b) => !!a && !!b && norm(a) === norm(b);
-
-// spits = ander verkeer (alleen Google rekent met verkeer)
-function vak(t) { if (!t) return "x"; const d = new Date(t), h = d.getHours(), w = d.getDay(); return w === 0 || w === 6 ? "w" : h >= 7 && h < 9 ? "o" : h >= 16 && h < 19 ? "a" : "d"; }
+// voor vergelijken: zonder leestekens en spaties ("Klantlaan 2, 8601 AB Sneek" = "klantlaan 2 8601ab sneek")
+const kaal = (a) => norm(a).replace(/[^a-z0-9\u00c0-\u017f]+/g, "");
+/** Zelfde plek? Zelfde adres (los van schrijfwijze), of minder dan 150 m uit elkaar als we van beide de plek kennen */
+export function zelfdeAdres(a, b) {
+  if (!a || !b) return false;
+  if (kaal(a) === kaal(b)) return true;
+  const p = geo[norm(a)], q = geo[norm(b)];
+  if (p && q && !p.mis && !q.mis) { const dx = (p.lon - q.lon) * 111 * Math.cos(p.lat * Math.PI / 180), dy = (p.lat - q.lat) * 111; return Math.hypot(dx, dy) < 0.15; }
+  return false;
+}
+// ---------- bewaarde reistijden: van adres → naar adres (per vervoer) ----------
+const rtSleutel = (van, naar) => vervoer() + "|" + kaal(van) + "|" + kaal(naar);
+const rt = () => (opslag.d ? (opslag.d.reistijden ||= {}) : {});
+let bewaarRt = null;
+function zetReistijd(van, naar, x) {
+  rt()[rtSleutel(van, naar)] = { van: String(van).slice(0, 300), naar: String(naar).slice(0, 300), vervoer: vervoer(), ...x, t: new Date().toISOString().slice(0, 10) };
+  clearTimeout(bewaarRt); bewaarRt = setTimeout(() => bewaar(), 1500);
+}
+/** Alle bewaarde reistijden (nieuwste eerst) */
+export const reistijdenLijst = () => Object.entries(rt()).map(([k, v]) => ({ k, ...v })).sort((a, b) => String(b.t).localeCompare(String(a.t)));
+export function reistijdWeg(k) { delete rt()[k]; for (const x of Object.keys(routes)) delete routes[x]; bewaar(); }
+export function reistijdZelf(k, min) { const x = rt()[k]; if (!x) return; x.min = Math.max(1, Math.min(600, Math.round(min))); x.bron = "zelf"; x.t = new Date().toISOString().slice(0, 10); bewaar(); }
 
 /**
  * Reistijd in minuten van adres `van` naar adres `naar` (rond tijdstip `rond` voor het verkeer), of null als die (nog)
@@ -66,11 +89,16 @@ function vak(t) { if (!t) return "x"; const d = new Date(t), h = d.getHours(), w
  * @returns {{min:number, km:number|null, bron:string}|null}
  */
 export function reistijd(van, naar, rond = null) {
-  const br = bron(); if (!br || !van || !naar) return null;
-  if (zelfdeAdres(van, naar)) return { min: 0, km: 0, bron: br };
-  const k = [br, vervoer(), br === "google" && vervoer() === "auto" ? vak(rond) : "", norm(van), norm(naar)].join("|");
+  if (!routesAan() || !van || !naar) return null;
+  if (zelfdeAdres(van, naar)) return { min: 0, km: 0, bron: "zelfde" };
+  // al eens berekend (of zelf ingevuld)? Dan die — de andere kant op is bijna altijd even lang
+  const al = rt()[rtSleutel(van, naar)] || rt()[rtSleutel(naar, van)];
+  if (al && al.min > 0) return { min: al.min, km: al.km ?? null, bron: al.bron || "" };
+  const br = bron(); if (!br) return null;
+  const k = [br, vervoer(), kaal(van), kaal(naar)].join("|");
   const r = routes[k];
-  if (r && Date.now() - r.t < (r.mis ? MISLUKT_OPNIEUW : HOUDBAAR)) return r.mis ? null : { min: r.min, km: r.km ?? null, bron: br };
+  if (r?.mis && Date.now() - r.t < MISLUKT_OPNIEUW) return null;
+  if (inRij.has([br, vervoer(), kaal(naar), kaal(van)].join("|"))) return null;   // de andere kant op wordt al berekend
   vraag(k, br, van, naar, rond);
   return null;
 }
@@ -89,8 +117,9 @@ async function verwerk() {
   while (rij.length) {
     const x = rij.shift(); routeStand.bezig = rij.length + 1;
     try {
-      const r = x.br === "google" ? await google(x.van, x.naar, x.rond) : await osm(x.van, x.naar);
-      routes[x.k] = r ? { min: Math.max(1, Math.round(r.min)), km: r.km, t: Date.now() } : { mis: 1, t: Date.now() };
+      const r = x.br === "google" ? await google(x.van, x.naar) : await osm(x.van, x.naar);
+      if (r) { zetReistijd(x.van, x.naar, { min: Math.max(1, Math.round(r.min)), km: r.km, bron: x.br }); delete routes[x.k]; }
+      else routes[x.k] = { mis: 1, t: Date.now() };
       routeStand.fout = r ? "" : `Geen route gevonden: ${x.van} → ${x.naar}`; routeStand.bron = x.br;
     } catch (e) {
       routeStand.fout = String(e?.message || e).slice(0, 200);
@@ -102,14 +131,9 @@ async function verwerk() {
   routeStand.bezig = 0; loopt = false;
 }
 
-async function google(van, naar, rond) {
+async function google(van, naar) {
   const v = VERVOER[vervoer()];
   const body = { origin: { address: van }, destination: { address: naar }, travelMode: v.g, languageCode: "nl", regionCode: "nl", units: "METRIC" };
-  // verkeer: een vertrektijd in de toekomst (zelfde weekdag en uur als de afspraak, de komende week)
-  if (v.g === "DRIVE") {
-    body.routingPreference = "TRAFFIC_AWARE";
-    if (rond) { let t = new Date(rond); while (t < Date.now() + 6e4) t = new Date(t.getTime() + 7 * 864e5); body.departureTime = t.toISOString(); }
-  }
   const r = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
     method: "POST", headers: { "Content-Type": "application/json", "X-Goog-Api-Key": mapsSleutel(), "X-Goog-FieldMask": "routes.duration,routes.distanceMeters" }, body: JSON.stringify(body) });
   if (!r.ok) throw new Error(`Google Maps: HTTP ${r.status}`);
@@ -128,13 +152,10 @@ export function varianten(adres) {
 }
 /** Waarom is er (nog) geen route? "" (wel), "bezig", "niet gevonden" (adres onbekend), "uit" */
 export function routeUitleg(van, naar) {
-  const br = bron(); if (!br) return "uit";
   if (!van || !naar) return "geen adres";
-  const k = [br, vervoer(), br === "google" && vervoer() === "auto" ? "" : "", norm(van), norm(naar)].join("|");
-  const r = Object.entries(routes).find(([x]) => x.startsWith(k.split("|").slice(0, 2).join("|")) && x.endsWith("|" + norm(van) + "|" + norm(naar)))?.[1];
-  if (r && !r.mis) return "";
-  if (r?.mis) return "niet gevonden";
-  return "bezig";
+  if (rt()[rtSleutel(van, naar)] || rt()[rtSleutel(naar, van)]) return "";
+  const br = bron(); if (!br) return "uit";
+  return routes[[br, vervoer(), kaal(van), kaal(naar)].join("|")]?.mis ? "niet gevonden" : "bezig";
 }
 async function plek(adres) {
   const k = norm(adres), g = geo[k];

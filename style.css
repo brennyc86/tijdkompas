@@ -828,3 +828,7 @@ a.koersitem{text-decoration:none;color:inherit}
 .adresbron{font-size:10.5px;color:var(--zacht);padding:4px 12px;text-align:right}
 .locrij .adresveld{min-width:0}
 @media (max-width:640px){ .locrij .adresveld{grid-column:1 / -1} }
+.rtlijst summary{cursor:pointer;color:var(--meta)}
+.rtlijst .rtadres{flex:1;min-width:0;overflow-wrap:anywhere}
+.rtmin{display:flex;align-items:center;gap:4px;font-size:13px;color:var(--meta)}
+.rtmin input{width:64px;padding:4px 6px}

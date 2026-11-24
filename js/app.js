@@ -13,7 +13,7 @@ import { kiesEmoji, voorstellen } from "./emoji.js";
 import { boodschappenWeergave, initBoodschappen, focusInvoer, winkelVelden, winkelOpen, boodschappenVandaag } from "./boodschappen.js";
 import { veiligeUrl, veiligeFoto } from "./veilig.js";
 import { initAdresZoeker } from "./adres.js";
-import { VERVOER, vervoer, bron as routeBron, routeStand, mapsSleutel, routesAan, opRoute, wisRoutes, isFysiek, routeUitleg } from "./route.js";
+import { VERVOER, vervoer, bron as routeBron, routeStand, mapsSleutel, routesAan, opRoute, wisRoutes, isFysiek, routeUitleg, reistijdenLijst, reistijdWeg, reistijdZelf } from "./route.js";
 import { familieSchrijfAgendas, verzoekenVoorMij, verzoekGedaan } from "./cloud.js";
 import { familieBezetRuw, familieRegels, familieLijstInst, familieVoorMij, emailVan, feedsLater, feedsBijwerken, feedStand, feedUrl, feedWeg, nieuweFeedSleutel, feedBlokken, cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda, gelinkteInfo, stuurInlogLink,
          koppel as koppelStaat, vraagKoppelcode, gebruikKoppelcode, beantwoordKoppel, stopKoppelcode, stuurBevestiging, controleerBevestiging } from "./cloud.js";
@@ -1328,6 +1328,9 @@ function routeInstellingen() {
   <div class="hint" style="margin-top:6px">${!routesAan() ? "Staat uit." : br === "google" ? "✓ Rekent met Google Maps, met verkeer in de spits." : br === "osm" ? "Rekent nu met OpenStreetMap (gratis, zonder file-informatie). Met een Google Maps-sleutel rekent hij met het echte verkeer." : "Openbaar vervoer kan alleen met een Google Maps-sleutel."}
     ${routeStand.bezig ? ` · ⏳ nog ${routeStand.bezig} route${routeStand.bezig === 1 ? "" : "s"} berekenen…` : ""}${routeStand.fout ? ` · ⚠️ ${esc(routeStand.fout)}` : ""}
     · Adressen gaan naar ${br === "google" ? "Google" : "OpenStreetMap"}; de uitkomsten blijven op dit apparaat. <button type="button" class="knop klein" data-actie="routesWis">Opnieuw berekenen</button>
+    ${(() => { const l = reistijdenLijst(); return l.length ? `<details class="rtlijst" style="margin-top:8px"><summary>📒 Bewaarde reistijden (${l.length}) — eens berekend, niet opnieuw; zelf aan te passen</summary>
+      <div class="lijst">${l.map(x => `<div class="linkrij"><span>${VERVOER[x.vervoer]?.icoon || "🚗"}</span><span class="rtadres">${esc(x.van)} <b>→</b> ${esc(x.naar)}<br><small class="hint">${x.km ? String(x.km).replace(".", ",") + " km · " : ""}${x.bron === "zelf" ? "zelf ingevuld" : x.bron === "google" ? "Google Maps" : "OpenStreetMap"}${x.t ? " · " + esc(x.t) : ""} · geldt ook de andere kant op</small></span>
+        <label class="rtmin"><input type="number" min="1" max="600" value="${x.min}" data-rtmin="${esc(x.k)}" aria-label="Minuten"> min</label><button type="button" class="x" data-rtweg="${esc(x.k)}" title="Vergeten (wordt opnieuw berekend)">✕</button></div>`).join("")}</div></details>` : ""; })()}
     ${Object.keys(d().reisExtern || {}).length ? `<div style="margin-top:6px">${Object.keys(d().reisExtern).length} reistijden staan als „voorlopig” in je agenda. <button type="button" class="knop klein" data-actie="reisUitAgenda">Reistijd uit agenda halen</button></div>` : ""}</div></div>`;
 }
 function instLocaties() {
@@ -3300,7 +3303,7 @@ function reisTitel(r) {
   let t = `${VERVOER[vervoer()].icoon} ${r.richting === "terug" ? "Terug" : "Reis"}${van ? " van " + van : ""}${naar ? " naar " + naar : ""}${r.afspraak && r.richting !== "terug" ? " (" + r.afspraak + ")" : ""}: ${Math.round(r.min || minutenTussen({ start: r.a, eind: r.b }))} min`;
   if (r.km) t += ` · ${String(r.km).replace(".", ",")} km`;
   if (r.marge) t += ` + ${r.marge} min marge`;
-  t += r.route ? (routeBron() === "google" ? " (Google Maps)" : " (OpenStreetMap, zonder verkeer)") : " (vaste reistijd van de locatie)";
+  t += r.route ? " (berekend)" : " (vaste reistijd van de locatie)";
   if (r.status === "rood") t += ` — ⛔ PAST NIET: maar ${Math.max(0, Math.round(r.beschikbaar))} min tussen de twee afspraken`;
   else if (r.status === "geel") t += ` — ⚠️ krap: ${Math.round(r.beschikbaar)} min ertussen, past alleen zonder marge — opschieten`;
   else if (r.flex) t += " — eerder weg / later terug op je werk";
@@ -3883,6 +3886,8 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
     }
     return;
   }
+  const rtw = e.target.closest("[data-rtweg]");
+  if (rtw) { reistijdWeg(rtw.dataset.rtweg); toast("Vergeten — wordt opnieuw berekend"); return; }
   const rw = e.target.closest("[data-regelweg]");
   if (rw) { d().afspraakRegels = (d().afspraakRegels || []).filter(r => r.id !== rw.dataset.regelweg); bewaar(); return; }
   const evk = e.target.closest("[data-ev]");
@@ -3986,6 +3991,7 @@ function hoofdWijzig(e) {
     o[veld] = waarde;
     bewaar(); return;
   }
+  if (e.target.dataset.rtmin) { const m = +e.target.value; if (m > 0) { reistijdZelf(e.target.dataset.rtmin, m); toast("Reistijd aangepast — de marge komt er nog bij"); render(); } return; }
   if (e.target.dataset.route) {
     const k = e.target.dataset.route, inst = d().instellingen;
     if (k === "routes") inst.routes = e.target.checked;
