@@ -1,5 +1,5 @@
 // Tijdkompas — gebruikersinterface
-import { opslag, bewaar, KWADRANTEN, kwadrant, overzicht, project, taak, takenVan, projectVoortgang, isLang, deelprojecten, ouderVan, projectIcoon, zelfInTePlannen, allesVan,
+import { opslag, bewaar, KWADRANTEN, kwadrant, IMPACTVAKKEN, impactVak, overzicht, project, taak, takenVan, projectVoortgang, isLang, deelprojecten, ouderVan, projectIcoon, zelfInTePlannen, allesVan,
          nieuweTaak, nieuwProject, werkBij, verwijder, koppel, rondAf, heropen, linkInfo, kalibratie, uid, locatie, effectieveLocatie, sessie,
          map, submappen, lijstenIn, lijstenOnder, mappenOnder, mapPad, boom, lijstVolgorde, idsVan,
          afspraak, koersVan, binnenDoel, koersScore, koersSuggesties, koppelKoers, mijnId, isIk, personen, naamVanPersoon, isMijn, isTeam, wie, wachtNogOp, wachtenOp, maaktKring, anderen as andereLeden } from "./data.js";
@@ -533,36 +533,55 @@ function projectRij(p) {
 
 // ===== Matrix =====
 function matrix() {
-  const toon = voorkeur.lees("matrixToon", "beide");
+  const toon = voorkeur.lees("matrixToon", "beide"), soort = voorkeur.lees("matrixSoort", "eisenhower");
   const items = [
     ...(toon !== "taken" ? d().projecten.filter(p => !isLang(p)) : []),
     ...(toon !== "projecten" ? d().taken : []),
   ].filter(i => i.status !== "klaar" && zichtbaar(i) && doorWie(i));
-  const kaart = (i) => {
+  // kaartje; in de ene matrix een klein label met waar hij in de andere staat
+  const kaart = (i, waar) => {
     const p = i.type === "taak" && i.project ? project(i.project) : null;
     const dl = doelDatum(i);
     const ps = i.type === "project" && d().taken.some(x => x.project === i.id && x.status !== "klaar") ? null : planStatus(i);
+    const iv = impactVak(i), q = kwadrant(i);
+    const ander = waar === "eisenhower" ? (iv ? `<small class="anderv" style="--qk:${IMPACTVAKKEN[iv].kleur}" title="Impact/inspanning: ${IMPACTVAKKEN[iv].naam}">${IMPACTVAKKEN[iv].icoon}</small>` : "")
+      : `<small class="anderv" style="--qk:${qKleur(q)}" title="Eisenhower: ${KWADRANTEN[q].naam}">●</small>`;
     return `<div class="kaartje ${i.type === "project" ? "proj" : ""}${ps ? " pl-" + ps.soort : ""}" data-id="${i.id}" data-type="${i.type}" style="--ok:${ovKleur(i.overzicht)}">
       ${ps ? `<small class="plicoon" title="${ps.soort === "ja" ? "Ingepland: " + wanneer(ps.van) : ps.soort === "deels" ? "Deels ingepland, nog " + fmtDuur(ps.rest) : "Nog niet ingepland"}">${ps.soort === "ja" ? "📅" : ps.soort === "deels" ? "◐" : "○"}</small>` : ""}
       ${i.type === "project" ? `<span class="picoon" style="color:var(--ok)">${pIcoon(i)}</span>` : ""}<span class="ktit">${esc(i.titel)}${p ? ` <small>· ${p.icoon ? esc(p.icoon) + " " : ""}${esc(p.titel)}</small>` : ""}</span>
-      ${dl ? `<small>${fmtDatum(dl)}</small>` : ""}${i.schatting ? `<small>${fmtDuur(i.schatting)}</small>` : ""}${i.type === "taak" && wachtNogOp(i).length ? `<small title="Wacht op een andere taak">⛓</small>` : ""}${i.type === "taak" && !isMijn(i) ? `<small>👤 ${esc(wieTekst(i))}</small>` : ""}</div>`;
+      ${dl ? `<small>${fmtDatum(dl)}</small>` : ""}${i.schatting ? `<small>${fmtDuur(i.schatting)}</small>` : ""}${i.type === "taak" && wachtNogOp(i).length ? `<small title="Wacht op een andere taak">⛓</small>` : ""}${i.type === "taak" && !isMijn(i) ? `<small>👤 ${esc(wieTekst(i))}</small>` : ""}${ander}</div>`;
   };
-  const vak = (q) => {
-    const lijst = items.filter(i => kwadrant(i) === q).sort((a, b) => prioriteit(b) - prioriteit(a));
+  const vakHtml = (attr, kleur, naam, sub, lijst, waar, leeg = "Sleep iets hierheen") => {
     const min = lijst.reduce((s, i) => s + (i.schatting || 0), 0);
-    return `<section class="kwadrant" data-q="${q}" style="--qk:${qKleur(q)}">
-      <header><h2>${KWADRANTEN[q].naam}</h2><small>${KWADRANTEN[q].sub}</small><span class="tel">${lijst.length}${min ? " · " + fmtDuur(min) : ""}</span></header>
-      ${lijst.map(kaart).join("") || `<span class="hint">Sleep iets hierheen</span>`}</section>`;
+    return `<section class="kwadrant" ${attr} style="--qk:${kleur}">
+      <header><h2>${naam}</h2><small>${sub}</small><span class="tel">${lijst.length}${min ? " · " + fmtDuur(min) : ""}</span></header>
+      ${lijst.sort((a, b) => prioriteit(b) - prioriteit(a)).map(i => kaart(i, waar)).join("") || `<span class="hint">${leeg}</span>`}</section>`;
   };
-  return `<div class="titelbalk"><h1>Eisenhower-matrix</h1><span class="sub">Sleep kaartjes om urgentie en belang te wijzigen</span>
-    <div class="rechts" data-actie="wieKeuze">${wieKeuze()}</div>
-    <div class="rechts chips" data-actie="matrixToon" style="margin-left:0">${["beide", "projecten", "taken"].map(x => `<button type="button" data-w="${x}" style="${x === toon ? "border-color:var(--accent);color:var(--accent)" : ""}">${x[0].toUpperCase() + x.slice(1)}</button>`).join("")}</div></div>
-  <div class="matrix">
+  const vak = (q) => vakHtml(`data-q="${q}"`, qKleur(q), KWADRANTEN[q].naam, KWADRANTEN[q].sub, items.filter(i => kwadrant(i) === q), "eisenhower");
+  const ivak = (k) => vakHtml(`data-iq="${k}"`, IMPACTVAKKEN[k].kleur, IMPACTVAKKEN[k].icoon + " " + IMPACTVAKKEN[k].naam, IMPACTVAKKEN[k].sub, items.filter(i => impactVak(i) === k), "impact");
+  const nog = items.filter(i => !impactVak(i));
+  const eisenhower = `<div class="matrix">
     <div></div><div class="as">Urgent</div><div class="as">Niet urgent</div>
     <div class="as v">Belangrijk</div>${vak("doen")}${vak("plannen")}
     <div class="as v">Niet belangrijk</div>${vak("delegeren")}${vak("schrappen")}
+  </div>`;
+  const impact = `<div class="matrix">
+    <div></div><div class="as">Weinig inspanning</div><div class="as">Veel inspanning</div>
+    <div class="as v">Veel impact</div>${ivak("quickwin")}${ivak("groot")}
+    <div class="as v">Weinig impact</div>${ivak("opvul")}${ivak("vermijd")}
   </div>
-  <p class="hint matrixtips">Doen = vandaag/morgen zelf oppakken · Plannen = bewust tijd voor reserveren (hier zit de echte winst) · Delegeren = kan iemand anders dit? · Schrappen = wordt niet automatisch ingepland.</p>`;
+  ${nog.length ? `<div class="nogindelen">${vakHtml(`data-iq="nog"`, "var(--meta)", "Nog niet ingedeeld", "sleep naar een vak hierboven", nog, "impact")}</div>` : ""}`;
+  const titel = soort === "impact" ? "Impact / inspanning" : soort === "beide" ? "Twee matrixen" : "Eisenhower-matrix";
+  const sub = soort === "impact" ? "Sleep kaartjes om impact en inspanning te wijzigen" : soort === "beide" ? "Links urgent/belangrijk, rechts impact/inspanning" : "Sleep kaartjes om urgentie en belang te wijzigen";
+  const knop = (k, t) => `<button type="button" data-w="${k}" style="${k === soort ? "border-color:var(--accent);color:var(--accent)" : ""}">${t}</button>`;
+  return `<div class="titelbalk"><h1>${titel}</h1><span class="sub">${sub}</span>
+    <div class="rechts chips" data-actie="matrixSoort">${knop("eisenhower", "Urgent/belangrijk")}${knop("impact", "Impact/inspanning")}${knop("beide", "Naast elkaar")}</div>
+    <div class="rechts" data-actie="wieKeuze" style="margin-left:0">${wieKeuze()}</div>
+    <div class="rechts chips" data-actie="matrixToon" style="margin-left:0">${["beide", "projecten", "taken"].map(x => `<button type="button" data-w="${x}" style="${x === toon ? "border-color:var(--accent);color:var(--accent)" : ""}">${x[0].toUpperCase() + x.slice(1)}</button>`).join("")}</div></div>
+  ${soort === "beide" ? `<div class="tweematrix"><div><h3 class="matrixkop">Urgent / belangrijk</h3>${eisenhower}</div><div><h3 class="matrixkop">Impact / inspanning</h3>${impact}</div></div>`
+    : soort === "impact" ? impact : eisenhower}
+  <p class="hint matrixtips">${soort !== "impact" ? "Doen = vandaag/morgen zelf oppakken · Plannen = bewust tijd voor reserveren (hier zit de echte winst) · Delegeren = kan iemand anders dit? · Schrappen = wordt niet automatisch ingepland." : ""}
+    ${soort !== "eisenhower" ? `${soort === "beide" ? "<br>" : ""}⚡ Quick wins = eerst doen, veel resultaat voor weinig moeite · 🏔️ Grote klussen = de moeite waard, opknippen en inplannen · 🧩 Opvullers = voor tussendoor · 🪨 Niet doen = veel moeite voor weinig resultaat: schrappen of anders aanpakken. Bij het inplannen gaan quick wins binnen hetzelfde urgent/belangrijk-vak net iets voor.` : ""}</p>`;
 }
 
 function activeerSlepen() {
@@ -601,8 +620,14 @@ function activeerSlepen() {
       $$(".kwadrant", main).forEach(q => q.classList.remove("doel"));
       if (doel) {
         const it = k.dataset.type === "project" ? project(k.dataset.id) : taak(k.dataset.id);
+        if (it && doel.dataset.iq) {
+          const iq = doel.dataset.iq, v = IMPACTVAKKEN[iq];
+          if (iq === "nog") { if (impactVak(it)) { werkBij(it, { impact: null, inspanning: null }); toast(`„${it.titel}” → nog niet ingedeeld`); } }
+          else if (impactVak(it) !== iq) { werkBij(it, { impact: v.impact, inspanning: v.inspanning }); toast(`„${it.titel}” → ${v.icoon} ${v.naam}`); }
+          return;
+        }
         const q = KWADRANTEN[doel.dataset.q];
-        if (it && (it.urgent !== q.urgent || it.belangrijk !== q.belangrijk)) {
+        if (it && q && (it.urgent !== q.urgent || it.belangrijk !== q.belangrijk)) {
           const wasDoen = kwadrant(it) === "doen";
           werkBij(it, { urgent: q.urgent, belangrijk: q.belangrijk });
           toast(`„${it.titel}” → ${q.naam}`);
@@ -2028,6 +2053,8 @@ function openEditor(item, standaard = {}) {
       ${isProj ? "" : wieBlok(c)}
       ${isProj && c.looptijd === "lang" ? "" : `<div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">Urgent / belangrijk</div>
         <div class="minimatrix">${["doen", "plannen", "delegeren", "schrappen"].map(k => `<button type="button" data-q="${k}" style="--qk:${qKleur(k)}" aria-pressed="${k === q}"><b style="color:${qKleur(k)}">${KWADRANTEN[k].naam}</b><small>${KWADRANTEN[k].sub}</small></button>`).join("")}</div></div>`}
+      ${isProj && c.looptijd === "lang" ? "" : `<div><div class="veld" style="font-size:13px;color:var(--meta);margin-bottom:6px">Impact / inspanning ${impactVak(c) ? `<button type="button" class="knop klein" data-iq="nog" style="padding:1px 8px;font-size:12px">wissen</button>` : `<small class="hint">(nog niet ingedeeld)</small>`}</div>
+        <div class="minimatrix">${["quickwin", "groot", "opvul", "vermijd"].map(k => `<button type="button" data-iq="${k}" style="--qk:${IMPACTVAKKEN[k].kleur}" aria-pressed="${k === impactVak(c)}"><b style="color:${IMPACTVAKKEN[k].kleur}">${IMPACTVAKKEN[k].icoon} ${IMPACTVAKKEN[k].naam}</b><small>${IMPACTVAKKEN[k].sub}</small></button>`).join("")}</div></div>`}
       ${isProj && c.looptijd === "lang" ? "" : `<div class="rij">
         <label class="veld" title="Wanneer het absoluut af moet zijn">⏰ Deadline (moet echt af)<input type="date" name="deadline" value="${c.deadline || ""}"></label>
         <label class="veld" title="Wanneer jij het af wilt hebben: eerder voor marge, of later als de deadline niet haalbaar is. Het inplannen mikt hierop.">🎯 Streefdatum (wanneer jij het af wilt)<input type="date" name="streef" value="${c.streef || ""}"></label>
@@ -2088,7 +2115,7 @@ function openEditor(item, standaard = {}) {
     if (!c.titel) { $("#editForm").titel.focus(); return false; }
     const opdeling = $("#editForm").opdeling?.value || "";
     const velden = { titel: c.titel, overzicht: c.overzicht, notitie: c.notitie, deadline: c.deadline, streef: c.streef, schatting: c.schatting,
-                     werkelijk: c.werkelijk, urgent: c.urgent, belangrijk: c.belangrijk, links: c.links, gedeeldMet: c.gedeeldMet, locatie: c.locatie || "" };
+                     werkelijk: c.werkelijk, urgent: c.urgent, belangrijk: c.belangrijk, impact: c.impact ?? null, inspanning: c.inspanning ?? null, links: c.links, gedeeldMet: c.gedeeldMet, locatie: c.locatie || "" };
     if (!isProj) { velden.wie = c.wie; velden.wachtOp = c.wachtOp; }
     else {
       velden.icoon = c.icoon || ""; velden.kort = c.kort || ""; velden.looptijd = c.looptijd; velden.doel = c.doel || "";
@@ -2160,6 +2187,8 @@ function openEditor(item, standaard = {}) {
     }
     const q = b.dataset.q;
     if (q) { lees(); Object.assign(c, { urgent: KWADRANTEN[q].urgent, belangrijk: KWADRANTEN[q].belangrijk }); teken(); return; }
+    const iq = b.dataset.iq;
+    if (iq) { lees(); Object.assign(c, iq === "nog" ? { impact: null, inspanning: null } : { impact: IMPACTVAKKEN[iq].impact, inspanning: IMPACTVAKKEN[iq].inspanning }); teken(); return; }
     const a = b.dataset.actie;
     if (a === "linkBij") {
       const url = $("#nieuweLink").value.trim(); if (!url) return;
@@ -3838,6 +3867,7 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
     else if (a === "nieuweAfspraak") openAfspraak();
     else if (a === "koersRapport") koersRapport();
     else if (a === "matrixToon" && w) { voorkeur.zet("matrixToon", w); render(); }
+    else if (a === "matrixSoort" && w) { voorkeur.zet("matrixSoort", w); render(); }
     else if (a === "thema" && w) { voorkeur.zet("thema", w); zetThema(); render(); }
     else if (a === "themaKies" && w) { d().instellingen.thema = w; voorkeur.zet("thema", w); bewaar(); zetThema(); }
     else if (a === "roosterBij" || a === "roosterWeg") roosterKlik(el, a);

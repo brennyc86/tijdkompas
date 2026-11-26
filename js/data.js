@@ -20,6 +20,19 @@ export const KWADRANTEN = {
   schrappen: { naam: "Schrappen",  sub: "Niet urgent · Niet belangrijk", urgent: false, belangrijk: false },
 };
 
+// Tweede matrix: impact × inspanning (item.impact / item.inspanning: true = veel, false = weinig, ontbreekt = nog niet ingedeeld)
+export const IMPACTVAKKEN = {
+  quickwin: { naam: "Quick wins",    sub: "Veel impact · Weinig inspanning",   icoon: "⚡", impact: true,  inspanning: false, kleur: "var(--q-plannen)" },
+  groot:    { naam: "Grote klussen", sub: "Veel impact · Veel inspanning",     icoon: "🏔️", impact: true,  inspanning: true,  kleur: "var(--accent)" },
+  opvul:    { naam: "Opvullers",     sub: "Weinig impact · Weinig inspanning", icoon: "🧩", impact: false, inspanning: false, kleur: "var(--q-delegeren)" },
+  vermijd:  { naam: "Niet doen",     sub: "Weinig impact · Veel inspanning",   icoon: "🪨", impact: false, inspanning: true,  kleur: "var(--q-schrappen)" },
+};
+/** In welk vak van de impact/inspanning-matrix staat dit? null = nog niet ingedeeld */
+export function impactVak(item) {
+  if (typeof item?.impact !== "boolean" || typeof item?.inspanning !== "boolean") return null;
+  return item.impact ? (item.inspanning ? "groot" : "quickwin") : (item.inspanning ? "vermijd" : "opvul");
+}
+
 export function kwadrant(item) {
   if (item.urgent && item.belangrijk) return "doen";
   if (item.belangrijk) return "plannen";

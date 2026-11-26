@@ -122,6 +122,7 @@ export function ontsmet(n) {
       if (x.ouder != null && x.ouder !== "" && (!veiligId(x.ouder) || x.ouder === x.id)) x.ouder = "";
       if (x.project && !veiligId(x.project)) x.project = "";
       if (Array.isArray(x.wachtOp)) x.wachtOp = idLijst(x.wachtOp);
+      for (const k of ["impact", "inspanning"]) if (x[k] != null && typeof x[k] !== "boolean") delete x[k];
       if (Array.isArray(x.wie)) x.wie = x.wie.filter(w => typeof w === "string" && (veiligId(w) || w === "ik" || /^~[^<>"'&`]{1,100}$/.test(w)));
       for (const k of ["deadline", "streef"]) if (x[k] && !/^\d{4}-\d{2}-\d{2}(T[\d:.]+Z?)?$/.test(String(x[k]))) delete x[k];
       for (const k of ["schatting", "werkelijk"]) if (x[k] != null && !Number.isFinite(+x[k])) delete x[k]; else if (x[k] != null) x[k] = +x[k];

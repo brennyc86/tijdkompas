@@ -8,7 +8,7 @@
 //              taken op dezelfde locatie worden achter elkaar gezet zodat je maar één keer reist.
 import { veiligeAfwijkingen, veiligGenegeerd } from "./veilig.js";
 import { reistijd, marge, isFysiek, zelfdeAdres, isKamer } from "./route.js";
-import { opslag, kwadrant, kalibratie, project, overzicht, zelfInTePlannen, locatie, effectieveLocatie, uid, linkInfo, isMijn, taak, sessie, blokTitel } from "./data.js";
+import { opslag, kwadrant, impactVak, kalibratie, project, overzicht, zelfInTePlannen, locatie, effectieveLocatie, uid, linkInfo, isMijn, taak, sessie, blokTitel } from "./data.js";
 
 // Agenda en planning van gelinkte accounts (privé ↔ werk): je bent één mens, dus daar plannen we omheen.
 // De app vult dit (cloud.familieAgenda); zonder gelinkte accounts is het leeg.
@@ -48,8 +48,10 @@ export function harde(item) {
 }
 
 const GEWICHT = { doen: 40, plannen: 30, delegeren: 15, schrappen: 0 };
+// Binnen hetzelfde Eisenhower-vak gaan quick wins iets voor, en wat veel moeite kost voor weinig resultaat iets achteraan
+const IMPACT_GEWICHT = { quickwin: 6, groot: 3, opvul: 0, vermijd: -4 };
 export function prioriteit(item, nu = new Date()) {
-  let s = GEWICHT[kwadrant(item)];
+  let s = GEWICHT[kwadrant(item)] + (IMPACT_GEWICHT[impactVak(item)] || 0);
   const doel = doelDatum(item);
   if (doel) {
     const dagen = (new Date(doel + "T23:59") - nu) / 864e5;
