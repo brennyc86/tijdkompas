@@ -212,7 +212,7 @@ export const ouderVan = p => { const o = p?.ouder ? project(p.ouder) : null; ret
 /** Het icoon dat bij een project hoort: zijn eigen, of dat van het langlopende project waar het onder valt */
 export const projectIcoon = p => p?.icoon || ouderVan(p)?.icoon || "";
 /** Een project dat zelf (als één blok werk) ingepland wordt: kortlopend, zonder open taken */
-export const zelfInTePlannen = p => p?.type === "project" && !isLang(p) && !data.taken.some(t => t.project === p.id && t.status !== "klaar");
+export const zelfInTePlannen = p => p?.type === "project" && !isLang(p) && !p.ai?.aan && !data.taken.some(t => t.project === p.id && t.status !== "klaar");
 /** Alle taken onder een project, ook die in zijn deelprojecten (voor een langlopend project) */
 export const allesVan = pid => [...takenVan(pid), ...(isLang(project(pid)) ? deelprojecten(pid).flatMap(dp => takenVan(dp.id)) : [])];
 
@@ -317,10 +317,23 @@ export function naamVanPersoon(id, o) {
   for (const x of o ? [o] : data.overzichten) { const l = x.ledenInfo?.[id]; if (l) return l.naam || l.email; }
   return "iemand";
 }
+// ---------- AI-taken ----------
+// item.ai = { aan, status: "open" | "bezig" | "beoordelen", deeltaken: [{ id, titel, klaar }], log: [{ id, t, door, tekst }], opmerking }
+// Een AI met jouw AI-link mag eraan werken, eigen deeltaken bijhouden en hem "ter beoordeling" zetten; afvinken doe jij.
+// Taken in een AI-project horen er ook bij (zonder dat je ze elk apart hoeft aan te wijzen).
+export const AISTATUS = { open: "Nog te doen", bezig: "AI is bezig", beoordelen: "Ter beoordeling" };
+export const aiProject = t => t?.type === "taak" && t.project ? data.projecten.find(p => p.id === t.project && p.ai?.aan) || null : null;
+export const isAi = t => !!(t?.ai?.aan || aiProject(t));
+/** Aan welke agent (AI-toegang) is dit gegeven? Bij een taak in een AI-project: de agent van het project */
+export const aiAgent = t => (t?.ai?.aan && t.ai.agent) || aiProject(t)?.ai?.agent || "";
+export const agentNaam = aid => (data.aiToegang || []).find(a => a.aid === aid)?.naam || "AI";
+export const aiStatus = t => t?.ai?.status && AISTATUS[t.ai.status] ? t.ai.status : "open";
+
 const wieVan = t => Array.isArray(t.wie) ? t.wie : (t.toegewezen ? [t.toegewezen] : [mijnId()]);
 /** Is dit (ook) mijn taak? Een lijst zonder anderen is altijd van jou. */
 // Samen: alles wat niet uitdrukkelijk van een ander is. Verdelen: alleen wat (ook) aan jou is toegewezen.
 export function isMijn(t) {
+  if (isAi(t)) return false;                       // werk voor de AI: niet in jouw agenda inplannen
   if (t.type === "project") return true;
   const w = wieVan(t);
   if (w.some(isIk)) return true;

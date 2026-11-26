@@ -9,6 +9,7 @@ rules_version = '2';
 //   lijsten/{id}/items, …/koers    alleen leden van die lijst of map
 //   koppelcodes/{hash}             tijdelijke code om twee accounts te linken (10 minuten, en het andere account moet bevestigen)
 //   apps/knooppunt/spelers/{uid}/spellen/{slot}  opgeslagen spellen van de OV-simulator, alleen voor jezelf
+//   ai/{sleutel}                   AI-toegang: je AI-taken (JSON) voor een AI met de sleutel; ai/{sleutel}/meldingen = wat de AI terugmeldt
 //   feeds/{sleutel}                abonneer-link (.ics) met je ingeplande blokken voor bijv. je werkagenda: alleen te lezen met de
 //                                  (lange, willekeurige) sleutel, niet op te sommen; alleen jij en je gelinkte accounts schrijven hem
 // Een gelinkt account is pas "familie" als beide kanten hebben ingestemd: het hoofd zet het in zijn aliassen, en het account
@@ -216,6 +217,39 @@ service cloud.firestore {
 
     // ---------- Knooppunt (OV-simulator, brennyc86.github.io/ov-simulator) ----------
     // Elke speler heeft eigen spellen; alleen jijzelf leest en schrijft ze. Het spel staat als één JSON-tekst in het document.
+    // AI-toegang: ai/{sleutel} = de AI-taken die je deelt (JSON), alleen te lezen met de lange sleutel;
+    // ai/{sleutel}/meldingen = wat de AI meldt (status, deeltaken, toelichting). Iedereen met de sleutel mag melden,
+    // maar alleen in dit vaste formaat; de eigenaar verwerkt en wist ze. Een melding kan nooit iets afvinken of wissen.
+    match /ai/{sleutel} {
+      function aiSleutelOk() { return sleutel.matches('^[A-Za-z0-9_-]{32,64}$'); }
+      function magAi(e) { return ingelogd() && e is string && (e == request.auth.uid || familieVan(request.auth.uid, e)); }
+      function aiOk(x) {
+        return x.keys().hasOnly(['eigenaar', 'naam', 'json', 'hash', 'bijgewerkt'])
+          && x.json is string && x.json.size() < 800000 && x.naam is string && x.naam.size() <= 100
+          && x.hash is string && x.hash.size() <= 40 && x.bijgewerkt is string && x.bijgewerkt.size() <= 40;
+      }
+      allow get: if aiSleutelOk();
+      allow list: if false;
+      allow create: if aiSleutelOk() && magAi(request.resource.data.eigenaar) && aiOk(request.resource.data);
+      allow update: if magAi(resource.data.eigenaar) && request.resource.data.eigenaar == resource.data.eigenaar && aiOk(request.resource.data);
+      allow delete: if aiSleutelOk() && ingelogd() && (resource == null || magAi(resource.data.eigenaar));
+
+      match /meldingen/{m} {
+        function meldingOk(x) {
+          return x.keys().hasOnly(['taak', 'status', 'tekst', 'deeltaken', 'door', 'tijd'])
+            && veiligeId(x.taak) && x.tijd is timestamp
+            && (!('status' in x) || x.status in ['open', 'bezig', 'beoordelen'])
+            && (!('tekst' in x) || (x.tekst is string && x.tekst.size() <= 4000))
+            && (!('deeltaken' in x) || (x.deeltaken is string && x.deeltaken.size() <= 20000))
+            && (!('door' in x) || (x.door is string && x.door.size() <= 60));
+        }
+        allow get, list: if aiSleutelOk();
+        allow create: if aiSleutelOk() && veiligeId(m) && exists(/databases/$(db)/documents/ai/$(sleutel)) && meldingOk(request.resource.data);
+        allow update: if false;
+        allow delete: if ingelogd() && magAi(get(/databases/$(db)/documents/ai/$(sleutel)).data.eigenaar);
+      }
+    }
+
     match /apps/knooppunt/spelers/{uid}/spellen/{slot} {
       allow read, delete: if ingelogd() && request.auth.uid == uid;
       allow create, update: if ingelogd() && request.auth.uid == uid && veiligeId(slot)

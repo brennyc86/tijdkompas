@@ -546,7 +546,7 @@ function bouw() {
   const items = ids.flatMap(id => (itemDocs.get(id) || []).map(x => ({ ...x, overzicht: id })));
   const titels = leesTitels();
   const d = aanvullen({
-    locaties: u.locaties, beschikbaar: u.beschikbaar, afwezig: u.afwezig || {}, afspraakRegels: u.afspraakRegels || [], verborgen: u.verborgen || {}, rolKeuzes: u.rolKeuzes || {}, herinneringen: u.herinneringen || {}, buitenOk: u.buitenOk || {}, feeds: u.feeds || [], boodschappen: u.boodschappen || null, afspraakVerzoeken: u.afspraakVerzoeken || [], afspraakGedaan: u.afspraakGedaan || {}, afspraakPlaats: u.afspraakPlaats || {}, tochTonen: u.tochTonen || {}, medisch: u.medisch || {}, instellingen: u.instellingen, agendas: u.agendas || {}, extern: u.extern || {}, reisExtern: u.reisExtern || {}, reistijden: u.reistijden || {},
+    locaties: u.locaties, beschikbaar: u.beschikbaar, afwezig: u.afwezig || {}, afspraakRegels: u.afspraakRegels || [], verborgen: u.verborgen || {}, rolKeuzes: u.rolKeuzes || {}, herinneringen: u.herinneringen || {}, buitenOk: u.buitenOk || {}, feeds: u.feeds || [], aiToegang: u.aiToegang || [], boodschappen: u.boodschappen || null, afspraakVerzoeken: u.afspraakVerzoeken || [], afspraakGedaan: u.afspraakGedaan || {}, afspraakPlaats: u.afspraakPlaats || {}, tochTonen: u.tochTonen || {}, medisch: u.medisch || {}, instellingen: u.instellingen, agendas: u.agendas || {}, extern: u.extern || {}, reisExtern: u.reisExtern || {}, reistijden: u.reistijden || {},
     planning: u.planning || [], agendaSync: u.agendaSync, gewijzigd: u.gewijzigd, takenlijsten: u.takenlijsten || {}, takenSync: u.takenSync || "", koppelingen: u.koppelingen, agendaLinks: u.agendaLinks || [],
     bezet: (u.bezet || []).map(e => ({ ...e, titel: titels.bezet?.[e.id]?.titel || e.titel || "Bezet", plaats: titels.bezet?.[e.id]?.plaats || e.plaats || "" })),
     overzichten: ids.map(id => {
@@ -602,7 +602,7 @@ function naarDocs(d) {
   const schijfLijst = new Set(d.overzichten.filter(o => o.opslag).map(o => o.id));
   onthoudTitels(d);
   docs.set("gebruikers/" + ik, schoon({
-    locaties: d.locaties, beschikbaar: d.beschikbaar, afwezig: d.afwezig || {}, afspraakRegels: d.afspraakRegels || [], verborgen: d.verborgen || {}, rolKeuzes: d.rolKeuzes || {}, herinneringen: d.herinneringen || {}, buitenOk: d.buitenOk || {}, feeds: d.feeds || [], boodschappen: d.boodschappen || null, afspraakVerzoeken: d.afspraakVerzoeken || [], afspraakGedaan: d.afspraakGedaan || {}, afspraakPlaats: d.afspraakPlaats || {}, tochTonen: d.tochTonen || {}, medisch: d.medisch || {}, instellingen: d.instellingen, agendas: d.agendas || {},
+    locaties: d.locaties, beschikbaar: d.beschikbaar, afwezig: d.afwezig || {}, afspraakRegels: d.afspraakRegels || [], verborgen: d.verborgen || {}, rolKeuzes: d.rolKeuzes || {}, herinneringen: d.herinneringen || {}, buitenOk: d.buitenOk || {}, feeds: d.feeds || [], aiToegang: d.aiToegang || [], boodschappen: d.boodschappen || null, afspraakVerzoeken: d.afspraakVerzoeken || [], afspraakGedaan: d.afspraakGedaan || {}, afspraakPlaats: d.afspraakPlaats || {}, tochTonen: d.tochTonen || {}, medisch: d.medisch || {}, instellingen: d.instellingen, agendas: d.agendas || {},
     extern: Object.fromEntries(Object.entries(d.extern || {}).map(([k, x]) => { const { titel, ...r } = x; return [k, titel !== undefined && !r.th ? { ...r, th: vingerafdruk(titel) } : r]; })),
     reisExtern: d.reisExtern || {}, reistijden: d.reistijden || {},
     planning: (d.planning || []).map(b => schijfLijst.has(b.overzicht) && b.soort !== "reis" ? { ...b, titel: "" } : b),
@@ -728,6 +728,96 @@ export async function feedWeg(sleutel) {
   if (bestaat) await F.deleteDoc(ref);
   feedStand.delete(sleutel); feedGelezen.delete(sleutel);
   return bestaat ? "weg" : "bestond niet";
+}
+
+// ---------- AI-toegang ----------
+// Per AI een lange willekeurige sleutel. De app zet de AI-taken van de gekozen lijsten (als JSON) in ai/{sleutel};
+// het doorgeefluik geeft ze door op <doorgeefluik>/ai/<sleutel>, en een AI meldt daar (POST) wat hij gedaan heeft.
+// Die meldingen komen in ai/{sleutel}/meldingen; deze app verwerkt ze in je taken (status, deeltaken, logboek) en ruimt ze op.
+// Een AI kan nooit iets afvinken of wissen: hoogstens "ter beoordeling" zetten. Afvinken doe jij.
+export const aiStand = new Map();   // sleutel → { hash, bijgewerkt, fout }
+const aiGelezen = new Set();
+export const aiUrl = (sleutel) => `${CONFIG.icsProxy}/ai/${sleutel}`;
+const AI_UITLEG = [
+  "Dit is een takenlijst uit Tijdkompas die de eigenaar met jou (een AI-assistent, agent '@@NAAM@@') deelt: alleen de taken die hij aan jou gaf. Werk alleen aan de taken hieronder.",
+  "Een project hoort met al zijn taken bij jou. Knip werk op in je eigen deeltaken; de eigenaar hoeft alleen de taken die hij gaf af te vinken.",
+  "Je kunt een taak nooit zelf afvinken. Klaar? Zet hem op status 'beoordelen' met een korte toelichting van wat je deed en waar het resultaat staat. De eigenaar keurt goed (dan is hij af) of stuurt hem terug met een opmerking (status 'open', zie opmerking_van_eigenaar).",
+  "Melden: POST naar deze zelfde link, met JSON-body: {\"taak\": \"<id>\", \"status\": \"bezig\" | \"beoordelen\" | \"open\", \"tekst\": \"wat je deed of vraagt\", \"deeltaken\": [{\"titel\": \"...\", \"klaar\": true}], \"door\": \"naam van de AI\"}. Alles behalve taak is optioneel; deeltaken vervangt je hele lijst deeltaken voor die taak.",
+  "Je melding staat meteen in 'wachtend' en wordt verwerkt zodra de eigenaar Tijdkompas open heeft. Max. 4000 tekens tekst, 50 deeltaken.",
+];
+function aiKeuze(t) {
+  const d = opslag.d;
+  const schijf = new Set(d.overzichten.filter(o => o.opslag).map(o => o.id));   // lijsten in je eigen Drive/OneDrive: nooit naar buiten
+  const grens = Date.now() - 14 * 864e5;
+  const mag = x => !schijf.has(x.overzicht) && (x.status !== "klaar" || Date.parse(x.klaarOp || 0) > grens);
+  const vanMij = x => x.ai?.aan && x.ai.agent === t.aid;                         // alleen wat aan déze agent is gegeven
+  const projecten = d.projecten.filter(p => vanMij(p) && mag(p));
+  const pids = new Set(projecten.map(p => p.id));
+  const losse = d.taken.filter(x => vanMij(x) && mag(x) && !pids.has(x.project));
+  return { projecten, losse, ids: new Set([...projecten.map(p => p.id), ...losse.map(x => x.id), ...d.taken.filter(x => pids.has(x.project) && mag(x)).map(x => x.id)]) };
+}
+/** Mag deze AI-toegang iets melden over dit item? */
+export const aiMag = (t, id) => aiKeuze(t).ids.has(id);
+function aiInhoud(t) {
+  const d = opslag.d, { projecten, losse } = aiKeuze(t);
+  const lijstNaam = id => d.overzichten.find(o => o.id === id)?.naam || "";
+  const kaart = (x) => ({
+    id: x.id, soort: x.type, titel: x.titel, notitie: x.notitie || "", lijst: lijstNaam(x.overzicht),
+    ...(x.deadline ? { deadline: x.deadline } : {}), ...(x.streef ? { streefdatum: x.streef } : {}), ...(x.schatting ? { geschat_minuten: x.schatting } : {}),
+    links: (x.links || []).map(l => ({ url: l.url, label: l.label || "" })),
+    status: x.status === "klaar" ? "goedgekeurd" : (["open", "bezig", "beoordelen"].includes(x.ai?.status) ? x.ai.status : "open"),
+    ...(x.ai?.opmerking ? { opmerking_van_eigenaar: x.ai.opmerking } : {}),
+    deeltaken: (x.ai?.deeltaken || []).map(y => ({ titel: y.titel, klaar: !!y.klaar })),
+    logboek: (x.ai?.log || []).slice(-10).map(y => ({ tijd: y.t, door: y.door, tekst: y.tekst })),
+  });
+  const taken = [
+    ...projecten.map(p => ({ ...kaart(p), ...(p.doel ? { doel: p.doel } : {}),
+      taken: d.taken.filter(x => x.project === p.id && (x.status !== "klaar" || Date.parse(x.klaarOp || 0) > Date.now() - 14 * 864e5)).map(kaart) })),
+    ...losse.map(x => { const p = x.project ? d.projecten.find(y => y.id === x.project) : null;
+      return { ...kaart(x), ...(p ? { project: { titel: p.titel, ...(p.doel ? { doel: p.doel } : {}) } } : {}) }; }),
+  ];
+  return { agent: t.naam, uitleg: AI_UITLEG.map(r => r.replace("@@NAAM@@", t.naam)), taken };
+}
+let aiTimer = null;
+export function aiLater(ms = 3000) {
+  if (!cloud.gebruiker || !(opslag.d.aiToegang || []).length) return;
+  clearTimeout(aiTimer); aiTimer = setTimeout(() => { aiTimer = null; aiBijwerken().catch(() => {}); }, ms);
+}
+export async function aiBijwerken() {
+  if (!cloudGeladen()) return;
+  for (const t of opslag.d.aiToegang || []) {
+    const ref = F.doc(db, "ai", t.id);
+    const json = JSON.stringify(aiInhoud(t)), h = hash(json);
+    try {
+      if (!aiGelezen.has(t.id)) {
+        aiGelezen.add(t.id);
+        const s = await F.getDoc(ref).catch(() => null);
+        if (s?.exists()) aiStand.set(t.id, { hash: s.data().hash, bijgewerkt: s.data().bijgewerkt });
+      }
+      if (aiStand.get(t.id)?.hash === h) continue;
+      if (json.length > 790000) throw new Error("te veel AI-taken voor één link (kies minder lijsten)");
+      const bijgewerkt = new Date().toISOString();
+      await F.setDoc(ref, { eigenaar: sessie.ik, naam: String(t.naam || "AI").slice(0, 100), json, hash: h, bijgewerkt });
+      aiStand.set(t.id, { hash: h, bijgewerkt });
+    } catch (e) { aiStand.set(t.id, { ...(aiStand.get(t.id) || {}), fout: foutTekst(e) }); }
+  }
+}
+/** Nog niet verwerkte meldingen van een AI, oudste eerst */
+export async function aiMeldingen(sleutel) {
+  const s = await F.getDocs(F.collection(db, "ai", sleutel, "meldingen"));
+  return s.docs.map(x => ({ ...x.data(), id: x.id })).sort((a, b) => String(a.tijd?.toDate?.()?.toISOString?.() || "").localeCompare(String(b.tijd?.toDate?.()?.toISOString?.() || "")));
+}
+export const aiMeldingWeg = (sleutel, id) => F.deleteDoc(F.doc(db, "ai", sleutel, "meldingen", id));
+/** Toegang intrekken: eerst de meldingen weg, dan het document (daarna zegt het doorgeefluik "onbekende link") */
+export async function aiWeg(sleutel) {
+  if (!cloud.gebruiker) throw new Error("Log eerst in");
+  try { for (const m of await aiMeldingen(sleutel)) await aiMeldingWeg(sleutel, m.id).catch(() => {}); } catch {}
+  const ref = F.doc(db, "ai", sleutel);
+  let bestaat = true;
+  try { bestaat = (await F.getDoc(ref)).exists(); }
+  catch (e) { if (String(e?.code || "").includes("permission-denied")) bestaat = false; else throw e; }
+  if (bestaat) await F.deleteDoc(ref);
+  aiStand.delete(sleutel); aiGelezen.delete(sleutel);
 }
 
 let schrijfTimer = null;

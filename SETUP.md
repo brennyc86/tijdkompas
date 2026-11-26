@@ -8,12 +8,12 @@ Gebruikers merken er niets van. Zij klikken alleen in de app op „Inloggen met 
 
 | Stap | Waarvoor | Status |
 |---|---|---|
-| **A** Firebase | inloggen met Google of met een link per e-mail (2b), online opslag, delen | ✅ gedaan (regels met abonneer-link geplakt op 24-11-2026) |
+| **A** Firebase | inloggen met Google of met een link per e-mail (2b), online opslag, delen | ⚠️ **plak de nieuwste `firestore.rules` opnieuw** (26-11-2026: AI-agenten, D5) |
 | **B** Microsoft-omgeving + app | inloggen met Microsoft (B0: eenmalig een gratis eigen omgeving) | ✅ gedaan — maak het geheim (B2) opnieuw aan als het ooit in een chat of mail heeft gestaan |
 | **C-Google** | Google Agenda, Google Taken en Google Drive koppelen | Client ID ✅ ingevuld; controleer de rest van stap C-Google |
 | **C-Microsoft** | Outlook-agenda, Microsoft To Do (Outlook-taken) en OneDrive koppelen | ✅ client-ID ingevuld, redirect-URI (SPA) staat |
 | **E** Extra afschermen (aanbevolen) | API-sleutel beperken tot deze site; controleren wie bij het Firebase-project kan | zie [E. Extra afschermen](#e-extra-afschermen-aanbevolen-10-minuten) |
-| **D** Doorgeefluik (Cloudflare) | Outlook-agenda via een link lezen, én de **abonneer-link** waarmee je je blokken in je werkagenda krijgt (D4) | ✅ gedaan (nieuwe code met `/feed/…` gedeployed op 24-11-2026). Laat het doorgeefluik staan als je de abonneer-link gebruikt |
+| **D** Doorgeefluik (Cloudflare) | Outlook-agenda via een link lezen, én de **abonneer-link** waarmee je je blokken in je werkagenda krijgt (D4) | ⚠️ **plak de nieuwe code in het doorgeefluik** (D1 → Bijwerken; 26-11-2026: `/ai/…` voor AI-agenten, D5) |
 
 **Over de knoppen in deze handleiding:** de Firebase-console is altijd Engels. Google Cloud en Microsoft tonen soms Nederlands, afhankelijk van je instellingen.
 Daarom staat elke knop er zo: **English label** (Nederlandse vertaling). Kijk dus naar wat jouw scherm toont.
@@ -274,6 +274,21 @@ Pas als beide goed zijn, werkt de link. Links die je eerder maakte toen het nog 
 
 Wie de link heeft, kan je blokken zien (zoals bij het „geheime adres” van Google Agenda). Uitgelekt of niet meer nodig?
 **🔄 Nieuwe link** (de oude werkt meteen niet meer) of **Link intrekken**. Lijsten die in je eigen Drive/OneDrive staan komen er nooit in.
+
+### D5. AI-agenten: taken aan een AI geven (Claude, ChatGPT, Copilot…)
+
+Eenmalig: plak de nieuwste `firestore.rules` (zie hieronder) en werk het doorgeefluik bij (D1 → Bijwerken), net als bij D4.
+
+1. Tijdkompas → **⚙️ Instellingen → Agenda's & accounts → 🤖 AI-agenten** → **＋ Agent maken** → geef hem een naam (bv. *Claude*).
+   Maak er gerust meer: elke AI-dienst een eigen agent met een eigen geheime link.
+2. Klik op **🔍 Link testen**. Staat er ✓, dan klik je op **📋 Opdracht voor je AI** en plak je dat in de chat met die AI.
+3. Open een taak of project → **🤖 Aan een AI-agent geven** → kies de agent → **Opslaan**. Die taak wordt dan niet meer in jouw agenda ingepland.
+4. De agent leest zijn taken op de link (GET), maakt zelf deeltaken en meldt voortgang (POST). Klaar? Dan zet hij de taak **ter beoordeling**.
+5. Op **Vandaag** (en in de taak) staat dan **🤖 Ter beoordeling**: **✓ Goedkeuren** vinkt hem af, **↩ Terug naar …** stuurt hem terug met een opmerking.
+
+Wat de agent kan: alleen de taken zien die aan hém zijn gegeven, status (open / bezig / beoordelen), eigen deeltaken en een toelichting melden.
+Wat hij niet kan: afvinken, wissen, wijzigen of andere taken zien. Meldingen verwerkt Tijdkompas zodra je de app open hebt (ingelogd).
+Link uitgelekt? **🔄 Nieuwe link** (de agent en zijn taken blijven, alleen de sleutel verandert).
 
 ### Beveiligingsregels bijwerken
 

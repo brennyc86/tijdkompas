@@ -86,6 +86,16 @@ export function veiligGenegeerd(m) {
   return Object.fromEntries(Object.entries(m).filter(([k, v]) => k.length <= 200 && typeof v === "string" && v.length <= 40).slice(-300));
 }
 
+/** AI-gegevens bij een taak (status, deeltaken en logboek van de AI): alleen tekst, begrensd */
+export function veiligeAi(a) {
+  if (!a || typeof a !== "object" || Array.isArray(a)) return null;
+  const deel = (Array.isArray(a.deeltaken) ? a.deeltaken : []).filter(x => x && typeof x.titel === "string" && x.titel.trim()).slice(0, 50)
+    .map((x, i) => ({ id: veiligId(x.id) ? x.id : "d" + i, titel: tekst(x.titel, 200).trim(), klaar: !!x.klaar }));
+  const log = (Array.isArray(a.log) ? a.log : []).filter(x => x && typeof x.tekst === "string").slice(-30)
+    .map(x => ({ id: veiligId(x.id) ? x.id : "", t: tekst(x.t, 40), door: tekst(x.door, 60), tekst: tekst(x.tekst, 4000) }));
+  return { aan: !!a.aan, agent: veiligId(a.agent) ? a.agent : "", status: ["open", "bezig", "beoordelen"].includes(a.status) ? a.status : "open", deeltaken: deel, log, opmerking: tekst(a.opmerking, 2000) };
+}
+
 /**
  * Maakt een volledig data-object veilig (in place). Lijsten, mappen, taken en koersafspraken met een onveilige id
  * vallen weg; kleuren, iconen en links worden vervangen door veilige waarden.
@@ -123,6 +133,7 @@ export function ontsmet(n) {
       if (x.project && !veiligId(x.project)) x.project = "";
       if (Array.isArray(x.wachtOp)) x.wachtOp = idLijst(x.wachtOp);
       for (const k of ["impact", "inspanning"]) if (x[k] != null && typeof x[k] !== "boolean") delete x[k];
+      if (x.ai != null) x.ai = veiligeAi(x.ai);
       if (Array.isArray(x.wie)) x.wie = x.wie.filter(w => typeof w === "string" && (veiligId(w) || w === "ik" || /^~[^<>"'&`]{1,100}$/.test(w)));
       for (const k of ["deadline", "streef"]) if (x[k] && !/^\d{4}-\d{2}-\d{2}(T[\d:.]+Z?)?$/.test(String(x[k]))) delete x[k];
       for (const k of ["schatting", "werkelijk"]) if (x[k] != null && !Number.isFinite(+x[k])) delete x[k]; else if (x[k] != null) x[k] = +x[k];
@@ -177,6 +188,9 @@ export function ontsmet(n) {
   // abonneer-links: lange willekeurige sleutel, alleen bestaande lijsten
   n.feeds = (Array.isArray(n.feeds) ? n.feeds : []).filter(f => f && typeof f.id === "string" && /^[A-Za-z0-9_-]{32,64}$/.test(f.id)).slice(0, 10)
     .map(f => ({ id: f.id, naam: tekst(f.naam, 100) || "Tijdkompas", lijsten: idLijst(f.lijsten), titels: f.titels !== false, reis: !!f.reis, aangemaakt: tekst(f.aangemaakt, 40) }));
+  // AI-toegang: lange willekeurige sleutel per AI, alleen bestaande lijsten
+  n.aiToegang = (Array.isArray(n.aiToegang) ? n.aiToegang : []).filter(f => f && typeof f.id === "string" && /^[A-Za-z0-9_-]{32,64}$/.test(f.id)).slice(0, 10)
+    .map(f => ({ id: f.id, aid: veiligId(f.aid) ? f.aid : "a" + f.id.slice(0, 10).replace(/[^A-Za-z0-9]/g, "x"), naam: tekst(f.naam, 100) || "AI", aangemaakt: tekst(f.aangemaakt, 40) }));
   // afspraken die niet altijd meetellen: per naam + agenda alleen op werkdagen, of losse keren verborgen
   n.afspraakRegels = (Array.isArray(n.afspraakRegels) ? n.afspraakRegels : []).filter(r => r && typeof r.bron === "string" && r.bron.length <= 400 && ["werkdag", "rolwerk", "rolprive", "herinnering"].includes(r.soort) && (r.soort === "herinnering" || veiligId(r.lijst)))
     .slice(0, 200).map(r => ({ id: veiligId(r.id) ? r.id : "r" + Math.random().toString(36).slice(2, 10), bron: r.bron, titel: tekst(r.titel, 200), lijst: veiligId(r.lijst) ? r.lijst : "", soort: r.soort }));
