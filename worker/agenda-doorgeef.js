@@ -89,9 +89,6 @@ async function stuurSein(req, sleutel, f) {
   if (req.method !== "POST") return aiJson({ fout: "Alleen POST" }, 405);
   const url = waarde(f.sein) || "";
   if (!/^https:\/\/[^\s]+$/.test(url)) return aiJson({ fout: "Geen seintje (webhook) ingesteld voor deze agent" }, 400);
-  // niet vaker dan eens per 30 seconden per agent (bijv. als er meerdere apparaten open staan)
-  const rem = globalThis.caches?.default, sleutelUrl = `https://sein.tijdkompas/${sleutel}`;
-  try { if (rem && await rem.match(sleutelUrl)) return aiJson({ ok: true, overgeslagen: "net al een seintje gestuurd" }); } catch {}
   let inhoud = {}; try { inhoud = JSON.parse(waarde(f.json) || "{}"); } catch {}
   const a = Array.isArray(inhoud.aandacht) ? inhoud.aandacht : [], agent = inhoud.agent || waarde(f.naam) || "AI";
   const REDEN = { nieuw: "nieuw", antwoord: "antwoord van de eigenaar", teruggestuurd: "teruggestuurd" };
@@ -99,7 +96,6 @@ async function stuurSein(req, sleutel, f) {
                          : `🤖 ${agent}: er is iets bijgewerkt in Tijdkompas.`;
   const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "Tijdkompas-sein" },
     body: JSON.stringify({ text: tekst, content: tekst, message: tekst, agent, aandacht: a, tijd: new Date().toISOString() }) }).catch(e => ({ ok: false, status: String(e?.message || e) }));
-  try { if (rem) await rem.put(sleutelUrl, new Response("1", { headers: { "Cache-Control": "max-age=30" } })); } catch {}
   return r.ok ? aiJson({ ok: true }) : aiJson({ fout: `Webhook gaf ${r.status}` }, 502);
 }
 

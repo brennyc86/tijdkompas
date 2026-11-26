@@ -292,7 +292,7 @@ Eenmalig: plak de nieuwste `firestore.rules` (zie hieronder) en werk het doorgee
 - De link bevat bovenaan **aandacht**: wat nieuw is, waar jij op antwoordde of wat je terugstuurde. Een agent die op vaste tijden kijkt
   (bijv. een Claude-routine die elke paar uur draait), ziet zo meteen of er werk is en doet anders niets.
 - Vul bij de agent een **webhook** in (🔔 Seintje). Tijdkompas laat het doorgeefluik die aanroepen bij een nieuwe taak, jouw antwoord of een
-  teruggestuurde taak (max. eens per 30 seconden). Het bericht heeft `text`/`content`/`message`, dus het werkt direct met Slack, Teams, Discord
+  teruggestuurde taak (alleen als er echt iets nieuws bij kwam). Het bericht heeft `text`/`content`/`message`, dus het werkt direct met Slack, Teams, Discord
   en ntfy.sh, en met n8n/Make/Zapier om er een AI mee te starten. De geheime link gaat niet mee.
 
 Wat de agent kan: alleen de taken zien die aan hém zijn gegeven, status (open / bezig / beoordelen), eigen deeltaken en een toelichting melden.
