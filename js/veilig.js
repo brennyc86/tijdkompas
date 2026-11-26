@@ -93,7 +93,9 @@ export function veiligeAi(a) {
     .map((x, i) => ({ id: veiligId(x.id) ? x.id : "d" + i, titel: tekst(x.titel, 200).trim(), klaar: !!x.klaar }));
   const log = (Array.isArray(a.log) ? a.log : []).filter(x => x && typeof x.tekst === "string").slice(-30)
     .map(x => ({ id: veiligId(x.id) ? x.id : "", t: tekst(x.t, 40), door: tekst(x.door, 60), tekst: tekst(x.tekst, 4000) }));
-  return { aan: !!a.aan, agent: veiligId(a.agent) ? a.agent : "", status: ["open", "bezig", "beoordelen"].includes(a.status) ? a.status : "open", deeltaken: deel, log, opmerking: tekst(a.opmerking, 2000) };
+  const chat = (Array.isArray(a.chat) ? a.chat : []).filter(x => x && typeof x.tekst === "string" && x.tekst.trim()).slice(-100)
+    .map(x => ({ id: veiligId(x.id) ? x.id : "", t: tekst(x.t, 40), van: x.van === "ai" ? "ai" : "ik", naam: tekst(x.naam, 100), tekst: tekst(x.tekst, 4000), vraag: !!x.vraag }));
+  return { chat, aan: !!a.aan, agent: veiligId(a.agent) ? a.agent : "", status: ["open", "bezig", "beoordelen"].includes(a.status) ? a.status : "open", deeltaken: deel, log, opmerking: tekst(a.opmerking, 2000) };
 }
 
 /**
@@ -134,6 +136,7 @@ export function ontsmet(n) {
       if (Array.isArray(x.wachtOp)) x.wachtOp = idLijst(x.wachtOp);
       for (const k of ["impact", "inspanning"]) if (x[k] != null && typeof x[k] !== "boolean") delete x[k];
       if (x.ai != null) x.ai = veiligeAi(x.ai);
+      if (x.omschrijving != null) x.omschrijving = tekst(x.omschrijving, 20000);
       if (Array.isArray(x.wie)) x.wie = x.wie.filter(w => typeof w === "string" && (veiligId(w) || w === "ik" || /^~[^<>"'&`]{1,100}$/.test(w)));
       for (const k of ["deadline", "streef"]) if (x[k] && !/^\d{4}-\d{2}-\d{2}(T[\d:.]+Z?)?$/.test(String(x[k]))) delete x[k];
       for (const k of ["schatting", "werkelijk"]) if (x[k] != null && !Number.isFinite(+x[k])) delete x[k]; else if (x[k] != null) x[k] = +x[k];

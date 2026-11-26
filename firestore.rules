@@ -236,12 +236,14 @@ service cloud.firestore {
 
       match /meldingen/{m} {
         function meldingOk(x) {
-          return x.keys().hasOnly(['taak', 'status', 'tekst', 'deeltaken', 'door', 'tijd'])
+          return x.keys().hasOnly(['taak', 'status', 'tekst', 'deeltaken', 'door', 'tijd', 'bericht', 'vraag'])
             && veiligeId(x.taak) && x.tijd is timestamp
             && (!('status' in x) || x.status in ['open', 'bezig', 'beoordelen'])
             && (!('tekst' in x) || (x.tekst is string && x.tekst.size() <= 4000))
             && (!('deeltaken' in x) || (x.deeltaken is string && x.deeltaken.size() <= 20000))
-            && (!('door' in x) || (x.door is string && x.door.size() <= 60));
+            && (!('door' in x) || (x.door is string && x.door.size() <= 60))
+            && (!('bericht' in x) || (x.bericht is string && x.bericht.size() <= 4000))
+            && (!('vraag' in x) || x.vraag is bool);
         }
         allow get, list: if aiSleutelOk();
         allow create: if aiSleutelOk() && veiligeId(m) && exists(/databases/$(db)/documents/ai/$(sleutel)) && meldingOk(request.resource.data);

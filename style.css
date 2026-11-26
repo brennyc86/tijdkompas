@@ -871,3 +871,13 @@ a.koersitem{text-decoration:none;color:inherit}
 .aideel li.klaar{color:var(--meta);text-decoration:line-through}
 .ailog{font-size:13px;width:100%}
 .ailog>div{padding:4px 0;border-top:1px solid var(--rand)}
+textarea.omschrijving{min-height:110px;field-sizing:content;max-height:60vh}
+.aigesprek{width:100%;margin-top:8px;display:flex;flex-direction:column;gap:6px}
+.aichat{display:flex;flex-direction:column;gap:6px;max-height:320px;overflow-y:auto;padding:2px}
+.aibericht{max-width:85%;padding:7px 10px;border-radius:10px;border:1px solid var(--rand);font-size:14px}
+.aibericht.vanai{align-self:flex-start;background:var(--bg2)}
+.aibericht.vanmij{align-self:flex-end;background:color-mix(in srgb,var(--accent) 14%,var(--bg2))}
+.aibericht.vraag{border-color:var(--q-delegeren)}
+.aiwie{font-size:12px;color:var(--meta);margin-bottom:2px}
+.aiinvoer{display:flex;gap:6px;align-items:flex-end;width:100%;margin-top:4px}
+.aiinvoer textarea{flex:1;min-height:40px;field-sizing:content;max-height:200px}

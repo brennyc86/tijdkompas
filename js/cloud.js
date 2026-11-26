@@ -741,8 +741,10 @@ export const aiUrl = (sleutel) => `${CONFIG.icsProxy}/ai/${sleutel}`;
 const AI_UITLEG = [
   "Dit is een takenlijst uit Tijdkompas die de eigenaar met jou (een AI-assistent, agent '@@NAAM@@') deelt: alleen de taken die hij aan jou gaf. Werk alleen aan de taken hieronder.",
   "Een project hoort met al zijn taken bij jou. Knip werk op in je eigen deeltaken; de eigenaar hoeft alleen de taken die hij gaf af te vinken.",
+  "Lees per taak eerst 'omschrijving' (de opdracht) en 'gesprek'. Is iets onduidelijk of heb je een keuze van de eigenaar nodig? Stel een vraag (zie hieronder) en wacht op zijn antwoord in 'gesprek' voordat je op dat punt verdergaat.",
   "Je kunt een taak nooit zelf afvinken. Klaar? Zet hem op status 'beoordelen' met een korte toelichting van wat je deed en waar het resultaat staat. De eigenaar keurt goed (dan is hij af) of stuurt hem terug met een opmerking (status 'open', zie opmerking_van_eigenaar).",
-  "Melden: POST naar deze zelfde link, met JSON-body: {\"taak\": \"<id>\", \"status\": \"bezig\" | \"beoordelen\" | \"open\", \"tekst\": \"wat je deed of vraagt\", \"deeltaken\": [{\"titel\": \"...\", \"klaar\": true}], \"door\": \"naam van de AI\"}. Alles behalve taak is optioneel; deeltaken vervangt je hele lijst deeltaken voor die taak.",
+  "Melden: POST naar deze zelfde link, met JSON-body: {\"taak\": \"<id>\", \"status\": \"bezig\" | \"beoordelen\" | \"open\", \"tekst\": \"wat je deed of vraagt\", \"deeltaken\": [{\"titel\": \"...\", \"klaar\": true}], \"door\": \"naam van de AI\"}. Alles behalve taak is optioneel; deeltaken vervangt je hele lijst deeltaken voor die taak. 'tekst' komt in het logboek.",
+  "Vraag of bericht aan de eigenaar (komt in het gesprek bij die taak): POST {\"taak\": \"<id>\", \"vraag\": \"je vraag\"} of {\"taak\": \"<id>\", \"bericht\": \"mededeling zonder vraag\"}. Een vraag zie de eigenaar op zijn startscherm; zijn antwoord verschijnt in 'gesprek' (van: eigenaar).",
   "Je melding staat meteen in 'wachtend' en wordt verwerkt zodra de eigenaar Tijdkompas open heeft. Max. 4000 tekens tekst, 50 deeltaken.",
 ];
 function aiKeuze(t) {
@@ -762,19 +764,20 @@ function aiInhoud(t) {
   const d = opslag.d, { projecten, losse } = aiKeuze(t);
   const lijstNaam = id => d.overzichten.find(o => o.id === id)?.naam || "";
   const kaart = (x) => ({
-    id: x.id, soort: x.type, titel: x.titel, notitie: x.notitie || "", lijst: lijstNaam(x.overzicht),
+    id: x.id, soort: x.type, titel: x.titel, ...(x.omschrijving ? { omschrijving: x.omschrijving } : {}), notitie: x.notitie || "", lijst: lijstNaam(x.overzicht),
     ...(x.deadline ? { deadline: x.deadline } : {}), ...(x.streef ? { streefdatum: x.streef } : {}), ...(x.schatting ? { geschat_minuten: x.schatting } : {}),
     links: (x.links || []).map(l => ({ url: l.url, label: l.label || "" })),
     status: x.status === "klaar" ? "goedgekeurd" : (["open", "bezig", "beoordelen"].includes(x.ai?.status) ? x.ai.status : "open"),
     ...(x.ai?.opmerking ? { opmerking_van_eigenaar: x.ai.opmerking } : {}),
     deeltaken: (x.ai?.deeltaken || []).map(y => ({ titel: y.titel, klaar: !!y.klaar })),
     logboek: (x.ai?.log || []).slice(-10).map(y => ({ tijd: y.t, door: y.door, tekst: y.tekst })),
+    gesprek: (x.ai?.chat || []).slice(-40).map(y => ({ tijd: y.t, van: y.van === "ai" ? "agent" : "eigenaar", tekst: y.tekst, ...(y.vraag ? { vraag: true } : {}) })),
   });
   const taken = [
     ...projecten.map(p => ({ ...kaart(p), ...(p.doel ? { doel: p.doel } : {}),
       taken: d.taken.filter(x => x.project === p.id && (x.status !== "klaar" || Date.parse(x.klaarOp || 0) > Date.now() - 14 * 864e5)).map(kaart) })),
     ...losse.map(x => { const p = x.project ? d.projecten.find(y => y.id === x.project) : null;
-      return { ...kaart(x), ...(p ? { project: { titel: p.titel, ...(p.doel ? { doel: p.doel } : {}) } } : {}) }; }),
+      return { ...kaart(x), ...(p ? { project: { titel: p.titel, ...(p.doel ? { doel: p.doel } : {}), ...(p.omschrijving ? { omschrijving: p.omschrijving } : {}) } } : {}) }; }),
   ];
   return { agent: t.naam, uitleg: AI_UITLEG.map(r => r.replace("@@NAAM@@", t.naam)), taken };
 }

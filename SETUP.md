@@ -284,6 +284,8 @@ Eenmalig: plak de nieuwste `firestore.rules` (zie hieronder) en werk het doorgee
 2. Klik op **🔍 Link testen**. Staat er ✓, dan klik je op **📋 Opdracht voor je AI** en plak je dat in de chat met die AI.
 3. Open een taak of project → **🤖 Aan een AI-agent geven** → kies de agent → **Opslaan**. Die taak wordt dan niet meer in jouw agenda ingepland.
 4. De agent leest zijn taken op de link (GET), maakt zelf deeltaken en meldt voortgang (POST). Klaar? Dan zet hij de taak **ter beoordeling**.
+   Schrijf in **📝 Omschrijving** (bij taak of project) de opdracht zo uitgebreid als nodig: dat leest de agent als eerste.
+   Heeft de agent een vraag, dan staat die op **Vandaag** onder **❓ Vragen van je agenten**; je antwoordt daar of in het **💬 Gesprek** in de taak.
 5. Op **Vandaag** (en in de taak) staat dan **🤖 Ter beoordeling**: **✓ Goedkeuren** vinkt hem af, **↩ Terug naar …** stuurt hem terug met een opmerking.
 
 Wat de agent kan: alleen de taken zien die aan hém zijn gegeven, status (open / bezig / beoordelen), eigen deeltaken en een toelichting melden.

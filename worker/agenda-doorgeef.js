@@ -28,7 +28,7 @@ async function geefFeed(req, sleutel) {
 
 // ---------- AI-toegang: /ai/<sleutel> ----------
 // GET  → de gedeelde AI-taken (JSON, met uitleg voor de AI) en de meldingen die nog verwerkt moeten worden
-// POST → een melding van de AI: { taak, status?: "open"|"bezig"|"beoordelen", tekst?, deeltaken?: [{ titel, klaar }], door? }
+// POST → een melding van de AI: { taak, status?: "open"|"bezig"|"beoordelen", tekst?, deeltaken?: [{ titel, klaar }], vraag? | bericht?, door? }
 // Het doorgeefluik bewaart niets zelf: alles staat in Firestore, waar de beveiligingsregels het formaat afdwingen.
 const AI = /^\/ai\/([A-Za-z0-9_-]{32,64})(?:\.json)?\/?$/;
 const FS = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents`;
@@ -55,7 +55,7 @@ async function geefAi(req, sleutel) {
     if (m.ok) wachtend = ((await m.json()).documents || []).map(x => {
       const v = x.fields || {}; let deel = null;
       try { deel = v.deeltaken ? JSON.parse(waarde(v.deeltaken)) : null; } catch {}
-      return { taak: waarde(v.taak), status: waarde(v.status), tekst: waarde(v.tekst), deeltaken: deel, door: waarde(v.door), tijd: waarde(v.tijd) };
+      return { taak: waarde(v.taak), status: waarde(v.status), tekst: waarde(v.tekst), deeltaken: deel, ...(v.bericht ? { [waarde(v.vraag) ? "vraag" : "bericht"]: waarde(v.bericht) } : {}), door: waarde(v.door), tijd: waarde(v.tijd) };
     });
     return aiJson({ ...inhoud, bijgewerkt: waarde(f.bijgewerkt), wachtend });
   }
@@ -68,12 +68,14 @@ async function geefAi(req, sleutel) {
   const tekst = b.tekst ?? b.notitie ?? b.toelichting;
   if (tekst != null) velden.tekst = { stringValue: String(tekst).slice(0, 4000) };
   if (b.door != null) velden.door = { stringValue: String(b.door).slice(0, 60) };
+  const vraag = b.vraag != null && b.vraag !== false && b.vraag !== true ? b.vraag : null, bericht = vraag ?? b.bericht;
+  if (bericht != null && String(bericht).trim()) { velden.bericht = { stringValue: String(bericht).slice(0, 4000) }; velden.vraag = { booleanValue: vraag != null }; }
   if (b.deeltaken != null) {
     if (!Array.isArray(b.deeltaken)) return aiJson({ fout: "deeltaken moet een lijst zijn: [{ titel, klaar }]" }, 400);
     const d = b.deeltaken.slice(0, 50).map(x => typeof x === "string" ? { titel: x, klaar: false } : { titel: String(x?.titel || "").slice(0, 200), klaar: !!x?.klaar }).filter(x => x.titel.trim());
     velden.deeltaken = { stringValue: JSON.stringify(d) };
   }
-  if (Object.keys(velden).length <= 2) return aiJson({ fout: "Geef minstens status, tekst of deeltaken mee" }, 400);
+  if (Object.keys(velden).length <= 2) return aiJson({ fout: "Geef minstens status, tekst, deeltaken, vraag of bericht mee" }, 400);
   const id = "m" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   const r = await fetch(`${FS}/ai/${sleutel}/meldingen?documentId=${id}`, { method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "Tijdkompas-ai" }, body: JSON.stringify({ fields: velden }) });
   if (!r.ok) return aiJson({ fout: `Melding niet opgeslagen (${r.status})` }, 502);

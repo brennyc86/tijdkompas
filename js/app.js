@@ -171,6 +171,7 @@ function aiTag(it) {
   if (!isAi(it) || it.status === "klaar") return "";
   const st = aiStatus(it), n = (it.ai?.deeltaken || []).length, k = (it.ai?.deeltaken || []).filter(x => x.klaar).length;
   const naam = esc(agentNaam(aiAgent(it)));
+  if (aiVraagOpen(it)) return `<span class="tag aitag ai-beoordelen" title="${naam} heeft een vraag — open de taak om te antwoorden">🤖 ${naam} · ❓ vraag</span>`;
   return `<span class="tag aitag ai-${st}" title="${it.ai?.aan ? "Gegeven aan agent " + naam : "Hoort bij AI-project „" + esc(aiProject(it)?.titel || "") + "”"}: ${AISTATUS[st]}">🤖 ${naam}${st === "beoordelen" ? " · ter beoordeling" : st === "bezig" ? " · bezig" : ""}${n ? ` · ${k}/${n}` : ""}</span>`;
 }
 function linkjes(it) {
@@ -383,7 +384,10 @@ function render() {
   $$("#nav a").forEach(a => a.classList.toggle("actief", a.dataset.v === v));
   const scroll = window.scrollY;
   const inv = $("#bsInvoer"), bsTekst = inv?.value, bsFocus = inv && document.activeElement === inv, bsPos = inv?.selectionStart;
+  // half getypte antwoorden aan een AI-agent (op Vandaag) niet kwijtraken bij het verversen
+  const antw = $$("[data-aiantwoord]", main).map(t => ({ id: t.dataset.aiantwoord, w: t.value, f: document.activeElement === t, p: t.selectionStart })).filter(x => x.w || x.f);
   main.innerHTML = sessieBanner() + weergaves[v]();
+  for (const a of antw) { const t = main.querySelector(`[data-aiantwoord="${CSS.escape(a.id)}"]`); if (t) { t.value = a.w; if (a.f) { t.focus(); try { t.setSelectionRange(a.p, a.p); } catch {} } } }
   if (v === "boodschappen" && inv) { const n = $("#bsInvoer"); if (n) { n.value = bsTekst; if (bsFocus) { n.focus(); try { n.setSelectionRange(bsPos, bsPos); } catch {} } } }
   markeerFocus(main);
   if (v === "matrix") activeerSlepen();
@@ -524,6 +528,18 @@ function vandaag() {
 
 // ===== AI-taken =====
 function aiBeoordelenBlok() {
+  const vragen = [...d().projecten, ...d().taken].filter(x => x.status !== "klaar" && isAi(x) && aiVraagOpen(x) && zichtbaar(x));
+  return aiVragenBlok(vragen) + aiKlaarBlok();
+}
+function aiVragenBlok(lijst) {
+  if (!lijst.length) return "";
+  return `<div class="paneel aibeoordeel aivragen"><h3 style="margin-top:0">❓ Vragen van je agenten</h3>
+    ${lijst.map(x => { const v = x.ai.chat.at(-1);
+      return `<div class="airij"><div class="ibody"><a href="#" class="ititel" data-aiopen="${x.id}" data-aitype="${x.type}">${x.type === "project" ? pIcoon(x) + " " : ""}${esc(x.titel)}</a> <small class="hint">🤖 ${esc(v.naam || agentNaam(aiAgent(x)))}</small>
+        <div class="aitekst">${esc(v.tekst)}</div>
+        <div class="aiinvoer"><textarea data-aiantwoord="${x.id}" rows="2" placeholder="Je antwoord…"></textarea><button type="button" class="knop klein prim" data-aiantwoordstuur="${x.id}" data-aitype="${x.type}">Antwoorden</button></div></div></div>`; }).join("")}</div>`;
+}
+function aiKlaarBlok() {
   const lijst = [...d().projecten, ...d().taken].filter(x => x.status !== "klaar" && isAi(x) && aiStatus(x) === "beoordelen" && zichtbaar(x));
   if (!lijst.length) return "";
   return `<div class="paneel aibeoordeel"><h3 style="margin-top:0">🤖 Ter beoordeling <small class="hint">${lijst.length === 1 ? "een agent is klaar met één taak" : `je agenten zijn klaar met ${lijst.length} taken`}</small></h3>
@@ -573,8 +589,12 @@ async function aiVerwerk() {
           if (m.status && AISTATUS[m.status]) ai.status = m.status;
           if (typeof m.deeltaken === "string") { try { const dl = JSON.parse(m.deeltaken);
             if (Array.isArray(dl)) ai.deeltaken = dl.filter(y => y && typeof y.titel === "string" && y.titel.trim()).slice(0, 50).map((y, i) => ({ id: "d" + i, titel: y.titel.trim().slice(0, 200), klaar: !!y.klaar })); } catch {} }
+          if (typeof m.bericht === "string" && m.bericht.trim()) {
+            ai.chat = [...(x.ai?.chat || []), { id: m.id, t: m.tijd?.toDate?.()?.toISOString?.() || new Date().toISOString(), van: "ai", naam: t.naam, tekst: m.bericht.trim().slice(0, 4000), vraag: !!m.vraag }].slice(-100);
+            toast(m.vraag ? `❓ ${t.naam} heeft een vraag over „${x.titel}”` : `💬 ${t.naam} over „${x.titel}”`);
+          } else if (x.ai?.chat) ai.chat = x.ai.chat;
           const door = String(t.naam + (m.door && m.door !== t.naam ? ` (${m.door})` : "")).slice(0, 60);
-          const delen = [m.status ? "Status: " + AISTATUS[m.status] : "", typeof m.deeltaken === "string" ? `Deeltaken bijgewerkt (${ai.deeltaken.filter(y => y.klaar).length}/${ai.deeltaken.length} klaar)` : "", m.tekst ? String(m.tekst) : ""].filter(Boolean);
+          const delen = [m.status ? "Status: " + AISTATUS[m.status] : "", m.bericht ? (m.vraag ? "Vraag gesteld (zie gesprek)" : "Bericht (zie gesprek)") : "", typeof m.deeltaken === "string" ? `Deeltaken bijgewerkt (${ai.deeltaken.filter(y => y.klaar).length}/${ai.deeltaken.length} klaar)` : "", m.tekst ? String(m.tekst) : ""].filter(Boolean);
           ai.log = [...ai.log, { id: m.id, t: m.tijd?.toDate?.()?.toISOString?.() || new Date().toISOString(), door, tekst: delen.join(" — ").slice(0, 4000) }].slice(-30);
           x.ai = ai; iets = true;
           if (m.status === "beoordelen") toast(`🤖 „${x.titel}” staat ter beoordeling`);
@@ -590,7 +610,7 @@ setTimeout(() => aiVerwerk().catch(() => {}), 6000);
 
 function aiEditorBlok(c, item, nieuw) {
   const proj = aiProject(c), aan = !!c.ai?.aan, o = overzicht(c.overzicht), agenten = d().aiToegang || [];
-  if (proj) return `<div class="paneel aiblok"><b>🤖 Hoort bij AI-project „${esc(proj.titel)}” (${esc(agentNaam(proj.ai.agent))})</b> <span class="hint">— de agent werkt hieraan; status: ${AISTATUS[aiStatus(c)]}.</span>${aiVoortgang(c)}</div>`;
+  if (proj) return `<div class="paneel aiblok"><b>🤖 Hoort bij AI-project „${esc(proj.titel)}” (${esc(agentNaam(proj.ai.agent))})</b> <span class="hint">— de agent werkt hieraan; status: ${AISTATUS[aiStatus(c)]}.</span>${aiVoortgang(c)}${nieuw ? "" : aiGesprek(c)}</div>`;
   const huidig = aan ? c.ai.agent : "";
   return `<div class="paneel aiblok">
     <div class="veld" style="font-size:13px;color:var(--meta)">🤖 Aan een AI-agent geven</div>
@@ -598,14 +618,41 @@ function aiEditorBlok(c, item, nieuw) {
         `<button type="button" data-aiagent="${esc(aid)}" style="${aid === huidig ? "border-color:var(--accent);color:var(--accent)" : ""}">${esc(n)}</button>`).join("")}</div>`
       : `<span class="hint">Maak eerst een agent aan in <a href="#instellingen" data-tab="koppelingen">Instellingen → Agenda's &amp; accounts → AI-agenten</a> (bijv. Claude, ChatGPT).</span>`}
     ${aan ? `<span class="hint">${c.type === "project" ? `${esc(agentNaam(huidig))} werkt aan dit project en al zijn taken en mag zelf deeltaken maken. Jij vinkt alleen af wat je gaf.` : `${esc(agentNaam(huidig))} werkt hieraan en mag zelf deeltaken maken. Jij vinkt af na beoordeling.`} Wordt niet in jouw agenda ingepland.${o?.opslag ? " ⚠️ Deze lijst staat in je eigen Drive/OneDrive: die gaat nooit naar buiten, dus de agent ziet hem niet." : ""}</span>` : ""}
-    ${aan && !nieuw ? aiVoortgang(c) : ""}
+    ${aan && !nieuw ? aiVoortgang(c) + aiGesprek(c) : ""}
     ${aan && !nieuw && aiStatus(c) === "beoordelen" && item?.status !== "klaar" ? `<div style="display:flex;gap:8px;margin-top:8px"><button type="button" class="knop klein prim" data-aigoed="${c.id}" data-aitype="${c.type}">✓ Goedkeuren en afvinken</button>
       <button type="button" class="knop klein" data-aiterug="${c.id}" data-aitype="${c.type}">↩ Terug naar ${esc(agentNaam(huidig))}</button></div>` : ""}
   </div>`;
 }
+/** Staat er een vraag van de agent open (laatste bericht is een vraag van hem)? */
+const aiVraagOpen = (x) => { const l = (x?.ai?.chat || []).at(-1); return !!(l && l.van === "ai" && l.vraag); };
+function aiGesprek(c) {
+  const chat = c.ai?.chat || [], naam = agentNaam(aiAgent(c));
+  const tijd = (t) => t ? new Date(t).toLocaleString("nl-NL", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+  return `<div class="aigesprek"><div class="veld" style="font-size:13px;color:var(--meta)">💬 Gesprek met ${esc(naam)} <small class="hint">— vragen en antwoorden over deze ${c.type === "project" ? "opdracht" : "taak"}</small></div>
+    <div class="aichat" data-aichatlijst>${chat.map(m => `<div class="aibericht ${m.van === "ai" ? "vanai" : "vanmij"}${m.vraag ? " vraag" : ""}">
+        <div class="aiwie">${m.van === "ai" ? "🤖 " + esc(m.naam || naam) + (m.vraag ? " · ❓ vraag" : "") : "Jij"} <small>${esc(tijd(m.t))}</small></div><div class="aitekst">${esc(m.tekst)}</div></div>`).join("")
+      || `<div class="hint">Nog geen berichten. Heeft ${esc(naam)} een vraag, dan verschijnt die hier; jij kunt ook zelf iets toelichten.</div>`}</div>
+    <div class="aiinvoer"><textarea data-aichattekst rows="2" placeholder="${aiVraagOpen(c) ? "Je antwoord aan " + esc(naam) + "…" : "Bericht of extra toelichting voor " + esc(naam) + "…"}"></textarea>
+      <button type="button" class="knop klein prim" data-aichatstuur="${c.id}" data-aitype="${c.type}">Versturen</button></div></div>`;
+}
+/** Bij opslaan uit het venster: alleen agent/aan uit het venster; gesprek, logboek en voortgang zoals ze nu zijn
+ *  (de agent kan intussen iets gemeld hebben) */
+function aiSamen(item, ai) {
+  const nu = item?.ai;
+  if (!nu) return ai;
+  const ander = ai.agent !== nu.agent;
+  return { ...nu, aan: ai.aan, agent: ai.agent, ...(ander ? { status: "open", deeltaken: [] } : {}) };
+}
+/** Bericht van jou in het gesprek bij een AI-taak */
+function aiStuur(x, tekst) {
+  tekst = String(tekst || "").trim().slice(0, 4000);
+  if (!x || !tekst) return false;
+  x.ai = { status: "open", deeltaken: [], log: [], opmerking: "", ...(x.ai || {}), chat: [...(x.ai?.chat || []), { id: "c" + Date.now().toString(36), t: new Date().toISOString(), van: "ik", tekst }].slice(-100) };
+  bewaar(); return true;
+}
 function aiVoortgang(c) {
   const dl = c.ai?.deeltaken || [], log = (c.ai?.log || []).slice(-6).reverse();
-  return `<div class="aistatus">Status: <b>${AISTATUS[aiStatus(c)]}</b>${c.ai?.opmerking ? ` · jouw opmerking: <i>${esc(c.ai.opmerking)}</i>` : ""}</div>
+  return `<div class="aistatus">Status: <b>${aiStatus(c) === "bezig" ? esc(agentNaam(aiAgent(c))) + " is bezig" : AISTATUS[aiStatus(c)]}</b>${c.ai?.opmerking ? ` · jouw opmerking: <i>${esc(c.ai.opmerking)}</i>` : ""}</div>
     ${dl.length ? `<div class="hint" style="margin-top:6px">Deeltaken van de AI <small>(hoef jij niet af te vinken)</small></div><ul class="aideel">${dl.map(y => `<li class="${y.klaar ? "klaar" : ""}">${y.klaar ? "✓" : "○"} ${esc(y.titel)}</li>`).join("")}</ul>` : ""}
     ${log.length ? `<details class="ailog"><summary>Logboek (${(c.ai?.log || []).length})</summary>${log.map(l => `<div><small class="hint">${esc(l.t ? new Date(l.t).toLocaleString("nl-NL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "")} · ${esc(l.door || "")}</small><div class="aitekst">${esc(l.tekst)}</div></div>`).join("")}</details>` : ""}`;
 }
@@ -2225,6 +2272,8 @@ function openEditor(item, standaard = {}) {
       ${isProj ? `${c.icoon ? `<button type="button" class="x" data-pemojiweg title="Terug naar de ruit">✕</button>` : ""}</div>
       <label class="veld">Korte naam voor in de agenda <small class="hint">(mag leeg; dan de hele naam)</small><input type="text" name="kort" value="${esc(c.kort || "")}" maxlength="40" placeholder="bv. Camper"></label>
       ${looptijdBlok(c, item)}` : ""}
+      <label class="veld">📝 Omschrijving <small class="hint">— wat moet er gebeuren, waarom, wat is het resultaat, waar staat wat. Zo uitgebreid als je wilt; ook wat een AI-agent als opdracht leest.</small>
+        <textarea name="omschrijving" class="omschrijving" placeholder="${isProj ? "Doel en achtergrond van het project, wat er af moet zijn, randvoorwaarden, bronnen…" : "Opdracht: wat moet er precies gebeuren, wanneer is het goed, waar vind je wat…"}">${esc(c.omschrijving || "")}</textarea></label>
       <div class="rij">
         <label class="veld">Lijst<select name="overzicht">${boom().filter(r => r.soort === "map" || !r.x.slot || r.x.id === c.overzicht).map(r => r.soort === "map"
           ? `<option disabled>${"\u2003".repeat(r.diepte)}${esc(r.x.icoon)} ${esc(r.x.naam)}</option>`
@@ -2283,7 +2332,7 @@ function openEditor(item, standaard = {}) {
   // concept bijwerken uit formuliervelden (zodat hertekenen niets kwijtraakt)
   const lees = () => {
     const f = $("#editForm"); if (!f) return;
-    c.titel = f.titel.value.trim(); c.overzicht = f.overzicht.value; c.notitie = f.notitie.value;
+    c.titel = f.titel.value.trim(); c.overzicht = f.overzicht.value; c.notitie = f.notitie.value; if (f.omschrijving) c.omschrijving = f.omschrijving.value.slice(0, 20000);
     if (f.deadline) { c.deadline = f.deadline.value; c.streef = f.streef.value; } c.locatie = f.locatie.value;
     const ks = $("[name=koers]", f); if (ks) c.koersId = ks.value;
     if (f.klaarOp?.value) c.klaarOp = new Date(f.klaarOp.value).toISOString();
@@ -2300,7 +2349,7 @@ function openEditor(item, standaard = {}) {
     if (!c.titel) { $("#editForm").titel.focus(); return false; }
     const opdeling = $("#editForm").opdeling?.value || "";
     const velden = { titel: c.titel, overzicht: c.overzicht, notitie: c.notitie, deadline: c.deadline, streef: c.streef, schatting: c.schatting,
-                     werkelijk: c.werkelijk, urgent: c.urgent, belangrijk: c.belangrijk, impact: c.impact ?? null, inspanning: c.inspanning ?? null, ...(c.ai ? { ai: c.ai } : {}), links: c.links, gedeeldMet: c.gedeeldMet, locatie: c.locatie || "" };
+                     werkelijk: c.werkelijk, urgent: c.urgent, belangrijk: c.belangrijk, impact: c.impact ?? null, inspanning: c.inspanning ?? null, omschrijving: c.omschrijving || "", ...(c.ai ? { ai: aiSamen(item, c.ai) } : {}), links: c.links, gedeeldMet: c.gedeeldMet, locatie: c.locatie || "" };
     if (!isProj) { velden.wie = c.wie; velden.wachtOp = c.wachtOp; }
     else {
       velden.icoon = c.icoon || ""; velden.kort = c.kort || ""; velden.looptijd = c.looptijd; velden.doel = c.doel || "";
@@ -2377,6 +2426,13 @@ function openEditor(item, standaard = {}) {
       c.ai = { status: "open", deeltaken: [], log: [], opmerking: "", ...(c.ai || {}), aan: !!aid, agent: aid };
       if (aid && item?.ai?.agent && item.ai.agent !== aid) c.ai = { ...c.ai, status: "open", deeltaken: [] };   // andere agent: begint opnieuw
       teken(); return;
+    }
+    if (b.dataset.aichatstuur) {
+      const veld = $("[data-aichattekst]", dlg), x = aiItem(b.dataset.aichatstuur, b.dataset.aitype);
+      if (!aiStuur(x, veld?.value)) { veld?.focus(); return; }
+      lees(); c.ai = { ...(c.ai || {}), chat: x.ai.chat }; teken();
+      const l = $("[data-aichatlijst]", dlg); if (l) l.scrollTop = l.scrollHeight;
+      toast(`Verstuurd naar ${agentNaam(aiAgent(x))}`); return;
     }
     if (b.dataset.aigoed || b.dataset.aiterug) {
       const x = aiItem(b.dataset.aigoed || b.dataset.aiterug, b.dataset.aitype);
@@ -4032,6 +4088,12 @@ async function hoofdKlik(e) {
     else if (kk.dataset.koppel) { koppelKoers(taak(tid), aid); bewaar(); }
     else if (kk.dataset.nee) { a.nee.push(tid); bewaar(); }
     else { a.taken = a.taken.filter(x => x !== tid); bewaar(); }
+    return;
+  }
+  const aia = e.target.closest("[data-aiantwoordstuur]");
+  if (aia) {
+    const x = aiItem(aia.dataset.aiantwoordstuur, aia.dataset.aitype), veld = aia.closest(".aiinvoer")?.querySelector("textarea");
+    if (aiStuur(x, veld?.value)) { toast(`Antwoord verstuurd naar ${agentNaam(aiAgent(x))}`); render(); } else veld?.focus();
     return;
   }
   const aik = e.target.closest("[data-aigoed],[data-aiterug],[data-aiopen]");
