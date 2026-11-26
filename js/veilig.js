@@ -193,7 +193,7 @@ export function ontsmet(n) {
     .map(f => ({ id: f.id, naam: tekst(f.naam, 100) || "Tijdkompas", lijsten: idLijst(f.lijsten), titels: f.titels !== false, reis: !!f.reis, aangemaakt: tekst(f.aangemaakt, 40) }));
   // AI-toegang: lange willekeurige sleutel per AI, alleen bestaande lijsten
   n.aiToegang = (Array.isArray(n.aiToegang) ? n.aiToegang : []).filter(f => f && typeof f.id === "string" && /^[A-Za-z0-9_-]{32,64}$/.test(f.id)).slice(0, 10)
-    .map(f => ({ id: f.id, aid: veiligId(f.aid) ? f.aid : "a" + f.id.slice(0, 10).replace(/[^A-Za-z0-9]/g, "x"), naam: tekst(f.naam, 100) || "AI", aangemaakt: tekst(f.aangemaakt, 40) }));
+    .map(f => ({ id: f.id, aid: veiligId(f.aid) ? f.aid : "a" + f.id.slice(0, 10).replace(/[^A-Za-z0-9]/g, "x"), naam: tekst(f.naam, 100) || "AI", sein: /^https:\/\/[^\s<>"']{3,490}$/.test(String(f.sein || "")) ? String(f.sein) : "", aangemaakt: tekst(f.aangemaakt, 40) }));
   // afspraken die niet altijd meetellen: per naam + agenda alleen op werkdagen, of losse keren verborgen
   n.afspraakRegels = (Array.isArray(n.afspraakRegels) ? n.afspraakRegels : []).filter(r => r && typeof r.bron === "string" && r.bron.length <= 400 && ["werkdag", "rolwerk", "rolprive", "herinnering"].includes(r.soort) && (r.soort === "herinnering" || veiligId(r.lijst)))
     .slice(0, 200).map(r => ({ id: veiligId(r.id) ? r.id : "r" + Math.random().toString(36).slice(2, 10), bron: r.bron, titel: tekst(r.titel, 200), lijst: veiligId(r.lijst) ? r.lijst : "", soort: r.soort }));

@@ -745,6 +745,8 @@ const AI_UITLEG = [
   "Je kunt een taak nooit zelf afvinken. Klaar? Zet hem op status 'beoordelen' met een korte toelichting van wat je deed en waar het resultaat staat. De eigenaar keurt goed (dan is hij af) of stuurt hem terug met een opmerking (status 'open', zie opmerking_van_eigenaar).",
   "Melden: POST naar deze zelfde link, met JSON-body: {\"taak\": \"<id>\", \"status\": \"bezig\" | \"beoordelen\" | \"open\", \"tekst\": \"wat je deed of vraagt\", \"deeltaken\": [{\"titel\": \"...\", \"klaar\": true}], \"door\": \"naam van de AI\"}. Alles behalve taak is optioneel; deeltaken vervangt je hele lijst deeltaken voor die taak. 'tekst' komt in het logboek.",
   "Vraag of bericht aan de eigenaar (komt in het gesprek bij die taak): POST {\"taak\": \"<id>\", \"vraag\": \"je vraag\"} of {\"taak\": \"<id>\", \"bericht\": \"mededeling zonder vraag\"}. Een vraag zie de eigenaar op zijn startscherm; zijn antwoord verschijnt in 'gesprek' (van: eigenaar).",
+  "Er is geen haast: de eigenaar formuleert rustig en verwacht dat jij ook goed nadenkt. Stel liever één goede vraag dan te gokken.",
+  "'aandacht' bovenaan somt op waar je nu iets moet doen: 'nieuw' (net aan je gegeven), 'antwoord' (de eigenaar reageerde in het gesprek) of 'teruggestuurd' (afgekeurd, zie opmerking_van_eigenaar). Is die lijst leeg, dan is er niets nieuws.",
   "Je melding staat meteen in 'wachtend' en wordt verwerkt zodra de eigenaar Tijdkompas open heeft. Max. 4000 tekens tekst, 50 deeltaken.",
 ];
 function aiKeuze(t) {
@@ -760,6 +762,20 @@ function aiKeuze(t) {
 }
 /** Mag deze AI-toegang iets melden over dit item? */
 export const aiMag = (t, id) => aiKeuze(t).ids.has(id);
+/** Waar moet deze agent nu iets doen? k = interne sleutel om te zien of er iets níeuws bij kwam (voor het seintje) */
+function aiAandacht(items) {
+  const uit = [];
+  for (const x of items) {
+    if (x.status === "klaar") continue;
+    const ai = x.ai || {}, chat = ai.chat || [], log = ai.log || [], st = ["open", "bezig", "beoordelen"].includes(ai.status) ? ai.status : "open";
+    const actief = log.some(l => l.door && l.door !== "jij") || chat.some(m => m.van === "ai");
+    const laatsteChat = chat.at(-1), laatsteLog = log.at(-1);
+    if (laatsteChat?.van === "ik") uit.push({ taak: x.id, titel: x.titel, reden: "antwoord", k: `${x.id}|a|${laatsteChat.id || laatsteChat.t}` });
+    else if (st === "open" && ai.opmerking && /^Teruggestuurd/.test(laatsteLog?.tekst || "")) uit.push({ taak: x.id, titel: x.titel, reden: "teruggestuurd", k: `${x.id}|t|${laatsteLog.id || laatsteLog.t}` });
+    else if (st === "open" && !actief) uit.push({ taak: x.id, titel: x.titel, reden: "nieuw", k: `${x.id}|n` });
+  }
+  return uit;
+}
 function aiInhoud(t) {
   const d = opslag.d, { projecten, losse } = aiKeuze(t);
   const lijstNaam = id => d.overzichten.find(o => o.id === id)?.naam || "";
@@ -779,7 +795,9 @@ function aiInhoud(t) {
     ...losse.map(x => { const p = x.project ? d.projecten.find(y => y.id === x.project) : null;
       return { ...kaart(x), ...(p ? { project: { titel: p.titel, ...(p.doel ? { doel: p.doel } : {}), ...(p.omschrijving ? { omschrijving: p.omschrijving } : {}) } } : {}) }; }),
   ];
-  return { agent: t.naam, uitleg: AI_UITLEG.map(r => r.replace("@@NAAM@@", t.naam)), taken };
+  const alles = [...projecten, ...projecten.flatMap(p => d.taken.filter(x => x.project === p.id)), ...losse];
+  const aandacht = aiAandacht(alles);
+  return { agent: t.naam, aandacht: aandacht.map(({ k, ...a }) => a), uitleg: AI_UITLEG.map(r => r.replace("@@NAAM@@", t.naam)), taken, _k: aandacht.map(a => a.k) };
 }
 let aiTimer = null;
 export function aiLater(ms = 3000) {
@@ -790,20 +808,30 @@ export async function aiBijwerken() {
   if (!cloudGeladen()) return;
   for (const t of opslag.d.aiToegang || []) {
     const ref = F.doc(db, "ai", t.id);
-    const json = JSON.stringify(aiInhoud(t)), h = hash(json);
+    const { _k, ...inhoud } = aiInhoud(t), json = JSON.stringify(inhoud), h = hash(json + "|" + (t.sein || ""));
     try {
       if (!aiGelezen.has(t.id)) {
         aiGelezen.add(t.id);
         const s = await F.getDoc(ref).catch(() => null);
-        if (s?.exists()) aiStand.set(t.id, { hash: s.data().hash, bijgewerkt: s.data().bijgewerkt });
+        if (s?.exists()) aiStand.set(t.id, { hash: s.data().hash, bijgewerkt: s.data().bijgewerkt, k: null });
       }
-      if (aiStand.get(t.id)?.hash === h) continue;
+      if (aiStand.get(t.id)?.hash === h) { if (aiStand.get(t.id).k == null) aiStand.get(t.id).k = new Set(_k); continue; }
       if (json.length > 790000) throw new Error("te veel AI-taken voor één link (kies minder lijsten)");
       const bijgewerkt = new Date().toISOString();
-      await F.setDoc(ref, { eigenaar: sessie.ik, naam: String(t.naam || "AI").slice(0, 100), json, hash: h, bijgewerkt });
-      aiStand.set(t.id, { hash: h, bijgewerkt });
+      await F.setDoc(ref, { eigenaar: sessie.ik, naam: String(t.naam || "AI").slice(0, 100), json, hash: h, bijgewerkt, ...(t.sein ? { sein: t.sein } : {}) });
+      // Seintje: alleen als er iets bij kwam waar de agent iets mee moet (niet bij elke wijziging), en niet bij het opstarten
+      const oud = aiStand.get(t.id)?.k, nu = new Set(_k);
+      aiStand.set(t.id, { hash: h, bijgewerkt, k: nu });
+      if (t.sein && oud && _k.some(k => !oud.has(k))) aiSein(t.id).catch(() => {});
     } catch (e) { aiStand.set(t.id, { ...(aiStand.get(t.id) || {}), fout: foutTekst(e) }); }
   }
+}
+/** Het doorgeefluik roept de webhook van de agent aan (de app zelf mag niet naar willekeurige adressen) */
+export async function aiSein(sleutel) {
+  const r = await fetch(`${aiUrl(sleutel)}/sein`, { method: "POST" });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.fout || `seintje mislukt (${r.status})`);
+  return j;
 }
 /** Nog niet verwerkte meldingen van een AI, oudste eerst */
 export async function aiMeldingen(sleutel) {

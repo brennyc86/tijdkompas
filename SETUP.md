@@ -288,6 +288,13 @@ Eenmalig: plak de nieuwste `firestore.rules` (zie hieronder) en werk het doorgee
    Heeft de agent een vraag, dan staat die op **Vandaag** onder **❓ Vragen van je agenten**; je antwoordt daar of in het **💬 Gesprek** in de taak.
 5. Op **Vandaag** (en in de taak) staat dan **🤖 Ter beoordeling**: **✓ Goedkeuren** vinkt hem af, **↩ Terug naar …** stuurt hem terug met een opmerking.
 
+**Seintje voor de agent (optioneel).** Een agent weet niet vanzelf dat er iets is. Twee manieren:
+- De link bevat bovenaan **aandacht**: wat nieuw is, waar jij op antwoordde of wat je terugstuurde. Een agent die op vaste tijden kijkt
+  (bijv. een Claude-routine die elke paar uur draait), ziet zo meteen of er werk is en doet anders niets.
+- Vul bij de agent een **webhook** in (🔔 Seintje). Tijdkompas laat het doorgeefluik die aanroepen bij een nieuwe taak, jouw antwoord of een
+  teruggestuurde taak (max. eens per 30 seconden). Het bericht heeft `text`/`content`/`message`, dus het werkt direct met Slack, Teams, Discord
+  en ntfy.sh, en met n8n/Make/Zapier om er een AI mee te starten. De geheime link gaat niet mee.
+
 Wat de agent kan: alleen de taken zien die aan hém zijn gegeven, status (open / bezig / beoordelen), eigen deeltaken en een toelichting melden.
 Wat hij niet kan: afvinken, wissen, wijzigen of andere taken zien. Meldingen verwerkt Tijdkompas zodra je de app open hebt (ingelogd).
 Link uitgelekt? **🔄 Nieuwe link** (de agent en zijn taken blijven, alleen de sleutel verandert).

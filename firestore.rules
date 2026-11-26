@@ -224,7 +224,8 @@ service cloud.firestore {
       function aiSleutelOk() { return sleutel.matches('^[A-Za-z0-9_-]{32,64}$'); }
       function magAi(e) { return ingelogd() && e is string && (e == request.auth.uid || familieVan(request.auth.uid, e)); }
       function aiOk(x) {
-        return x.keys().hasOnly(['eigenaar', 'naam', 'json', 'hash', 'bijgewerkt'])
+        return x.keys().hasOnly(['eigenaar', 'naam', 'json', 'hash', 'bijgewerkt', 'sein'])
+          && (!('sein' in x) || (x.sein is string && x.sein.size() <= 500 && x.sein.matches('^https://.+')))
           && x.json is string && x.json.size() < 800000 && x.naam is string && x.naam.size() <= 100
           && x.hash is string && x.hash.size() <= 40 && x.bijgewerkt is string && x.bijgewerkt.size() <= 40;
       }

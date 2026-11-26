@@ -30,7 +30,7 @@ async function geefFeed(req, sleutel) {
 // GET  → de gedeelde AI-taken (JSON, met uitleg voor de AI) en de meldingen die nog verwerkt moeten worden
 // POST → een melding van de AI: { taak, status?: "open"|"bezig"|"beoordelen", tekst?, deeltaken?: [{ titel, klaar }], vraag? | bericht?, door? }
 // Het doorgeefluik bewaart niets zelf: alles staat in Firestore, waar de beveiligingsregels het formaat afdwingen.
-const AI = /^\/ai\/([A-Za-z0-9_-]{32,64})(?:\.json)?\/?$/;
+const AI = /^\/ai\/([A-Za-z0-9_-]{32,64})(?:\.json)?(\/sein)?\/?$/;
 const FS = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents`;
 const aiKop = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
                 "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
@@ -42,11 +42,12 @@ async function fsGet(pad) {
   catch (e) { if (!/cache/i.test(String(e?.message || e))) throw e; r = await fetch(`${FS}/${pad}`, { headers: { "User-Agent": "Tijdkompas-ai" } }); }
   return r;
 }
-async function geefAi(req, sleutel) {
+async function geefAi(req, sleutel, sein) {
   if (req.method === "OPTIONS") return new Response(null, { headers: aiKop });
   const doc = await fsGet(`ai/${sleutel}`);
   if (!doc.ok) return aiJson({ fout: "Onbekende of ingetrokken AI-link" }, 404);
   const f = (await doc.json())?.fields || {};
+  if (sein) return stuurSein(req, sleutel, f);
   if (req.method === "GET" || req.method === "HEAD") {
     let inhoud = {};
     try { inhoud = JSON.parse(waarde(f.json) || "{}"); } catch {}
@@ -82,10 +83,30 @@ async function geefAi(req, sleutel) {
   return aiJson({ ok: true, id, uitleg: "Ontvangen. Wordt verwerkt zodra de eigenaar Tijdkompas open heeft; tot die tijd staat hij bij 'wachtend'." });
 }
 
+// Seintje: de webhook die de eigenaar bij de agent heeft ingesteld (alleen https) krijgt te horen dat er iets is.
+// Werkt met o.a. Slack/Teams ("text"), Discord ("content"), ntfy, n8n, Make en Zapier. De geheime link gaat niet mee.
+async function stuurSein(req, sleutel, f) {
+  if (req.method !== "POST") return aiJson({ fout: "Alleen POST" }, 405);
+  const url = waarde(f.sein) || "";
+  if (!/^https:\/\/[^\s]+$/.test(url)) return aiJson({ fout: "Geen seintje (webhook) ingesteld voor deze agent" }, 400);
+  // niet vaker dan eens per 30 seconden per agent (bijv. als er meerdere apparaten open staan)
+  const rem = globalThis.caches?.default, sleutelUrl = `https://sein.tijdkompas/${sleutel}`;
+  try { if (rem && await rem.match(sleutelUrl)) return aiJson({ ok: true, overgeslagen: "net al een seintje gestuurd" }); } catch {}
+  let inhoud = {}; try { inhoud = JSON.parse(waarde(f.json) || "{}"); } catch {}
+  const a = Array.isArray(inhoud.aandacht) ? inhoud.aandacht : [], agent = inhoud.agent || waarde(f.naam) || "AI";
+  const REDEN = { nieuw: "nieuw", antwoord: "antwoord van de eigenaar", teruggestuurd: "teruggestuurd" };
+  const tekst = a.length ? `🤖 ${agent}: er ${a.length === 1 ? "is 1 taak" : `zijn ${a.length} taken`} in Tijdkompas die je aandacht ${a.length === 1 ? "vraagt" : "vragen"} — ` + a.slice(0, 10).map(x => `${x.titel} (${REDEN[x.reden] || x.reden})`).join("; ")
+                         : `🤖 ${agent}: er is iets bijgewerkt in Tijdkompas.`;
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "Tijdkompas-sein" },
+    body: JSON.stringify({ text: tekst, content: tekst, message: tekst, agent, aandacht: a, tijd: new Date().toISOString() }) }).catch(e => ({ ok: false, status: String(e?.message || e) }));
+  try { if (rem) await rem.put(sleutelUrl, new Response("1", { headers: { "Cache-Control": "max-age=30" } })); } catch {}
+  return r.ok ? aiJson({ ok: true }) : aiJson({ fout: `Webhook gaf ${r.status}` }, 502);
+}
+
 export default {
   async fetch(req) {
     const ai = new URL(req.url).pathname.match(AI);
-    if (ai) { try { return await geefAi(req, ai[1]); } catch (e) { return aiJson({ fout: "Doorgeefluik: " + String(e?.message || e).slice(0, 200) }, 502); } }
+    if (ai) { try { return await geefAi(req, ai[1], !!ai[2]); } catch (e) { return aiJson({ fout: "Doorgeefluik: " + String(e?.message || e).slice(0, 200) }, 502); } }
     // Abonneer-link: agenda-apps sturen geen Origin mee; de lange sleutel is de toegang
     const feed = new URL(req.url).pathname.match(FEED);
     if (feed) return geefFeed(req, feed[1]);

@@ -15,7 +15,7 @@ import { veiligeUrl, veiligeFoto } from "./veilig.js";
 import { initAdresZoeker } from "./adres.js";
 import { VERVOER, vervoer, bron as routeBron, routeStand, mapsSleutel, routesAan, opRoute, wisRoutes, isFysiek, routeUitleg, reistijdenLijst, reistijdWeg, reistijdZelf, isKamer, reistijd as routeReistijd } from "./route.js";
 import { familieSchrijfAgendas, verzoekenVoorMij, verzoekGedaan } from "./cloud.js";
-import { aiLater, aiBijwerken, aiStand, aiUrl, aiMeldingen, aiMeldingWeg, aiWeg, aiMag, familieBezetRuw, familieRegels, familieLijstInst, familieVoorMij, emailVan, feedsLater, feedsBijwerken, feedStand, feedUrl, feedWeg, nieuweFeedSleutel, feedBlokken, cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda, gelinkteInfo, stuurInlogLink,
+import { aiSein, aiLater, aiBijwerken, aiStand, aiUrl, aiMeldingen, aiMeldingWeg, aiWeg, aiMag, familieBezetRuw, familieRegels, familieLijstInst, familieVoorMij, emailVan, feedsLater, feedsBijwerken, feedStand, feedUrl, feedWeg, nieuweFeedSleutel, feedBlokken, cloud, cloudStart, cloudIngesteld, opCloud, login, koppelAccount, uitloggen, foutTekst, planSchrijven, accepteer, weiger, ingelogd, isHoofd, voegInlogToe, verwijderInlog, cloudGeladen, familieAgenda, gelinkteInfo, stuurInlogLink,
          koppel as koppelStaat, vraagKoppelcode, gebruikKoppelcode, beantwoordKoppel, stopKoppelcode, stuurBevestiging, controleerBevestiging } from "./cloud.js";
 familieHaak.agenda = familieAgenda;
 familieHaak.instVan = (o) => (ingelogd() && gelinkteInfo(o)?.inst) || null;
@@ -608,9 +608,15 @@ async function aiVerwerk() {
 setInterval(() => aiVerwerk().catch(() => {}), 30000);
 setTimeout(() => aiVerwerk().catch(() => {}), 6000);
 
+function omschrijvingVeld(c, agent = "") {
+  const proj = c.type === "project";
+  return `<label class="veld">📝 ${agent ? `Opdracht voor ${esc(agent)}` : "Omschrijving"} <small class="hint">— ${agent ? "hier begint het gesprek: wat moet er gebeuren, waarom, wanneer is het goed, waar staat wat. Rustig uitschrijven mag." : "wat moet er gebeuren, waarom, wat is het resultaat, waar staat wat. Zo uitgebreid als je wilt; ook wat een AI-agent als opdracht leest."}</small>
+    <textarea name="omschrijving" class="omschrijving" placeholder="${proj ? "Doel en achtergrond van het project, wat er af moet zijn, randvoorwaarden, bronnen…" : "Opdracht: wat moet er precies gebeuren, wanneer is het goed, waar vind je wat…"}">${esc(c.omschrijving || "")}</textarea></label>`;
+}
 function aiEditorBlok(c, item, nieuw) {
   const proj = aiProject(c), aan = !!c.ai?.aan, o = overzicht(c.overzicht), agenten = d().aiToegang || [];
-  if (proj) return `<div class="paneel aiblok"><b>🤖 Hoort bij AI-project „${esc(proj.titel)}” (${esc(agentNaam(proj.ai.agent))})</b> <span class="hint">— de agent werkt hieraan; status: ${AISTATUS[aiStatus(c)]}.</span>${aiVoortgang(c)}${nieuw ? "" : aiGesprek(c)}</div>`;
+  if (proj) return `<div class="paneel aiblok"><b>🤖 Hoort bij AI-project „${esc(proj.titel)}” (${esc(agentNaam(proj.ai.agent))})</b> <span class="hint">— de agent werkt hieraan; status: ${AISTATUS[aiStatus(c)]}.</span>
+    ${nieuw ? "" : omschrijvingVeld(c, agentNaam(proj.ai.agent)) + aiGesprek(c)}${aiVoortgang(c)}</div>`;
   const huidig = aan ? c.ai.agent : "";
   return `<div class="paneel aiblok">
     <div class="veld" style="font-size:13px;color:var(--meta)">🤖 Aan een AI-agent geven</div>
@@ -618,7 +624,7 @@ function aiEditorBlok(c, item, nieuw) {
         `<button type="button" data-aiagent="${esc(aid)}" style="${aid === huidig ? "border-color:var(--accent);color:var(--accent)" : ""}">${esc(n)}</button>`).join("")}</div>`
       : `<span class="hint">Maak eerst een agent aan in <a href="#instellingen" data-tab="koppelingen">Instellingen → Agenda's &amp; accounts → AI-agenten</a> (bijv. Claude, ChatGPT).</span>`}
     ${aan ? `<span class="hint">${c.type === "project" ? `${esc(agentNaam(huidig))} werkt aan dit project en al zijn taken en mag zelf deeltaken maken. Jij vinkt alleen af wat je gaf.` : `${esc(agentNaam(huidig))} werkt hieraan en mag zelf deeltaken maken. Jij vinkt af na beoordeling.`} Wordt niet in jouw agenda ingepland.${o?.opslag ? " ⚠️ Deze lijst staat in je eigen Drive/OneDrive: die gaat nooit naar buiten, dus de agent ziet hem niet." : ""}</span>` : ""}
-    ${aan && !nieuw ? aiVoortgang(c) + aiGesprek(c) : ""}
+    ${aan && !nieuw ? omschrijvingVeld(c, agentNaam(huidig)) + aiGesprek(c) + aiVoortgang(c) : ""}
     ${aan && !nieuw && aiStatus(c) === "beoordelen" && item?.status !== "klaar" ? `<div style="display:flex;gap:8px;margin-top:8px"><button type="button" class="knop klein prim" data-aigoed="${c.id}" data-aitype="${c.type}">✓ Goedkeuren en afvinken</button>
       <button type="button" class="knop klein" data-aiterug="${c.id}" data-aitype="${c.type}">↩ Terug naar ${esc(agentNaam(huidig))}</button></div>` : ""}
   </div>`;
@@ -628,7 +634,7 @@ const aiVraagOpen = (x) => { const l = (x?.ai?.chat || []).at(-1); return !!(l &
 function aiGesprek(c) {
   const chat = c.ai?.chat || [], naam = agentNaam(aiAgent(c));
   const tijd = (t) => t ? new Date(t).toLocaleString("nl-NL", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
-  return `<div class="aigesprek"><div class="veld" style="font-size:13px;color:var(--meta)">💬 Gesprek met ${esc(naam)} <small class="hint">— vragen en antwoorden over deze ${c.type === "project" ? "opdracht" : "taak"}</small></div>
+  return `<div class="aigesprek"><div class="veld" style="font-size:13px;color:var(--meta)">💬 Gesprek met ${esc(naam)} <small class="hint">— vragen en antwoorden over de opdracht hierboven; er is geen haast</small></div>
     <div class="aichat" data-aichatlijst>${chat.map(m => `<div class="aibericht ${m.van === "ai" ? "vanai" : "vanmij"}${m.vraag ? " vraag" : ""}">
         <div class="aiwie">${m.van === "ai" ? "🤖 " + esc(m.naam || naam) + (m.vraag ? " · ❓ vraag" : "") : "Jij"} <small>${esc(tijd(m.t))}</small></div><div class="aitekst">${esc(m.tekst)}</div></div>`).join("")
       || `<div class="hint">Nog geen berichten. Heeft ${esc(naam)} een vraag, dan verschijnt die hier; jij kunt ook zelf iets toelichten.</div>`}</div>
@@ -1740,6 +1746,8 @@ function aiToegangBlok() {
       <div class="feedurl"><input type="text" readonly value="${esc(aiUrl(t.id))}" aria-label="AI-link" data-aiurl>
         <button type="button" class="knop klein" data-actie="aiKopieLink">📋 Link</button>
         <button type="button" class="knop klein prim" data-actie="aiKopieOpdracht" title="Link plus uitleg, om in een chat met je AI te plakken">📋 Opdracht voor je AI</button></div>
+      <label class="veld">🔔 Seintje als er iets voor ${esc(t.naam)} is <small class="hint">(optioneel: een webhook-adres, bijv. van n8n, Make, Zapier, Slack, Teams, Discord of ntfy.sh — die krijgt bericht bij een nieuwe taak, jouw antwoord of een teruggestuurde taak; de geheime link gaat niet mee)</small>
+        <div class="feedurl"><input type="url" data-aiveld="sein" value="${esc(t.sein || "")}" placeholder="https://…" maxlength="500"><button type="button" class="knop klein" data-actie="aiSeinTest" ${t.sein ? "" : "disabled"}>Seintje testen</button></div></label>
       <div class="hint">${n.length ? `${n.length} ${n.length === 1 ? "taak/project" : "taken/projecten"} gegeven${bo ? `, ${bo} ter beoordeling` : ""}` : "Nog niets aan deze agent gegeven"} · ${st.fout ? "" : st.bijgewerkt ? `✓ bijgewerkt ${esc(wanneer(st.bijgewerkt))}` : "nog niet gevuld"}</div>
       ${st.fout ? `<div class="waarsch" style="margin:0"><b>Deze AI-link werkt nog niet.</b> ${esc(st.fout)}${/permission|toestemming|rechten/i.test(st.fout) ? " — plak eerst de nieuwste Firebase-regels (zoals bij de abonneer-link)." : ""}</div>` : ""}
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="knop klein" data-actie="aiTest">🔍 Link testen</button>
@@ -1788,6 +1796,11 @@ async function aiToegangActie(a, el) {
     await aiBijwerken().catch(() => {});
     const test = await aiTestLink(t);
     aiStand.set(t.id, { ...(aiStand.get(t.id) || {}), test }); render();
+  } else if (a === "aiSeinTest") {
+    el.disabled = true;
+    try { await aiBijwerken(); const r = await aiSein(t.id); toast(r.overgeslagen ? "Er ging net al een seintje uit; probeer het over een halve minuut nog eens" : `🔔 Seintje gestuurd naar de webhook van ${t.naam}`); }
+    catch (e) { toast("Seintje mislukt: " + (e.message || e) + (/Onbekende|404/.test(String(e.message)) ? " — werk het doorgeefluik en de Firebase-regels bij" : "")); }
+    finally { el.disabled = false; }
   } else if (a === "aiNieuw") {
     if (!confirm("Een nieuwe AI-link maken? De oude werkt daarna niet meer; geef de nieuwe opnieuw aan je AI.")) return;
     try { await aiWeg(t.id); } catch (e) { toast("De oude link intrekken mislukte: " + foutTekst(e)); return; }
@@ -2272,8 +2285,7 @@ function openEditor(item, standaard = {}) {
       ${isProj ? `${c.icoon ? `<button type="button" class="x" data-pemojiweg title="Terug naar de ruit">✕</button>` : ""}</div>
       <label class="veld">Korte naam voor in de agenda <small class="hint">(mag leeg; dan de hele naam)</small><input type="text" name="kort" value="${esc(c.kort || "")}" maxlength="40" placeholder="bv. Camper"></label>
       ${looptijdBlok(c, item)}` : ""}
-      <label class="veld">📝 Omschrijving <small class="hint">— wat moet er gebeuren, waarom, wat is het resultaat, waar staat wat. Zo uitgebreid als je wilt; ook wat een AI-agent als opdracht leest.</small>
-        <textarea name="omschrijving" class="omschrijving" placeholder="${isProj ? "Doel en achtergrond van het project, wat er af moet zijn, randvoorwaarden, bronnen…" : "Opdracht: wat moet er precies gebeuren, wanneer is het goed, waar vind je wat…"}">${esc(c.omschrijving || "")}</textarea></label>
+      ${!nieuw && isAi(c) ? "" : omschrijvingVeld(c)}
       <div class="rij">
         <label class="veld">Lijst<select name="overzicht">${boom().filter(r => r.soort === "map" || !r.x.slot || r.x.id === c.overzicht).map(r => r.soort === "map"
           ? `<option disabled>${"\u2003".repeat(r.diepte)}${esc(r.x.icoon)} ${esc(r.x.naam)}</option>`
@@ -4136,7 +4148,7 @@ Blijven: gedeelde lijsten van anderen${ingelogd() ? ", en welke accounts bij dit
     else if (a === "themaKies" && w) { d().instellingen.thema = w; voorkeur.zet("thema", w); bewaar(); zetThema(); }
     else if (a === "roosterBij" || a === "roosterWeg") roosterKlik(el, a);
     else if (a?.startsWith("feed")) feedActie(a, el);
-    else if (["aiBij", "aiKopieLink", "aiKopieOpdracht", "aiTest", "aiNieuw", "aiIntrekken"].includes(a)) aiToegangActie(a, el);
+    else if (["aiBij", "aiKopieLink", "aiKopieOpdracht", "aiTest", "aiNieuw", "aiIntrekken", "aiSeinTest"].includes(a)) aiToegangActie(a, el);
     else if (a === "herplanAlles") { const r = planAutomatisch(actieveOverzichten()); laatsteWaarschuwingen = r.waarschuwingen; bewaar(); toast(`${r.blokken} blokken ingepland`); }
     else if (a === "herplanWis") { zetHerplan([]); render(); }
     else if (a === "verborgenWeg") { d().verborgen = {}; d().rolKeuzes = {}; d().herinneringen = {}; bewaar(); toast("Alles telt weer zoals de agenda zegt"); }
@@ -4351,7 +4363,11 @@ function hoofdWijzig(e) {
   const ad = e.target.closest?.("[data-aitoegang]");
   if (ad && e.target.dataset.aiveld) {
     const t = aiToegangVan(e.target); if (!t) return;
-    t.naam = e.target.value.trim().slice(0, 100) || "AI";
+    if (e.target.dataset.aiveld === "sein") {
+      const v = e.target.value.trim();
+      if (v && !/^https:\/\/[^\s<>"']{3,490}$/.test(v)) { toast("Een webhook-adres begint met https://"); return; }
+      t.sein = v;
+    } else t.naam = e.target.value.trim().slice(0, 100) || "AI";
     bewaar(); aiBijwerken().then(render).catch(() => {}); return;
   }
   if (e.target.dataset?.rveld && roosterWijzig(e)) return;
