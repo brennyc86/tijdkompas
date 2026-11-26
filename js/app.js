@@ -683,14 +683,24 @@ function matrix() {
 function activeerSlepen() {
   let sleep = null;
   $$(".kaartje", main).forEach(k => {
+    // Muis: meteen slepen. Aanraken: eerst even vasthouden (dan kun je in een vak gewoon scrollen)
     k.addEventListener("pointerdown", (e) => {
       if (e.button !== 0) return;
-      const st = { x: e.clientX, y: e.clientY, k, actief: false, ghost: null };
+      const touch = e.pointerType === "touch";
+      const st = { x: e.clientX, y: e.clientY, k, actief: false, ghost: null, klaar: !touch };
+      if (touch) st.timer = setTimeout(() => { if (sleep === st) { st.klaar = true; k.classList.add("klaarsleep"); navigator.vibrate?.(15); } }, 300);
       sleep = st;
-      k.setPointerCapture(e.pointerId);
+      if (!touch) k.setPointerCapture(e.pointerId);
     });
+    k.addEventListener("touchmove", (e) => { if (sleep?.k === k && sleep.klaar) e.preventDefault(); }, { passive: false });
+    k.addEventListener("contextmenu", (e) => { if (sleep?.k === k) e.preventDefault(); });
     k.addEventListener("pointermove", (e) => {
       if (!sleep || sleep.k !== k) return;
+      if (!sleep.klaar) {                                   // nog niet lang genoeg vastgehouden: dit is scrollen
+        if (Math.hypot(e.clientX - sleep.x, e.clientY - sleep.y) > 8) { clearTimeout(sleep.timer); sleep = null; }
+        return;
+      }
+      if (!sleep.actief && sleep.timer && !k.hasPointerCapture?.(e.pointerId)) try { k.setPointerCapture(e.pointerId); } catch {}
       if (!sleep.actief && Math.hypot(e.clientX - sleep.x, e.clientY - sleep.y) > 6) {
         sleep.actief = true;
         const r = k.getBoundingClientRect();
@@ -707,6 +717,7 @@ function activeerSlepen() {
     const stop = (e) => {
       if (!sleep || sleep.k !== k) return;
       const st = sleep; sleep = null;
+      clearTimeout(st.timer); k.classList.remove("klaarsleep");
       if (!st.actief) return;                       // gewone klik: main-klikhandler opent de editor
       st.ghost.remove(); k.style.opacity = "";
       const stopper = (ev) => ev.stopPropagation();
@@ -732,7 +743,7 @@ function activeerSlepen() {
       }
     };
     k.addEventListener("pointerup", stop);
-    k.addEventListener("pointercancel", (e) => { if (sleep?.ghost) sleep.ghost.remove(); k.style.opacity = ""; sleep = null; });
+    k.addEventListener("pointercancel", (e) => { if (sleep?.k !== k) return; clearTimeout(sleep.timer); if (sleep.ghost) sleep.ghost.remove(); k.style.opacity = ""; k.classList.remove("klaarsleep"); $$(".kwadrant", main).forEach(q => q.classList.remove("doel")); sleep = null; });
   });
 }
 
